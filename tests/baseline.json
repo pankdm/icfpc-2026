@@ -1,0 +1,27 @@
+{
+  "hello-world/delta-serpentine.man": {
+    "passed": 1,
+    "total": 1,
+    "score": 11154
+  },
+  "hello-world/literal-serpentine.man": {
+    "passed": 1,
+    "total": 1,
+    "score": 25344
+  },
+  "triangle/p1.man": {
+    "passed": 6,
+    "total": 6,
+    "score": 1815
+  },
+  "triangle/p2.man": {
+    "passed": 6,
+    "total": 6,
+    "score": 1053
+  },
+  "triangle/p3.man": {
+    "passed": 6,
+    "total": 6,
+    "score": 3150
+  }
+}

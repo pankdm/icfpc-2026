@@ -1,0 +1,81 @@
+{
+  "description": "Output the *n*-th triangular number.\n\nThe input is a single integer `n`; output `1 + 2 + \u22ef + n`. For `n = 0` the sum\nis empty \u2014 output `0`.",
+  "extraNotes": "",
+  "id": "d82d7d2f-4be9-47ad-a3cd-7deb763a76a9",
+  "io": {
+    "constraints": [
+      "`0 \u2264 n \u2264 1000`"
+    ],
+    "input": {
+      "label": "n",
+      "of": "int"
+    },
+    "output": {
+      "label": "T",
+      "of": "int"
+    }
+  },
+  "name": "Triangle",
+  "privateTestCount": 0,
+  "problemSetName": "Semester 1",
+  "publicTestData": [
+    {
+      "in": [
+        "0"
+      ],
+      "name": "zero",
+      "out": [
+        "0"
+      ]
+    },
+    {
+      "in": [
+        "1"
+      ],
+      "name": "one",
+      "out": [
+        "1"
+      ]
+    },
+    {
+      "in": [
+        "4"
+      ],
+      "name": "four",
+      "out": [
+        "10"
+      ]
+    },
+    {
+      "in": [
+        "10"
+      ],
+      "name": "ten",
+      "out": [
+        "55"
+      ]
+    },
+    {
+      "in": [
+        "63"
+      ],
+      "name": "sixty-three",
+      "out": [
+        "2016"
+      ]
+    },
+    {
+      "in": [
+        "987"
+      ],
+      "name": "nine hundred eighty-seven",
+      "out": [
+        "487578"
+      ]
+    }
+  ],
+  "scoring": "footprint-tick",
+  "slug": "triangle",
+  "status": "graded",
+  "tickCap": null
+}

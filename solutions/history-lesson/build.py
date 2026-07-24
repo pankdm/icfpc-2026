@@ -4,21 +4,24 @@
 PROBLEM: no input; output a fixed 2810-byte ASCII text as decimal codes, then stop.
 SCORE = max(width,height)^2 (ticks are free), so minimise the max dimension.
 
-ENCODING SCHEME (base-92 positional packing + FIFO decode loop + offset restore)
-----------------------------------------------------------------------------------
-The 2810 message bytes (all in 32..122, width 91) are first shifted down by
-OFFSET=31 (byte -> byte-31, range 1..91 -- never 0, so the divmod termination
-trick below stays safe), then packed LSB-first into big integers ("chunks") in
-base 92 (92 > 91, so a shifted byte is recovered directly as value % 92 --
-no lookup table):
+ENCODING SCHEME (base-92 packing + comma-space token + FIFO decode loop)
+------------------------------------------------------------------------
+The 2810 message bytes (all in 32..122, width 91) are first tokenized: the space
+after every comma is omitted, leaving shifted comma (13) as an implicit ", "
+token. Other bytes are shifted down by OFFSET=31 (byte -> byte-31, range 1..91).
+The symbols are then packed
+LSB-first into big integers ("chunks") in base 92:
 
     chunk = s0 + s1*92 + s2*92^2 + ...   (up to 10 bytes/chunk, <= 18 digits)
 
 Shifting to a 92-wide alphabet (instead of packing the raw 32..122 bytes in
 base 123) buys more bytes per chunk for the same 64-bit digit budget: a grid
 search over (digit-cap, bytes/chunk) found base 92 + 18 digits + 10 bytes/chunk
-as the sweet spot -- 308 chunks instead of 352 (base 123, 17 digits, 8/chunk),
-an 8% cut in total feeder cells. (18 digits is the true safe ceiling: any
+as the best uniform packing. This layout uses physical slot widths
+(16, 17, 18, 18), reducing the feeder width from 89 to 86 while keeping its
+height at 80 rows. The comma-space token reduces the stream from 2810 to 2735
+symbols; with the mixed-width rows it takes 317 chunks.
+(18 digits is the true safe ceiling: any
 18-digit value and its digit-reverse are both guaranteed < i64 max, so no
 per-chunk overflow check can push it further; 19 digits is only sometimes
 safe and isn't worth the packing complexity to exploit.)
@@ -28,10 +31,13 @@ A DECODER room reads a chunk V and runs a variable-length divmod loop:
 
     while V != 0:  rem = V % 92;  emit (rem);  V = V // 92
 
-emitting the shifted bytes in order (each still needs +OFFSET before it's a
-real ASCII code). Termination is automatic because every stored symbol is
->= 1 > 0, so the quotient reaches 0 exactly after the last symbol of a chunk.
-Chunks stream in FIFO order, so byte order is preserved.
+emitting symbols in order. Termination is safe because no chunk ends in symbol
+0, so the quotient reaches 0 exactly after the last symbol. Chunks stream in
+FIFO order, so symbol order is preserved.
+
+A TOKEN EXPANDER first forwards every symbol, then XORs it with 13. A zero result
+means the symbol was a comma, so it additionally emits shifted space (1).
+Every comma in the fixed text is followed by a space, so no escape is required.
 
 A small RESTORER room sits between the decoder and O: it adds OFFSET back
 (`+`) to each value the decoder emits, then forwards the true byte to O. This
@@ -68,7 +74,7 @@ THREE GOTCHAS discovered (verified against the reference oracle):
      restorer, which is why neither ever halts either -- they just block forever on
      an empty `r` once the feeder is done, which is free (output has already settled).
 
-Usage:  python3 build.py   (writes history-lesson.man next to this file)
+Usage:  python3 build.py   (writes history-lesson-v2.man next to this file)
 """
 import os, sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'tools'))
@@ -78,36 +84,59 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 I64 = 9223372036854775807
 
 
-# ------------------------------------------------------------------ packing
-def pack_chunks(data, base=123, maxbytes=8, maxdig=17, store=lambda b: b):
-    """Greedy LSB-first positional packing. Each chunk holds up to `maxbytes`
-    bytes and at most `maxdig` decimal digits (so value AND its reverse fit i64).
-    `store(b)` maps a byte to its stored symbol (identity for base>=123)."""
-    chunks, i, N = [], 0, len(data)
+# ------------------------------------------------------------------ tokenization + packing
+def tokenize(data, offset=31):
+    """Omit spaces after commas; shifted comma 13 becomes the implicit token."""
+    symbols, i = [], 0
+    while i < len(data):
+        if data[i:i + 2] == b', ':
+            symbols.append(ord(',') - offset)
+            i += 2
+        else:
+            if data[i] == ord(','):
+                raise ValueError('comma-space token requires every comma to be followed by space')
+            symbols.append(data[i] - offset)
+            i += 1
+    return symbols
+
+
+def pack_chunks(symbols, base=92, maxsymbols=10, digit_widths=(16, 17, 18, 18)):
+    """Pack symbols into alternating rows with fixed physical literal widths.
+
+    Logical chunk order runs left-to-right on eastbound rows and right-to-left
+    on westbound rows, so the per-chunk digit cap is reversed on odd rows.
+    """
+    chunks, i, N = [], 0, len(symbols)
+    k = len(digit_widths)
     while i < N:
-        chosen, nb = None, 1
-        for b in range(min(maxbytes, N - i), 0, -1):
-            v = sum(store(data[i + j]) * (base ** j) for j in range(b))
+        row, slot = divmod(len(chunks), k)
+        physical_slot = slot if row % 2 == 0 else k - 1 - slot
+        maxdig = digit_widths[physical_slot]
+        chosen, ns = None, 1
+        for n in range(min(maxsymbols, N - i), 0, -1):
+            v = sum(symbols[i + j] * (base ** j) for j in range(n))
             if len(str(v)) <= maxdig:
-                chosen, nb = v, b
+                chosen, ns = v, n
                 break
+        if chosen is None:
+            raise ValueError(f'cannot terminate a chunk at symbol offset {i}')
         chunks.append(chosen)
-        i += nb
+        i += ns
     return chunks
 
 
-# ------------------------------------------------------------------ feeder + decoder + restorer
-def build(data, base=92, maxbytes=10, digit_width=18, offset=31, groups_per_row=4):
-    """Full program: uniform-width snake feeder -> pipe -> divmod decoder ->
-    pipe -> +offset restorer -> O. Returns (Program, n_chunks, n_rows). Layout
-    is validity-safe by construction (see gotcha #1)."""
-    chunks = pack_chunks(data, base, maxbytes, digit_width, store=lambda b: b - offset)
-    d, k = digit_width, groups_per_row
-    g = d + 3                      # group = ` + d digits + ` + s
+# ------------------------------------------------ feeder + decoder + expander + restorer
+def build(data, base=92, maxbytes=10, digit_widths=(16, 17, 18, 18), offset=31):
+    """Build feeder -> base decoder -> comma-space expander -> restorer -> O."""
+    symbols = tokenize(data, offset)
+    chunks = pack_chunks(symbols, base, maxbytes, digit_widths)
+    k = len(digit_widths)
+    group_widths = [d + 3 for d in digit_widths]  # ` + digits + ` + s
+    group_starts = [sum(group_widths[:i]) for i in range(k)]
     p = Program()
     cL = 1
     contentL = 2
-    cR = contentL + k * g + 1      # right turn column (room for the east +1 offset)
+    cR = contentL + sum(group_widths) + 1
     nrows = (len(chunks) + k - 1) // k
 
     for r in range(nrows):
@@ -117,12 +146,14 @@ def build(data, base=92, maxbytes=10, digit_width=18, offset=31, groups_per_row=
             idx = r * k + gi
             if idx >= len(chunks):
                 break
+            physical_slot = gi if east else k - 1 - gi
+            d = digit_widths[physical_slot]
             ds = str(chunks[idx]).zfill(d)
             if east:                                   # east: offset +1, read L->R
-                c = contentL + 1 + gi * g
+                c = contentL + 1 + group_starts[physical_slot]
                 cells = ['`'] + list(ds) + ['`', 's']
             else:                                      # west: offset 0, read R->L
-                c = contentL + (k - 1 - gi) * g        # idx order = rightmost first
+                c = contentL + group_starts[physical_slot]
                 cells = ['s', '`'] + list(ds[::-1]) + ['`']
             for j, ch in enumerate(cells):
                 p.put(c + j, y, ch)
@@ -157,9 +188,22 @@ def build(data, base=92, maxbytes=10, digit_width=18, offset=31, groups_per_row=
     dmaxc = cE + 2
     p.room(DX, dy0, dmaxc - DX + 2, 4)
 
-    # restorer room, same rows as the decoder (R / R+1): receives a shifted
-    # symbol, adds `offset` back, forwards the real byte to O.
-    rx0 = dmaxc + 4
+    # Token expander. Every symbol is forwarded first. XOR with 13 is zero only
+    # for comma; that path continues east and emits shifted space (1). Every
+    # other symbol turns south immediately. Both paths share the lower return.
+    ex0 = dmaxc + 4
+    ex_main = R
+    p.room(ex0, ex_main - 1, 19, 4)
+    p.put(ex0 + 1, ex_main, '@')
+    p.text(ex0 + 2, ex_main, '`13`M>>rs~X`1`sv')
+    p.put(ex0 + 17, ex_main + 1, '<')
+    p.put(ex0 + 12, ex_main + 1, '<')
+    p.put(ex0 + 8, ex_main + 1, '^')
+    emaxc = ex0 + 17
+
+    # Restorer room, same rows as the decoder: receives a shifted symbol, adds
+    # `offset` back, and forwards the real byte to O.
+    rx0 = emaxc + 4
     p.put(rx0 + 1, R, '@')
     cx = rx0 + 2
     p.put(cx, R, '`'); cx += 1
@@ -184,7 +228,8 @@ def build(data, base=92, maxbytes=10, digit_width=18, offset=31, groups_per_row=
 
     ox = rmaxc + 4
     p.output_room(ox, R - 1)
-    p.pipe([(dmaxc + 2, R), (rx0 - 1, R)])                     # decoder -> restorer
+    p.pipe([(dmaxc + 2, R), (ex0 - 1, R)])                     # decoder -> expander
+    p.pipe([(emaxc + 2, R), (rx0 - 1, R)])                     # expander -> restorer
     p.pipe([(rmaxc + 2, R), (ox - 1, R)])                      # restorer -> O
     return p, len(chunks), nrows
 
@@ -192,7 +237,7 @@ def build(data, base=92, maxbytes=10, digit_width=18, offset=31, groups_per_row=
 if __name__ == '__main__':
     data = open(os.path.join(HERE, 'icfp-history.txt'), 'rb').read()
     p, nchunks, nrows = build(data)
-    out = os.path.join(HERE, 'history-lesson.man')
+    out = os.path.join(HERE, 'history-lesson-v2.man')
     open(out, 'w').write(p.render() + '\n')
     w, h, score = p.footprint()
     print(f'wrote {out}: {w}x{h} score={score}  chunks={nchunks} rows={nrows}')

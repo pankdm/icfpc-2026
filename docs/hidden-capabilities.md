@@ -45,13 +45,9 @@ inferred from the binary and marked. Companion to `multi-man-interactions.md`.
   (reversed westward); a **corner backtick opens H+V literals sharing digits**; rejected
   if digits overflow i64 in *either* direction.
 
-## Fork / `Y`
-- `Y` = split: original turns CW, clone spawns one cell CCW facing CCW, inherits A/B/BP;
-  both move that tick (no extra tick); clone gets a fresh id. Re-entrant. Bounded by a
-  generous `split-limit`.
-- Man-collision = **clean `done` halt** (both stop, neither enters the shared cell) — a
-  free way to stop a thread without an `H`. But one man hitting a wall/bad-op is a
-  **fatal** whole-program abort.
+## Fork / `Y`, collision, walls
+See `multi-man-interactions.md` (owns this). TL;DR: `Y` forks (may be grader-gated);
+same-cell collision = free clean `done` halt; a wall/bad-op is a **fatal** whole-program abort.
 
 ## Pipes
 - FIFO queue: capacity = length; latency = (length−1) ticks; a value shifted into the dest

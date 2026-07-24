@@ -9,7 +9,7 @@ import littleman as lm
 # Per op: read op -> B; ALIGN (drain belt to sentinel, leaves it at student 0);
 # dispatch on B; op reads its args then scans the aligned belt.
 
-GW, GH = 39, 150
+GW, GH = 39, 210
 WALLY = GH
 IN, OUT = 2, 5
 R1I, R1O, R2I, R2O, R3I, R3O = 8, 11, 14, 17, 20, 23
@@ -223,10 +223,11 @@ def opchk(g, c):
     c.e('N').e('X')                      # N A=-O ; X heading W at (MIDX-1,OPCHK_Y+1)
     xcx, fy = MIDX - 1, OPCHK_Y + 1
     # X on A=-O: O>0 -> A<0 -> CCW-S = process(down) ; O==0 -> straight-W = READO ; (N unused)
-    # straight-W (O==0): head E toward O_CHAN, up to READO
-    z = Cur(g, xcx - 1, fy, 'W')
-    z.t('S').t('E')
-    up_chan(g, z, READO_Y, O_CHAN, 'o_wired')
+    # straight-W (O==0): the eastward row (fy+1) is blocked by the PROC descent 'v'
+    # directly below X, so go NORTH over the OPCHK block on col MIDX-1, west to col1,
+    # and drop straight into the READO feeder (1,READO_Y).
+    z = Cur(g, xcx - 1, fy, 'W')          # (MIDX-1, fy) heading W
+    z.t('N').gy(READO_Y + 1).t('W').gto(1).t('N')   # up, west on clear row, into feeder
     # CCW-S (O>0): down to PROC ; A=-O
     p = Cur(g, xcx, fy + 1, 'S')
     proc(g, dn(g, p, PROC_Y))
@@ -249,7 +250,7 @@ def align(g, c):
 
 
 DCOL = 30          # dispatch chain column (kept clear of glyphs by op code)
-TESTS = [(30, 'get_op'), (54, 'set_op'), (78, 'avg_op'), (102, 'top_op')]
+TESTS = [(30, 'get_op'), (54, 'set_op'), (80, 'avg_op'), (150, 'top_op')]
 
 
 def dispatch(g, c):
@@ -342,17 +343,248 @@ def set_grab(g, c):
     ret_main(g, rv)
 
 
+# =========================== AVG ===========================
+# Scan the aligned belt once (id,g1..gK, id,..., -1).  Discriminate id(>=101)
+# vs grade(0..100) vs sentinel(<0) via cell>>7 sign / a `101` threshold.  Keep the
+# cell value in B across the classify (X/'-'/literal touch A only), so a captured
+# grade is available in B.  Rings: R1=s (recirculated), R2=sum, R3=count.
+# Row plan (feeders on col1; block bodies walk E from col2):
+AVG_IY, AVG_HY, AVG_MY, AVG_RY, AVG_DY, AVG_CY, AVG_FY = 82, 88, 92, 96, 102, 108, 114
+# channels: col32 = forward down-jumps (IDTST/DEC/ACC), col33 = sentinel->FIN,
+#           col35 = back-edges up to HEAD, col37 = IDTST-id up to ARM.
+
+
+def _feed(g, Y):
+    g.C(1, Y, '>')
+    return Cur(g, 2, Y, 'E')
+
+
 def avg_op(g, c):
-    # STUB: read s arg (discard) and return to OPCHK (keeps input stream aligned)
-    c = rf(g, c, c.y + 2); c.e('r')
-    c.t('S').t('E')
+    # c at (2,AVG_IY) E ; belt aligned (head=id0).  op arg s is next input token.
+    c.e('r').gto(R1O).e('s')             # A=s ; R1:=s
+    c.e('0').gto(R2O).e('s')             # A=0 ; R2:=0 (sum)
+    c.gto(R3O).e('s')                    # R3:=0 (count)
+    # down to HEAD via col32
+    c.gto(32).t('S').gy(AVG_HY - 1).t('W').gto(1).t('S'); g.C(1, AVG_HY, '>')
+    avg_head(g)
+
+
+def avg_head(g):
+    fy = AVG_HY
+    cc = belt_re(g, fy)                  # (16,fy+1) W ; A=cell (echoed)
+    cc.e('M')                            # B:=cell ; (15,fy+1) W
+    cc.gto(9).t('S').t('W').e('X')       # (9,fy+1)v (9,fy+2)< X@(8,fy+2)->(7,fy+2)W
+    y1, y2 = fy + 1, fy + 2
+    # X@(8,y2): cell<0 CCW=S sentinel ; cell==0 W grade0 ; cell>0 CW=N id/grade>0
+    # -- sentinel (S) @ (8,y2+1): -> col33 -> FIN --
+    g.C(8, y2 + 1, '>')
+    s = Cur(g, 9, y2 + 1, 'E'); s.gto(33)
+    s.t('S').gy(AVG_FY - 1).t('W').gto(1).t('S'); g.C(1, AVG_FY, '>')
+    # -- grade0 (W) @ (7,y2): -> col2 down to IDTST --
+    w = Cur(g, 7, y2, 'W'); w.gto(2).t('S').gy(AVG_RY - 1)
+    w.t('W').gto(1).t('S'); g.C(1, AVG_RY, '>')
+    # -- id/grade>0 (N) @ (8,y1): '<' W, merge into col2 descent above --
+    g.C(8, y1, '<')
+    n = Cur(g, 7, y1, 'W'); n.gto(2).t('S').gy(y2)   # 'v'@(2,y1) glide onto grade0's col2
+    avg_idtst(g)
+    avg_fin(g)
+
+
+def avg_idtst(g):
+    # (2,AVG_RY) E : A=cell,B=cell.  A:=101-cell ; X: id(<0)->N up to ARM ; grade(>0)->S to DEC.
+    c = Cur(g, 2, AVG_RY, 'E')
+    c.e('`101`')                          # A=101 (walk literal E) ; B=cell
+    c.e('-')                              # A=101-cell ; B=cell
+    c.e('X')                              # X@(8,RY) -> (9,RY) E
+    xx = c.x - 1                          # X column
+    # grade (A>0 -> CW=S) @ (xx, RY+1): down col32 to DEC
+    g.C(xx, AVG_RY + 1, '>')
+    gr = Cur(g, xx + 1, AVG_RY + 1, 'E'); gr.gto(32)
+    gr.t('S').gy(AVG_DY - 1).t('W').gto(1).t('S'); g.C(1, AVG_DY, '>')
+    # id (A<0 -> CCW=N) @ (xx, RY-1): man heading N, turn W then up to ARM
+    g.C(xx, AVG_RY - 1, '<')             # man arrives N -> W
+    idc = Cur(g, xx - 1, AVG_RY - 1, 'W')     # (xx-1, RY-1) W
+    idc.t('N').gy(AVG_MY - 1).t('W').gto(1).t('S'); g.C(1, AVG_MY, '>')
+    avg_arm(g)
+    avg_dec(g)
+
+
+def avg_arm(g):
+    # (2,AVG_MY) E : arm BP:=s (recirculate R1) ; back to HEAD.
+    c = Cur(g, 2, AVG_MY, 'E')
+    c.gto(R1I).e('r').e('b')              # A=s ; BP:=s
+    c.gto(R1O).e('s')                     # R1:=s (recirculate)
+    # back up to HEAD via col35
+    c.gto(37).t('N').gy(AVG_HY - 1).t('W').gto(1).t('S'); g.C(1, AVG_HY, '>')
+
+
+def avg_dec(g):
+    # (2,AVG_DY) E : m ; a : BP>0 -> CCW=N skip(back to HEAD) ; BP<=0 -> straight E capture(ACC).
+    c = Cur(g, 2, AVG_DY, 'E')
+    c.e('m').e('a')                       # a@(3,DY) -> straight (4,DY)E or CCW N (3,DY-1)
+    ax = c.x - 1                          # 'a' column (3)
+    # capture (straight E) -> ACC via col32 down
+    cap = Cur(g, ax + 1, AVG_DY, 'E'); cap.gto(32)
+    cap.t('S').gy(AVG_CY - 1).t('W').gto(1).t('S'); g.C(1, AVG_CY, '>')
+    # skip (BP>0 -> CCW=N up) @ (ax, DY-1): glide N to a clear row, then E to col35, up HEAD
+    sk = Cur(g, ax, AVG_DY - 1, 'N')     # (ax, DY-1) heading N
+    sk.gy(AVG_DY - 3)                    # glide N to a clear gap row
+    sk.t('E').gto(37).t('N').gy(AVG_HY - 1).t('W').gto(1).t('S')
+    avg_acc(g)
+
+
+def avg_acc(g):
+    # (2,AVG_CY) E : B=grade.  sum+=grade ; count+=1 ; BP:=9 ; back to HEAD.
+    c = Cur(g, 2, AVG_CY, 'E')
+    c.gto(R2I).e('r').e('+').gto(R2O).e('s')   # A=sum ; A=sum+grade ; R2:=sum
+    c.e('1M')                             # A=1 ; B:=1
+    c.gto(R3I).e('r').e('+').gto(R3O).e('s')   # A=count ; +1 ; R3:=count
+    c.e('9b')                             # A=9 ; BP:=9 (skip remaining grades)
+    # back up to HEAD via col35
+    c.gto(37).t('N').gy(AVG_HY - 1).t('W').gto(1).t('S')
+
+
+def avg_fin(g):
+    # (2,AVG_FY) E : output floor(sum/count) ; ret.
+    c = Cur(g, 2, AVG_FY, 'E')
+    c.gto(R1I).e('r')                    # drain leftover recirculated s from R1
+    c.gto(R2I).e('rM')                   # A=sum ; B:=sum
+    c.gto(R3I).e('r').e('W').e('/')      # A=count ; swap A=sum,B=count ; A=floor(sum/count)
+    c.t('S').t('W').gto(OUT).e('s')      # turn down/west ; output at OUT
+    c.t('S').t('E')                      # head E for the return rail
     ret_main(g, c)
 
+
+# =========================== TOP ===========================
+# Same belt scan as AVG.  Per student pair (id, g_s); key' = g_s*16384 - id.
+# Track the max key' (distinct ids -> distinct keys).  id = 16384 - (maxkey mod 16384).
+# Rings: R1=s (recirc), R2=id (per-student temp), R3=maxkey (init -9999999).
+TOP_IY, TOP_HY, TOP_MY, TOP_RY, TOP_DY = 150, 158, 164, 170, 178
+TOP_UY, TOP_AY, TOP_KY, TOP_FY = 182, 184, 190, 196
+
+
 def top_op(g, c):
-    # STUB: read s arg (discard) and return to OPCHK (keeps input stream aligned)
-    c = rf(g, c, c.y + 2); c.e('r')
-    c.t('S').t('E')
-    ret_main(g, c)
+    # c at (2,TOP_IY) E ; belt aligned.  s -> R1 ; maxkey R3 := -9999999.
+    c.e('r').gto(R1O).e('s')             # R1:=s
+    c.e('`9999999`').e('N').gto(R3O).e('s')   # R3:=-9999999
+    c.gto(32).t('S').gy(TOP_HY - 1).t('W').gto(1).t('S'); g.C(1, TOP_HY, '>')
+    top_head(g)
+
+
+def top_head(g):
+    fy = TOP_HY
+    cc = belt_re(g, fy)
+    cc.e('M')
+    cc.gto(9).t('S').t('W').e('X')
+    y1, y2 = fy + 1, fy + 2
+    # sentinel S -> col33 -> FIN
+    g.C(8, y2 + 1, '>')
+    s = Cur(g, 9, y2 + 1, 'E'); s.gto(33)
+    s.t('S').gy(TOP_FY - 1).t('W').gto(1).t('S'); g.C(1, TOP_FY, '>')
+    # grade0 W -> col2 -> IDTST
+    w = Cur(g, 7, y2, 'W'); w.gto(2).t('S').gy(TOP_RY - 1)
+    w.t('W').gto(1).t('S'); g.C(1, TOP_RY, '>')
+    # id/grade>0 N -> merge col2
+    g.C(8, y1, '<')
+    n = Cur(g, 7, y1, 'W'); n.gto(2).t('S').gy(y2)
+    top_idtst(g)
+    top_fin(g)
+
+
+def top_idtst(g):
+    c = Cur(g, 2, TOP_RY, 'E')
+    c.e('.`101`').e('-').e('X')            # A=101-cell ; B=cell
+    xx = c.x - 1
+    # grade (A>0 CW=S) -> DEC col32 down
+    g.C(xx, TOP_RY + 1, '>')
+    gr = Cur(g, xx + 1, TOP_RY + 1, 'E'); gr.gto(32)
+    gr.t('S').gy(TOP_DY - 1).t('W').gto(1).t('S'); g.C(1, TOP_DY, '>')
+    # id (A<0 CCW=N) -> ARM up col6 (avoid ring cols 8/11 that ARM uses)
+    g.C(xx, TOP_RY - 1, '<')
+    idc = Cur(g, xx - 1, TOP_RY - 1, 'W')
+    idc.gto(6).t('N').gy(TOP_MY - 1).t('W').gto(1).t('S'); g.C(1, TOP_MY, '>')
+    top_arm(g)
+    top_dec(g)
+
+
+def top_arm(g):
+    # (2,TOP_MY) E : entry A=101-id, B=id.  store id->R2 ; arm BP:=s (recirc R1).
+    c = Cur(g, 2, TOP_MY, 'E')
+    c.gto(R1I).e('rb')                    # A=s ; BP:=s  (B=id preserved)
+    c.gto(R1O).e('s')                     # R1:=s (recirc)  (A=s)
+    c.e('W')                              # A=id, B=s
+    c.gto(R2O).e('s')                     # R2:=id
+    c.gto(37).t('N').gy(TOP_HY - 1).t('W').gto(1).t('S'); g.C(1, TOP_HY, '>')
+
+
+def top_dec(g):
+    # (2,TOP_DY) E : m ; a : BP>0 -> N skip(HEAD) ; else capture(ACC).
+    c = Cur(g, 2, TOP_DY, 'E')
+    c.e('m').e('a')
+    ax = c.x - 1
+    cap = Cur(g, ax + 1, TOP_DY, 'E'); cap.gto(32)
+    cap.t('S').gy(TOP_AY - 1).t('W').gto(1).t('S'); g.C(1, TOP_AY, '>')
+    sk = Cur(g, ax, TOP_DY - 1, 'N')
+    sk.gy(TOP_DY - 3)
+    sk.t('E').gto(37).t('N').gy(TOP_HY - 1).t('W').gto(1).t('S')
+    top_acc(g)
+
+
+def top_acc(g):
+    # (2,TOP_AY) E : B=grade.  key' = grade*16384 - id ; compare to maxkey (R3).
+    c = Cur(g, 2, TOP_AY, 'E')
+    c.e('..`16384`').e('*')                 # A=16384*grade ; B=grade
+    c.e('M')                              # B:=16384*grade
+    c.gto(R2I).e('r')                     # A=id
+    c.e('N').e('+')                       # A=-id ; A=key'=16384*grade-id
+    c.e('M')                              # B:=key'
+    c.gto(R3I).e('r')                     # A=oldmax
+    c.e('-')                              # A=oldmax-key' (B=key')
+    c.e('X')                              # X@xx -> (xx+1,AY) E
+    xx = c.x - 1
+    # update (A<0 -> CCW=N) : store key' -> R3
+    up = Cur(g, xx, TOP_AY - 1, 'N')
+    up.gy(TOP_UY - 1).t('W').gto(1).t('S'); g.C(1, TOP_UY, '>')
+    # keep (A>0 -> CW=S) : store oldmax -> R3
+    g.C(xx, TOP_AY + 1, '>')
+    kp = Cur(g, xx + 1, TOP_AY + 1, 'E'); kp.gto(32)
+    kp.t('S').gy(TOP_KY - 1).t('W').gto(1).t('S'); g.C(1, TOP_KY, '>')
+    top_upd(g)
+    top_keep(g)
+
+
+def top_upd(g):
+    # (2,TOP_UY) E : entry A=oldmax-key'(<0), B=key'.  R3:=key' ; BP:=9 ; -> HEAD.
+    c = Cur(g, 2, TOP_UY, 'E')
+    c.e('W')                              # A=key'
+    c.gto(R3O).e('s')                     # R3:=key'
+    c.e('9b')                             # BP:=9
+    c.gto(37).t('N').gy(TOP_HY - 1).t('W').gto(1).t('S')
+
+
+def top_keep(g):
+    # (2,TOP_KY) E : entry A=oldmax-key'(>0), B=key'.  oldmax=A+B ; R3:=oldmax ; BP:=9.
+    c = Cur(g, 2, TOP_KY, 'E')
+    c.e('+')                              # A=oldmax
+    c.gto(R3O).e('s')                     # R3:=oldmax
+    c.e('9b')
+    c.gto(37).t('N').gy(TOP_HY - 1).t('W').gto(1).t('S')
+
+
+def top_fin(g):
+    # (2,TOP_FY) E : read maxkey ; recover id = 16384 - (maxkey mod 16384) ; output.
+    c = Cur(g, 2, TOP_FY, 'E')
+    c.gto(R1I).e('r')                     # drain leftover recirculated s from R1
+    c.gto(R3I).e('r')                     # A=maxkey
+    c.t('S').t('W').gto(1).t('S'); g.C(1, TOP_FY + 2, '>')   # carry A down to FY+2
+    a = Cur(g, 2, TOP_FY + 2, 'E')
+    a.e('M')                              # B:=maxkey
+    a.e('..`16384`').e('W')                 # A=maxkey, B=16384
+    a.e('%')                              # A=maxkey mod 16384 = 16384-id
+    a.e('-').e('N')                       # A=(16384-id)-16384=-id ; A=id
+    a.t('S').t('W').gto(OUT).e('s')       # output id
+    a.t('S').t('E')
+    ret_main(g, a)
 
 if __name__ == '__main__':
     g = build()

@@ -125,8 +125,14 @@ class Grid:
 # ══════════════════════════════════════════════════════════════════════════════
 # 2. Shared A* core
 # ══════════════════════════════════════════════════════════════════════════════
+# Hard safety caps so a pathological / over-large net can never spike memory: the
+# search box is clamped and the frontier is bounded (visited set stays O(4*area)).
+MAX_BOX_SIDE = 512          # clamp any single search-box dimension
+MAX_EXPANSIONS = 300_000    # pop budget; a bounded box of ~256^2 x4 headings fits under this
+
+
 def astar(starts, goal_test, passable_straight, passable_bend, cell_cost,
-          bound, allow_start_bend=False):
+          bound, max_expansions=MAX_EXPANSIONS):
     """Shared A* over (cell, heading) states.
 
     starts            : iterable of (cell, heading) seed states (cost 0).
@@ -134,10 +140,17 @@ def astar(starts, goal_test, passable_straight, passable_bend, cell_cost,
     passable_straight : (cell) -> bool, may we glide straight onto `cell`.
     passable_bend     : (cell) -> bool, may we place a bend and step onto `cell`.
     cell_cost(cell)   : extra scalar cost for entering `cell` (bbox growth + congestion).
-    bound             : (x0,y0,x1,y1) inclusive search box.
+    bound             : (x0,y0,x1,y1) inclusive search box (clamped to MAX_BOX_SIDE).
     Returns [(cell,heading), ...] path (states) or None.
+
+    Memory-bounded: the box is clamped and the pop budget caps the frontier, so the
+    visited/parent maps stay O(4*box_area) and never balloon on a bad net.
     """
     x0, y0, x1, y1 = bound
+    if x1 - x0 > MAX_BOX_SIDE:
+        x1 = x0 + MAX_BOX_SIDE
+    if y1 - y0 > MAX_BOX_SIDE:
+        y1 = y0 + MAX_BOX_SIDE
 
     def inb(c):
         return x0 <= c[0] <= x1 and y0 <= c[1] <= y1
@@ -153,7 +166,11 @@ def astar(starts, goal_test, passable_straight, passable_bend, cell_cost,
             parent[st] = None
             heapq.heappush(pq, (g, c[0], c[1], h, st))
     goal = None
+    pops = 0
     while pq:
+        pops += 1
+        if pops > max_expansions:        # frontier budget exhausted -> treat as unroutable
+            return None
         g, _, _, _, st = heapq.heappop(pq)
         if best.get(st, 1e18) < g:
             continue

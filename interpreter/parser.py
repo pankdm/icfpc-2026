@@ -387,12 +387,12 @@ def _parse_literals(grid: list[str], rooms: list[Room]) -> dict[tuple[Point, Poi
             continue
         for y in range(room.top + 1, room.bottom):
             ticks = [x for x in range(room.left + 1, room.right) if grid[y][x] == "`"]
-            for left, right in zip(ticks, ticks[1:]):
+            for left, right in zip(ticks[0::2], ticks[1::2]):
                 content = grid[y][left + 1 : right]
                 _add_literal_pair(literals, content, (left, y), (right, y), (1, 0))
         for x in range(room.left + 1, room.right):
             ticks = [y for y in range(room.top + 1, room.bottom) if grid[y][x] == "`"]
-            for top, bottom in zip(ticks, ticks[1:]):
+            for top, bottom in zip(ticks[0::2], ticks[1::2]):
                 content = "".join(grid[y][x] for y in range(top + 1, bottom))
                 _add_literal_pair(literals, content, (x, top), (x, bottom), (0, 1))
     return literals

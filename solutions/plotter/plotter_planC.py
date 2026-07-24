@@ -268,13 +268,20 @@ def build():
     # Each r reads the only incoming pipe (belt-out), each s sends the only outgoing
     # (belt-in); FIFO order preserved (read v_i then immediately send v_i).
     s_col = rlx + 3                           # first relay 's' column -> belt-in attaches here
+    # BOTH interior rows relay (east row r s r s...; west row r s r s... too), so the
+    # return glide is eliminated -> throughput ~1 value / 2 ticks.
     cx = rlx + 2
-    while cx + 1 <= RB - 1:                    # leave RB for the turn-down column
+    while cx + 1 <= RB - 1:                    # east row: leave RB for the turn-down col
         put(p, cx, rly, "r")
         put(p, cx + 1, rly, "s")
         cx += 2
     put(p, RB, rly, "v")                      # turn down at east edge
-    put(p, RB, rly + 1, "<")
+    put(p, RB, rly + 1, "<")                  # head west on the return row
+    cx = RB - 1
+    while cx - 1 >= rlx + 2:                   # west row: also relaying
+        put(p, cx, rly + 1, "r")
+        put(p, cx - 1, rly + 1, "s")
+        cx -= 2
     put(p, rlx + 1, rly + 1, "^")             # back up into the junction
     tHi = south + 2                           # top turn row (2 below gate wall)
     tLo = rly_y - 2                           # bottom turn row (2 above relay top)

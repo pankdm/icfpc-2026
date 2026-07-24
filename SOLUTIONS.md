@@ -20,10 +20,10 @@ node tools/grade.js triangle solutions/triangle/p2.man
 node tools/grade.js triangle
 
 # submit to the real grader (needs API_KEY in .env):
-node tools/submit.js triangle solutions/triangle/p2.man
+python3 tools/submit.py triangle solutions/triangle/p2.man
 
 # live server standings — best score to beat + #solvers + true case counts:
-node tools/status.js
+python3 tools/status.py
 ```
 
 `grade.js` reports pass/fail per public case, footprint `max(w,h)²`, average ticks,
@@ -31,7 +31,7 @@ and the estimated score (`footprint² × avg ticks`, or just `footprint²` for
 footprint-scored problems). **Lower score is better.**
 
 ## Rules of thumb
-- **Private cases exist** (the public API hides the count; `status.js` shows the real
+- **Private cases exist** (the public API hides the count; `status.py` shows the real
   total). Local PASS only covers public cases — make solutions *generalize*, never
   hardcode public answers, or you won't pass private cases (and you need ≥1 private
   pass to score).
@@ -45,9 +45,9 @@ footprint-scored problems). **Lower score is better.**
 ## Layout
 ```
 solutions/<slug>/*.man     candidate solutions
-tools/grade.js             local grader (oracle)
-tools/submit.js            submit + poll
-tools/status.js            live standings
+tools/grade.js             local grader (Node — needs the WASM oracle)
+tools/submit.py            submit + poll (Python, API-only)
+tools/status.py            live standings (Python, API-only)
 tools/lib.js               shared: fetch/grade/footprint
 sim/                       reference oracle + differential harness
 docs/                      reverse-engineered language semantics

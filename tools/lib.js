@@ -61,9 +61,11 @@ function buildCase(tc) {
   const input = rounds.map(r => (r.in || []).join(' ')).join(' / ');
   const expected = rounds.map(r => (r.out || []).join(' ')).join(' / ');
   const expectedFlat = [].concat(...rounds.map(r => (r.out || []).map(String)));
-  const framesArr = [].concat(...rounds.map(r => r.frames || []));
-  const isDisplay = framesArr.length > 0;
-  return { input, expected, expectedFlat, isDisplay, framesJson: isDisplay ? JSON.stringify(framesArr) : '' };
+  // Frames must be grouped per round (rounds × frames × rows) — the oracle rejects
+  // a flat frame list with a load error.
+  const perRoundFrames = rounds.map(r => r.frames || []);
+  const isDisplay = perRoundFrames.some(fr => fr.length > 0);
+  return { input, expected, expectedFlat, isDisplay, framesJson: isDisplay ? JSON.stringify(perRoundFrames) : '' };
 }
 
 // Streaming prefix compare (matches the reference Ps()).

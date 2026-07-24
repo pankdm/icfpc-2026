@@ -216,3 +216,10 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# ICFP 2026 littleman tooling
+*.wasm
+sim/wasm_exec.js
+node_modules/
+*.dcmp.txt
+*.pretty.js

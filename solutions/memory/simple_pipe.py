@@ -27,7 +27,7 @@ def build_simple_pipe_memory() -> lm.Program:
     program = lm.Program()
 
     controller_right = 29
-    controller_bottom = 26
+    controller_bottom = 28
     program.room(0, 0, controller_right + 1, controller_bottom + 1)
 
     _place_initializer(program)
@@ -36,8 +36,8 @@ def build_simple_pipe_memory() -> lm.Program:
     program.input_room(1, controller_bottom + 5)
     program.pipe([(2, controller_bottom + 4), (2, controller_bottom + 1)])
 
-    program.output_room(13, controller_bottom + 5)
-    program.pipe([(14, controller_bottom + 1), (14, controller_bottom + 4)])
+    program.output_room(27, controller_bottom + 5)
+    program.pipe([(28, controller_bottom + 1), (28, controller_bottom + 4)])
 
     _place_storage_belt(program, controller_bottom)
     return program
@@ -80,61 +80,74 @@ def _place_operation_loop(program: lm.Program) -> None:
     program.put(2, 7, "M")
     program.put(2, 8, "r")
     program.put(2, 9, "b")
-    program.put(2, 10, "v")
-    program.put(2, 11, ">")
+    program.put(2, 10, ">")
+    program.put(12, 10, "^")
+    program.put(12, 6, ">")
+    program.put(27, 6, "^")
+    program.put(27, 4, "<")
+    program.put(17, 4, "v")
 
-    # Rotate BP cells from the front of the belt to the back.
-    program.put(3, 11, ">")
-    program.put(5, 11, "r")
-    program.put(6, 11, "v")
-    program.put(6, 12, "d")
-    program.put(5, 12, "s")
-    program.put(4, 12, "m")
-    program.put(3, 12, "^")
-    program.put(3, 10, ">")
+    # Rotate BP cells four at a time. The direction-only perimeter merges all
+    # four zero-count exits into the southbound path at (20, 14).
+    scan_rows = (
+        "v<      ",
+        "vdsm>rdv",
+        "vr    sv",
+        "vm    mv",
+        "v^    vv",
+        "vs    rv",
+        "vdr<msdv",
+        ">     >v",
+    )
+    for row_offset, row in enumerate(scan_rows):
+        for column_offset, character in enumerate(row):
+            if character != " ":
+                program.put(13 + column_offset, 7 + row_offset, character)
+    program.put(20, 15, "<")
+    program.put(6, 15, "v")
 
     # The next belt value is the target.  Swap it with the saved op and branch.
-    program.put(6, 13, "W")
-    program.put(6, 14, "X")
+    program.put(6, 16, "W")
+    program.put(6, 17, "X")
 
     # READ: restore the encoded cell, decode it, and send it to output.
-    program.put(6, 15, ">")
-    program.put(7, 15, "W")
-    program.put(8, 15, "s")
-    program.put(9, 15, "M")
-    program.text(10, 15, f"`{VALUE_OFFSET}`")
-    program.put(19, 15, "-")
-    program.put(20, 15, "N")
-    program.put(21, 15, "s")
-    program.put(22, 15, "v")
-    program.put(22, 16, "<")
-    program.put(8, 16, "v")
+    program.put(6, 18, ">")
+    program.put(7, 18, "W")
+    program.put(8, 18, "s")
+    program.put(9, 18, "M")
+    program.text(10, 18, f"`{VALUE_OFFSET}`")
+    program.put(19, 18, "-")
+    program.put(20, 18, "N")
+    program.put(21, 18, "s")
+    program.put(22, 18, "v")
+    program.put(22, 19, "<")
+    program.put(8, 19, "v")
 
     # WRITE: discard the old target, read and encode the replacement.
-    program.put(5, 14, "v")
-    program.put(5, 16, "<")
-    program.put(2, 16, "v")
-    program.put(2, 17, "r")
-    program.put(2, 18, "M")
-    program.put(2, 19, ">")
-    program.text(3, 19, f"`{VALUE_OFFSET}`")
-    program.put(12, 19, "+")
-    program.put(13, 19, "v")
-    program.put(13, 20, "<")
-    program.put(9, 20, "s")
-    program.put(8, 20, "v")
+    program.put(5, 17, "v")
+    program.put(5, 19, "<")
+    program.put(2, 19, "v")
+    program.put(2, 20, "r")
+    program.put(2, 21, "M")
+    program.put(2, 22, ">")
+    program.text(3, 22, f"`{VALUE_OFFSET}`")
+    program.put(12, 22, "+")
+    program.put(13, 22, "v")
+    program.put(13, 23, "<")
+    program.put(9, 23, "s")
+    program.put(8, 23, "v")
 
     # Finish the revolution. Encoded cells are positive; the sentinel is negative.
-    program.put(8, 21, "v")
-    program.put(8, 24, "<")
-    program.put(6, 24, "^")
-    program.put(6, 23, "^")
-    program.put(6, 22, "r")
-    program.put(6, 21, ">")
-    program.put(7, 21, "v")
-    program.put(7, 22, "s")
-    program.put(7, 23, "X")
-    program.put(24, 23, "^")
+    program.put(8, 24, "v")
+    program.put(8, 27, "<")
+    program.put(6, 27, "^")
+    program.put(6, 26, "^")
+    program.put(6, 25, "r")
+    program.put(6, 24, ">")
+    program.put(7, 24, "v")
+    program.put(7, 25, "s")
+    program.put(7, 26, "X")
+    program.put(24, 26, "^")
     program.put(24, 5, "<")
 
 

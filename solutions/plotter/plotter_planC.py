@@ -163,14 +163,16 @@ class Turtle:
             self.op(ch)
 
     def cmd_send(self):                       # EAST excursion (cmd is far east)
+        # Send at CMD_S, then RESUME the boustrophedon as a WEST row from the band
+        # east edge (BR-1) instead of gliding ~band-width blank cells back to BL.
+        # cmd_send fires twice per pixel (PA,PD) so this glide was a top tick cost.
         p = self.p; cx = self.x; y = self.y
         put(p, cx, y, "v")
         put(p, cx, y + 1, ">")
         put(p, CMD_S, y + 1, "s")
         put(p, CMD_S + 1, y + 1, "v")
-        put(p, CMD_S + 1, y + 2, "<")
-        put(p, BL - 1, y + 2, "v")
-        self._start_row(y + 3)
+        put(p, CMD_S + 1, y + 2, "<")        # head west; glide the few cells into band
+        self.y = y + 2; self.x = BR - 1; self.dir = -1
 
     def input_read(self):                     # WEST excursion (input is far west)
         p = self.p; cx = self.x; y = self.y

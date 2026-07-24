@@ -123,41 +123,44 @@ def translate(ops):
 
 
 class Turtle:
-    """Lays tokens as an all-east typewriter in the band, wrapping via a west
-    return glide; cmd/input are short excursions.  y only ever increases."""
+    """Lays tokens as a TRUE BOUSTROPHEDON in the band (east row, then a west row
+    packed with ops too — no blank return glide), so gate height ~= ops/bandwidth
+    instead of 2x that, and the man never walks a blank return row (ticks win).
+    All ops are single characters (literals despined to digits) so west rows
+    execute correctly regardless of direction.  cmd/input are short excursions
+    that reset to a fresh east row.  y only ever increases."""
     def __init__(self, p, y):
         self.p = p
-        self.x = BL
-        self.y = y
         self._start_row(y)
 
-    def _start_row(self, y):
+    def _start_row(self, y):                  # fresh EAST row at BL
         self.y = y
         self.x = BL
+        self.dir = 1
         hput(self.p, BL - 1, y, ">")          # junction: rails & falls enter here
 
-    def _newline(self):
-        p = self.p; cx = self.x; y = self.y
-        put(p, cx, y, "v")
-        put(p, cx, y + 1, "<")
-        put(p, BL - 1, y + 1, "v")
-        self._start_row(y + 2)
-
-    def _wrap_if(self, w):
-        if self.x + w - 1 > BR:
-            self._newline()
+    def _wrap(self):
+        p = self.p
+        if self.dir == 1:                     # east row -> drop to a west row
+            put(p, BR, self.y, "v")           # turn south at band-east edge
+            put(p, BR, self.y + 1, "<")       # head west
+            self.y += 1; self.x = BR - 1; self.dir = -1
+        else:                                 # west row -> drop to an east row
+            put(p, BL - 1, self.y, "v")       # turn south at junction col
+            put(p, BL - 1, self.y + 1, ">")   # head east (junction)
+            self.y += 1; self.x = BL; self.dir = 1
 
     def op(self, ch):
-        self._wrap_if(1)
+        if self.dir == 1 and self.x > BR - 1:
+            self._wrap()
+        elif self.dir == -1 and self.x < BL:
+            self._wrap()
         put(self.p, self.x, self.y, ch)
-        self.x += 1
+        self.x += self.dir
 
-    def lit(self, k):
-        s = "`" + str(k) + "`"
-        self._wrap_if(len(s))
-        for ch in s:
-            put(self.p, self.x, self.y, ch)
-            self.x += 1
+    def lit(self, k):                         # unused (despined to digits)
+        for ch in ("`" + str(k) + "`"):
+            self.op(ch)
 
     def cmd_send(self):                       # EAST excursion (cmd is far east)
         p = self.p; cx = self.x; y = self.y
@@ -191,8 +194,16 @@ class Turtle:
                 self.input_read()
 
     def force_newline(self):
-        """Break to a fresh op row at BL; return its y (a rail target)."""
-        self._newline()
+        """Break to a fresh EAST op row at BL (rail target); works from any dir.
+        self.x (the man's next cell) is in [BL-1, BR]."""
+        p = self.p; sx = self.x; y = self.y
+        put(p, sx, y, "v")                     # man steps here, turns south
+        if sx > BL - 1:
+            put(p, sx, y + 1, "<")             # head west to junction col
+            put(p, BL - 1, y + 1, "v")
+        else:                                  # sx == BL-1: straight down
+            put(p, BL - 1, y + 1, "v")
+        self._start_row(y + 2)
         return self.y
 
 

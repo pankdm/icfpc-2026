@@ -36,6 +36,28 @@ len(FEED)+len(RETURN)+pump >= n (=16). Keep RETURN >= ~17 cells.
 Multiple rounds: after emitting, the CTRL man loops back to the count-read `r`,
 which blocks until the next round's input is released (input is gated on output).
 No reset needed; registers are re-initialised by the fresh count read.
+
+--------------------------------------------------------------------------------
+FOOTPRINT KEY INSIGHT (ring-v2, 20x20 box400 @ ~2390 ticks, submit score 1,536,640
+vs the old 24x25 box625 @ ~2424, submit 2,452,937 -- a 37% score cut):
+--------------------------------------------------------------------------------
+The nearest-pipe decision for every `s`/`r`/`q` depends ONLY on each pipe's
+ATTACHMENT CELL (the pipe segment adjacent to the CTRL wall), never on where the
+satellite room sits or how the pipe is routed afterwards. So you can keep a
+working CTRL's internals 100% unchanged and freely RELOCATE the I/O/PUMP rooms and
+RE-ROUTE their pipes to shrink the bounding box, as long as each pipe still
+attaches at the same CTRL cell. Wins that dropped v3's 625 -> 400 (see
+`ringp.build`, parametric on the read-racetrack send row RB):
+  * INPUT on the RIGHT wall instead of the top. read-r cells (upper-centre) stay
+    nearest to I while deq-r (lower-left) stays nearest to RETURN, so semantics
+    hold -- and the whole top stack (room+pipe, ~5 rows) disappears.
+  * I and O rooms hung COMPACTLY off the right in cols25-27 via short vertical
+    pipes (right margin 3 not 5).
+  * RETURN folded to a narrow left margin; ring capacity must stay >= n_max=16
+    (len(FEED)+len(RETURN)+pump(=1) >= 16), which is the real floor on ring size.
+Bottleneck now: CTRL is 15w x 14h fully used; both bbox dims are 20 (CTRL + 6-row
+FEED/PUMP stack below + minimal side margins). Going below 400 needs the CTRL
+itself repacked smaller (RB=4 collides: OUT-return row == SETUP turn row).
 """
 import os, sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "tools"))

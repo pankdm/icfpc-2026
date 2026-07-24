@@ -259,14 +259,23 @@ def build():
     rly_y = GB + 8                            # relay top row (was GB+14 straight)
     RLY = p.room(BIN - 2, rly_y, BOUT - BIN + 1, 4)  # top wall spans BIN-1..BOUT-1
     rlx, rly = RLY.ix0, RLY.iy0               # rlx = BIN-1 ; junction '>' at BIN
+    RB = RLY.ix1                              # relay interior right col
     put(p, rlx, rly, "@")                     # spawn -> east
     put(p, rlx + 1, rly, ">")                 # junction: north arrivals turn east
-    put(p, rlx + 2, rly, "r")                 # read belt-out (only incoming)
-    put(p, rlx + 3, rly, "s")                 # send belt-in (only outgoing)
-    put(p, rlx + 4, rly, "v")
-    put(p, rlx + 4, rly + 1, "<")
+    # BATCHED relay: a long row of `r s r s ...` relays ONE value per r;s pair
+    # (2 ticks) instead of one value per whole loop (~8 ticks) -> ~4x throughput,
+    # which is the belt bottleneck (gate is sole feeder+drainer; xray: 52% stall).
+    # Each r reads the only incoming pipe (belt-out), each s sends the only outgoing
+    # (belt-in); FIFO order preserved (read v_i then immediately send v_i).
+    s_col = rlx + 3                           # first relay 's' column -> belt-in attaches here
+    cx = rlx + 2
+    while cx + 1 <= RB - 1:                    # leave RB for the turn-down column
+        put(p, cx, rly, "r")
+        put(p, cx + 1, rly, "s")
+        cx += 2
+    put(p, RB, rly, "v")                      # turn down at east edge
+    put(p, RB, rly + 1, "<")
     put(p, rlx + 1, rly + 1, "^")             # back up into the junction
-    s_col = rlx + 3                           # relay 's' column -> belt-in attaches here
     tHi = south + 2                           # top turn row (2 below gate wall)
     tLo = rly_y - 2                           # bottom turn row (2 above relay top)
     # belt-out: gate wall (BOUT) -> serpentine down over cols BOUT..BOUT-3 -> relay

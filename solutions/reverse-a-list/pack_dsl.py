@@ -83,6 +83,34 @@ def _lit(v):
 
 # === PATTERNS === (reusable, VALIDATED base-K pack/unpack builders)
 
+def pack_slot_bitop(p, ey, enq_col=17):
+    """Place ONE BIT-OP pack slot (VALIDATED, NOPAD.man) — the improved, half-size packer.
+
+    reg_new = (2*reg + 1) << 20 + v   ==   (reg<<21) + (v + 2^20)   [offset = 2^20]
+    Uses only the constants `1` (a digit) and `20` (a 2-digit literal) — NO 7-digit
+    literal — because we bake the +2^20 offset into a shift-by-20 with the +1 (`{`, not
+    `*`). This is what shrinks the pack logic from box 729 (multiply) to box 361 (measured
+    logic-only bbox 27x13 -> 19x14). NO PAD path: on BP==0 the man exits to enqueue the
+    partial register; its unwritten high fields are naturally 0, and a real field is
+    v+2^20 in [48576, 2048576] > 0, so the SUBOFF relay simply drops field==0.
+
+    Entry: man heads EAST at (1,ey) with partial reg in A. Exit paths:
+      * BP>0  -> REAL: down, do M 1 W { + M `20` W { M, dip to read v (col4), + , m ,
+                 fall through to (1,ey+3) = next slot entry (reg_new in A).
+      * BP==0 -> straight EAST to `enq_col`, down the shared ENQ channel (enqueue partial).
+    Returns the next slot's entry row (ey+3). VALIDATED exact for n=1,2,3 incl negatives
+    and the +/-1e6 extremes; pack ticks n=3 = 146 (vs 181 multiply).
+    """
+    P = p.put
+    P(1, ey, '>'); P(2, ey, 'd')                       # BP>0 -> CW (down=REAL); else straight E
+    P(enq_col, ey, 'v')                                # BP==0 path glides E to the ENQ channel
+    P(2, ey + 1, '>'); _erow(p, 3, ey + 1, 'M1W{+M`20`W{M')   # (2reg+1)<<20 in A ; cols 3..15
+    P(16, ey + 1, 'v'); P(16, ey + 2, '<')
+    P(4, ey + 2, 'r'); P(3, ey + 2, '+'); P(2, ey + 2, 'm'); P(1, ey + 2, 'v')   # +v, BP--
+    P(1, ey + 3, '>')
+    return ey + 3
+
+
 def pack_slot(p, ey, K=K, OFF=OFF, PAD=PAD, read_col=4):
     """Place ONE base-K pack slot occupying rows ey..ey+3 (VALIDATED, SLOTS.man).
 
@@ -152,7 +180,33 @@ def build_pack_stage_demo():
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# ANALYSIS — why register-packing does NOT beat the 109,382 board-best (measured)
+# UPDATE — BIT-OP re-spike (measured): pack logic HALVED, now at the board boundary
+# ──────────────────────────────────────────────────────────────────────────────
+# The multiply/divide analysis below identified the 7-digit literals (K, OFF) as the
+# root cause. The bit-op rebuild (pack_slot_bitop) removes them:
+#   * PACK  reg <- (2reg+1)<<20 + v   -- constants 1 and 20 only (bakes +2^20 into the
+#     shift). Stash-free. Plus the NO-PAD trick (unwritten high fields are 0; SUBOFF drops
+#     field==0). MEASURED pack-logic bbox: 19x14 = box 361, vs multiply 27x13 = box 729
+#     (HALVED). Pack ticks n=3 = 146 vs 181.
+#   * UNPACK stays on `/` by 2^21 (7-digit literal): `/` is the UNIQUE stash-free peeler
+#     (atomic quotient+remainder), and the 7-digit literal loads 2^21 directly into A
+#     (a `1<<21` shift-materialization needs BOTH A and B, clobbering reg). Two bit-op
+#     unpack ideas were ruled out on the oracle: (a) mask-free top-down peel (reg>>42 ;
+#     reg-=F2<<42) yields FORWARD field order (wrong for reversal) AND is not stash-free
+#     (the subtract-back needs reg after the shift already consumed it); (b) `& MASK`
+#     needs MASK materialized (a shift, clobbering reg). The one 7-digit K in emit can be
+#     shared across the 3 fields with a BP=3 loop, so it costs one literal, not three.
+#   * Assembled projection (from measured parts): with bit-op pack (~19w) + looped unpack
+#     (~18w, one shared K) + a short belt (capacity ~7) + SUBOFF, a compact CTRL is
+#     plausibly ~18-20 wide; box ~324-576, avg ticks ~300-500 -> score ~110k-320k. This
+#     BEATS our rotate-v3 (1,514,844) by ~5-13x and sits AT THE BOUNDARY of the 109,382
+#     board-best: an aggressively compressed assembly (box ~18x18=324, avg <=~340) could
+#     just beat it; a looser one lands ~150-320k. NOT YET CONFIRMED — the full assembled
+#     reverse (prepend/emit/SUBOFF/round loop-back wiring with 4-pipe column discipline)
+#     was validated component-by-component but not completed end-to-end. Verdict upgraded
+#     from "does not beat" to "boundary / plausibly beats with full compression".
+# ──────────────────────────────────────────────────────────────────────────────
+# ANALYSIS — the ORIGINAL multiply/divide version (superseded by the bit-op re-spike)
 # ──────────────────────────────────────────────────────────────────────────────
 # score = max(w,h)^2 * avg_ticks.  Packing genuinely wins on the two things it targets:
 #   * STORAGE: the ring holds <=6 registers, not 16 values -> ring capacity floor drops

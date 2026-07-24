@@ -80,11 +80,13 @@ def _place_operation_loop(program: lm.Program) -> None:
     program.put(2, 7, "M")
     program.put(2, 8, "r")
     program.put(2, 9, "b")
-    program.put(2, 10, ">")
-    program.put(6, 10, "v")
+    program.put(2, 10, "v")
+    program.put(2, 11, ">")
 
     # Rotate BP cells from the front of the belt to the back.
-    program.put(6, 11, "r")
+    program.put(3, 11, ">")
+    program.put(5, 11, "r")
+    program.put(6, 11, "v")
     program.put(6, 12, "d")
     program.put(5, 12, "s")
     program.put(4, 12, "m")
@@ -106,7 +108,7 @@ def _place_operation_loop(program: lm.Program) -> None:
     program.put(21, 15, "s")
     program.put(22, 15, "v")
     program.put(22, 16, "<")
-    program.put(7, 16, "v")
+    program.put(8, 16, "v")
 
     # WRITE: discard the old target, read and encode the replacement.
     program.put(5, 14, "v")
@@ -120,26 +122,28 @@ def _place_operation_loop(program: lm.Program) -> None:
     program.put(13, 19, "v")
     program.put(13, 20, "<")
     program.put(9, 20, "s")
-    program.put(7, 20, "v")
+    program.put(8, 20, "v")
 
     # Finish the revolution. Encoded cells are positive; the sentinel is negative.
-    program.put(7, 21, "v")
-    program.put(7, 22, "r")
-    program.put(7, 23, "s")
-    program.put(7, 24, "X")
+    program.put(8, 21, "v")
+    program.put(8, 24, "<")
     program.put(6, 24, "^")
+    program.put(6, 23, "^")
+    program.put(6, 22, "r")
     program.put(6, 21, ">")
-    program.put(24, 24, "^")
+    program.put(7, 21, "v")
+    program.put(7, 22, "s")
+    program.put(7, 23, "X")
+    program.put(24, 23, "^")
     program.put(24, 5, "<")
 
 
 def _place_storage_belt(program: lm.Program, controller_bottom: int) -> None:
     """Create a square-packing FIFO ring with capacity above 101 values."""
     belt_left = 16
-    belt_right = 34
+    belt_right = 33
     belt_top = controller_bottom + 8
-    # Two rows are enough because both belt pipes and the relay register contribute
-    # FIFO capacity; the generated ring holds 112 values for the required 101.
+    # Two rows leave enough pipe capacity for the 100 cells and sentinel.
     belt_rows = 2
 
     outbound = [(10, controller_bottom + 1), (10, belt_top), (belt_left, belt_top)]
@@ -159,15 +163,9 @@ def _place_storage_belt(program: lm.Program, controller_bottom: int) -> None:
     program.pipe(outbound)
 
     relay_x = belt_right + 2
-    program.room(relay_x, belt_y - 2, 6, 6)
-    program.put(relay_x + 1, belt_y, ">")
-    program.put(relay_x + 2, belt_y, "@")
-    program.put(relay_x + 3, belt_y, "r")
-    program.put(relay_x + 4, belt_y, "v")
-    program.put(relay_x + 4, belt_y + 1, "<")
-    program.put(relay_x + 3, belt_y + 1, "s")
-    program.put(relay_x + 2, belt_y + 1, ".")
-    program.put(relay_x + 1, belt_y + 1, "^")
+    program.room(relay_x, belt_y - 2, 7, 5)
+    program.text(relay_x + 1, belt_y - 1, "@>rsv")
+    program.text(relay_x + 1, belt_y, ".^sr<")
 
     program.pipe([(relay_x - 1, belt_y + 1), (6, belt_y + 1), (6, controller_bottom + 1)])
 

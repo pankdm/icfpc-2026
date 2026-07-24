@@ -77,8 +77,8 @@
        |                        v     <       |
        |        vMsr            <             |
        |        >`100`N+v                     |
-       |            v   X          v          |
-       |              vs+r  M*sr   <          |
+       |            v   X        v            |
+       |              vs+r  M*sr <            |
        |              >         ^             |
        |   v<X               v                |
        |     ^-`002`<                         |

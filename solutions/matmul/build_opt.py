@@ -239,7 +239,7 @@ def build(stage="drainA", W=31, H=42):
         C(9,50,'>'); b.lit(10,50,100); C(15,50,'N'); C(16,50,'+'); C(17,50,'v')
         C(17,51,'X')
         # real -> East: glide to col28, down to MAC entry (28,54)
-        C(28,51,'v'); C(28,54,'<')
+        C(26,51,'v'); C(26,54,'<')
         # ---- MAC (row54, westward) ----
         #   r H1r A=a ; s H1f reenq ; * A=a*b ; M B=a*b ; r SCr A=c ; + ; s SCf store
         C(H1r,54,'r'); C(H1f,54,'s'); C(22,54,'*'); C(21,54,'M')

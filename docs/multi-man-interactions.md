@@ -102,6 +102,31 @@ hand-proof.)
 
 **OPEN (deferred to fuzzer):**
 - **Perpendicular** same-cell arrival (assumed to follow the same "both halt" rule, not yet isolated).
+
+## 4b. Blocking & phasing — no pass-through (CONFIRMED)
+
+Blocking is **per-man**: a man on `r`/`R`/`U`/`s`/`S` that can't proceed parks on his cell,
+stays ACTIVE (not halted, not reaped), and retries each tick; other men proceed in lockstep.
+A blocked man on `r` fed by an empty-then-delayed input pipe **unblocks on exactly tick = pipe
+length L** — giving tick-exact control for timing experiments.
+
+**Men cannot phase (pass through / swap / slip past each other):**
+- **Ramming a blocked man:** a moving man whose step targets a parked man's cell does NOT pass
+  through — both halt in place (`reason:"done"`, non-fatal). The stationary blocked man is halted
+  too. (Same outcome as the same-cell rule, but note a *blocked* man IS a blocker here, unlike a
+  *halted* man which is reaped and transparent.)
+- **Unblock-and-swap:** even when a blocked man unblocks and steps out on the *exact* tick a mover
+  steps in (verified via register state — the freed man genuinely became a mover), the engine still
+  halts both. The stationary→moving asymmetry does not unlock swapping.
+- **Convoy-follow (the one benign, non-phasing exception):** if a leader vacates a cell the same
+  tick a follower enters it (leader unblocks exactly on time), the follower cleanly takes the freed
+  cell — because execute happens before move. The follower ends up *where the leader was*, never
+  *past* it. Off-by-one timing is fatal (both halt). Useful for flowing a train through a 1-wide
+  gate with no gap.
+- **Dense parking:** many *independently* blocked men can sit in adjacent cells indefinitely with no
+  collision (movement is what triggers collisions; parked men never do) — a compact holding pen.
+- **Pipes never carry men** (arrowheads sit outside the room wall; a man walking at a pipe exit hits
+  the wall → fatal). Men move only by walking; only data/backpack values travel pipes.
 - **Inter-man processing order** within a tick (by entity id / spawn `seq`, or by reading-order
   position?). Not yet isolated; matters for pipe contention when co-located men send/receive the same
   tick. `insertRunnerID` / `runnerSeq` suggest an id/seq-ordered runner set.

@@ -42,12 +42,15 @@ class B:
         s='`'+str(val)[::-1]+'`'; self.hrun(x,y,s); return x-1  # returns col west of it
 
 def build(stage="drainA", W=31, H=42):
+    if stage in ("run","full"):
+        W=40; H=74
     b=B(); C=b.C
     p=b.p
     p.room(0,0,W,H)   # CTRL: top wall y=0, interior rows 1..H-2, cols 1..W-2
-    # relays above at y=-8..-5 ; IO rooms too. straight-up pipes.
-    RY=-8  # relay room top y ; room 5x4 -> interior rows RY+1,RY+2 ; bottom wall RY+3=-5
-    def ring(feed,ret,rx):
+    # relays above at y=RY..; straight-up pipes. Ring capacity ~= 2*(-RY-4) (feed+ret).
+    # SA/SB need big capacity (N*M+1<=257, M*(K+1)<=272 values live in the ring);
+    # SC needs >=K+1 but must stay SHORT-latency (re-read every MAC); H1 tiny.
+    def ring(feed,ret,rx,RY):
         # relay room 6 wide at (rx,RY): interior cols rx+1..rx+4 rows RY+1,RY+2
         p.room(rx,RY,6,4)
         # relay man: @ > R v / (blank) ^ s <  -- loop returns to '>' (NOT '@')
@@ -55,10 +58,12 @@ def build(stage="drainA", W=31, H=42):
         C(rx+2,RY+2,'^'); C(rx+3,RY+2,'s'); C(rx+4,RY+2,'<')
         p.pipe([(feed,-1),(feed,RY+4)])   # feed CTRL->relay (up)
         p.pipe([(ret,RY+4),(ret,-1)])     # return relay->CTRL (down)
-    ring(SAf,SAr, SAf-1)   # SA relay cols 4..9
-    ring(SBf,SBr, SBf-1)   # 10..15
-    ring(SCf,SCr, SCf-1)   # 16..21
-    ring(H1f,H1r, H1f-1)   # 22..27
+    big = -145 if stage in ("run","full") else -8   # SA/SB capacity
+    scy = -24  if stage in ("run","full") else -8   # SC moderate capacity
+    ring(SAf,SAr, SAf-1, big)   # SA relay cols 4..9
+    ring(SBf,SBr, SBf-1, big)   # 10..15
+    ring(SCf,SCr, SCf-1, scy)   # 16..21
+    ring(H1f,H1r, H1f-1, -8)    # 22..27  (tiny/short)
     # I room high above at col2 (clear of relays which start col4); O at col28 (clear)
     IY=-16
     p.input_room(I_-1,IY)       # bottom wall IY+2=-14 ; center (I_, IY+1)
@@ -87,7 +92,7 @@ def build(stage="drainA", W=31, H=42):
     C(SAf,8,'s')                                  # s SAfeed <- SA_SENT  (col5)
     C(SAf-1,8,'v')                                # (4,8) down
 
-    if stage in ("full","drainC","drainB"):
+    if stage in ("full","drainC","drainB","run"):
         # ---- Seed-C: SC <- [OFFSET*K, SC_SENT] ; B=K -> BP=K ----
         C(4,13,'>'); C(5,13,'W'); C(6,13,'b')     # A=K ; BP=K   (B=junk)
         b.lit(8,13,OFFSET)                         # A=OFFSET  (cols8..16)
@@ -98,7 +103,7 @@ def build(stage="drainA", W=31, H=42):
         C(19,15,'v'); C(19,16,'1'); C(19,17,'N'); C(19,18,'s')  # A=-1=SC_SENT -> s SCfeed(col19)
         C(19,19,'<'); C(4,19,'v')                  # west row19 to col4, then down
 
-    if stage in ("full","drainB"):
+    if stage in ("full","drainB","run"):
         # ================= Seed-B ================= (from (4,19)v ; H1=M, B=junk)
         # INIT (row20): r H1ret->A=M ; re-enq H1feed ; BP=M
         C(4,20,'>'); C(H1r,20,'r')                 # (4,20)> east .. (24,20)r  A=M
@@ -128,13 +133,62 @@ def build(stage="drainA", W=31, H=42):
             C(12,37,'r'); C(O_,37,'s')             # (10,37)> east: r SBret@12 ; s O@28
             C(O_+1,37,'v'); C(O_+1,38,'<'); C(11,38,'^'); C(11,37,'>')  # loop
             return b
-        # ===================== RUNTIME (WORK IN PROGRESS) =====================
-        # Seeding (S0/Seed-A/Seed-C/Seed-B) is complete & verified via the drain* stages.
-        # The runtime flowchart below is designed & validated in scratchpad/model.py
-        # (FETCHA / MAIN classify / MAC / MARKH / ENDH+OUTLOOP, single shared FETCHA).
-        # Hand-routing it collision-free on the 2D grid is not yet finished.
-        # Man ends at (10,37) after Seed-B; from there the runtime would begin.
-        C(11,37,'v')                                # (stub: park; runtime not wired)
+        # ===================== RUNTIME =====================
+        # Flowchart (validated in model.py): FETCHA / MAIN-classify / MAC / MARKVE /
+        # MARKH / ENDH / OUTLOOP. Two vertical highways: col3 (converge->FETCHA),
+        # col34 (converge->MAIN). Column discipline picks pipes (all attach y=-1).
+        # Tokens: SA_SENT=30000, MARK=150, ENDMARK=250, OFFSET=1e6, SC_SENT=-1.
+
+        # ---- START: man at (11,37) heading east -> route to FETCHA entry (3,42) ----
+        C(11,37,'v'); C(11,41,'<'); C(3,41,'v')     # down col11, west row41, down col3
+
+        # ---- FETCHA (row42, eastward, entry (3,42)) ----
+        #   r SA -> A=a ; M B=a ; s H1f (store a) ; r H1r (discard old, A=old,B=a)
+        #   500 ; - (A=500-a) ; X: A>0 real->S ; A<0 SENT->N (halt)
+        C(3,42,'>')
+        C(SAr,42,'r'); C(SAr+1,42,'M')              # (6)r SA->A=a ; (7)M B=a
+        C(H1f,42,'s'); C(H1r,42,'r')                # (23)s store a ; (24)r discard old
+        b.lit(25,42,500); C(30,42,'-'); C(31,42,'X')# A=500 ; A=500-a ; branch
+        C(31,41,'H')                                # SENT (north) -> halt
+        C(31,43,'>'); C(34,43,'v')                  # real (south) -> east to col34 -> down
+
+        # ---- MAIN read (row48, westward, entry (34,48)) ----
+        #   r SB -> A=x ; s SB reenq ; M B=x ; then classify
+        C(34,48,'<')
+        C(SBr,48,'r'); C(SBf,48,'s'); C(10,48,'M'); C(9,48,'v')
+        # ---- MAIN classify (row50 eastward -> X row51) ----
+        #   100 ; N (A=-100) ; + (A=x-100, B=x) ; X south: A<0 real->E ; A>0 mark->W
+        C(9,50,'>'); b.lit(10,50,100); C(15,50,'N'); C(16,50,'+'); C(17,50,'v')
+        C(17,51,'X')
+        # real -> East: glide to col28, down to MAC entry (28,54)
+        C(28,51,'v'); C(28,54,'<')
+        # ---- MAC (row54, westward) ----
+        #   r H1r A=a ; s H1f reenq ; * A=a*b ; M B=a*b ; r SCr A=c ; + ; s SCf store
+        C(H1r,54,'r'); C(H1f,54,'s'); C(22,54,'*'); C(21,54,'M')
+        C(SCr,54,'r'); C(SCf,54,'+'); C(16,54,'s')
+        # MAC return -> MAIN via col34
+        C(15,54,'v'); C(15,55,'>'); C(34,55,'^')
+
+        # mark -> West: glide to col13, down to MARKVE row58
+        C(13,51,'v'); C(13,58,'<')
+        # ---- MARKVE (row58 westward -> X row57 north) ----
+        #   200 ; - (A=200-x, B=x) ; ^ ; X north: A>0 MARK->E ; A<0 ENDMARK->W
+        b.litW(8,58,200); C(7,58,'-'); C(6,58,'^'); C(6,57,'X')
+        # MARK -> East: glide row57 to col22, down to MARKH row60
+        C(22,57,'v'); C(22,60,'<')
+        # ---- MARKH (row60 westward): r SCr (pop SENT) ; s SCf (reenq) -> FETCHA ----
+        C(SCr,60,'r'); C(SCf,60,'s'); C(3,60,'^')
+        # ENDMARK -> West: (5,57) -> down col4 -> east row64 -> down col23 -> ENDH row65
+        C(5,57,'<'); C(4,57,'v'); C(4,64,'>'); C(23,64,'v'); C(23,65,'<')
+        # ---- ENDH (row65 westward): r SCr (pop leading SENT) ; s SCf (reenq) -> OUTLOOP
+        C(SCr,65,'r'); C(SCf,65,'s'); C(16,65,'v'); C(16,67,'>')
+        # ---- OUTLOOP read (row67 eastward): r SCr A=v ; X east: A>0 emit->S ; A<0 done->N
+        C(SCr,67,'r'); C(19,67,'X')
+        # emit (south) -> compute real c, emit, reset OFFSET, loop
+        C(19,68,'>'); C(20,68,'M'); b.lit(21,68,OFFSET); C(30,68,'W'); C(31,68,'-')
+        C(32,68,'v'); C(32,69,'<'); C(O_,69,'s'); C(27,69,'W'); C(SCf,69,'s'); C(16,69,'^')
+        # done (north) -> reenq SENT -> FETCHA
+        C(19,66,'<'); C(SCf,66,'s'); C(3,66,'^')
         return b
 
     if stage=="drainC":
@@ -162,6 +216,11 @@ def build(stage="drainA", W=31, H=42):
     return b
 
 if __name__=="__main__":
-    b=build()
-    print(b.p.render())
+    import sys
+    stage = sys.argv[1] if len(sys.argv)>1 else "run"
+    b=build(stage=stage)
+    out = b.p.render()+"\n"
+    if stage in ("run","full"):
+        open(os.path.join(os.path.dirname(__file__),"matmul-run.man"),"w").write(out)
+    print(out)
     print("footprint",b.p.footprint())

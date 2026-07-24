@@ -223,3 +223,4 @@ sim/wasm_exec.js
 node_modules/
 *.dcmp.txt
 *.pretty.js
+solutions/history-lesson/proposed-input-grid.txt

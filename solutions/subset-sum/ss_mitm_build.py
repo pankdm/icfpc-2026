@@ -2,12 +2,70 @@ import sys, os
 sys.path.insert(0, '/Users/visenbaev/icfpc26/tools')
 import littleman as lm
 
-# Subset-sum machine. Belt ring [CNT,T,v_{n-1..0},SENT].
-# Pipe geometry (validated): I-read col34(top); O-send col45(right);
-# FEED (enqueue) & RETURN (dequeue) BOTH on CTRL left wall so left-column belt
-# ops are unambiguous at every row. Left cols -> belt, right/top -> I/O.
-
-STAGE = os.environ.get('SS_STAGE', 'C')  # A=load+dump ; B=search+w-dump ; C=full
+# MITM subset-sum. SINGLE belt (one pipe ring). Fixed Rn=6.
+# Belt after LOAD = [CTR, T, v_{n-1}..v_0, VSENT(-1), <entries>, TSENT(-2)].
+# Values reversed: item0=v_{n-1}=index n-1 <-> BP bit0.
+# BP=Rmask scans R-half (low 6 bits); BP=Lmask<<6 scans L-half (one shared value-scan).
+# No pruning: sR>t entries never match need<=t, harmless (proven).
+#
+# ==================== FEASIBILITY VERDICT (2026-07-24) ====================
+# STOP: the single-belt MITM CANNOT pass the n=20 case under the real 15M tick cap.
+# Verified facts (fetched from oracle this session):
+#   * Real spec: tickCap=15_000_000 (NOT 5M), privateTestCount=0, 7 public cases.
+#   * Floor ss.man passes 6/7; ONLY failure = "near-total-sum,20 values" (times out).
+#   * Output spec: emit k then the k chosen VALUES in increasing original-index order;
+#     "0" alone if no subset; lex-smallest chosen-index set on ties. (ss.man matches.)
+# Why MITM can't fit (structural, not tuning):
+#   MATCH scans the whole 2^R table for EACH of 2^L outer subsets (belt = ring, no
+#   random access / no cheap binary search) => 2^L*2^R = 2^n ~= 1.05M entry-compares
+#   = ~2.1M belt cell-ops for matching ALONE. Anchor: floor does a 17-cell belt
+#   revolution in 283t => ~16.6 t/cell (best case this ISA reaches). 2.1M*16.6 ~= 35M
+#   ticks for matching alone (>2.3x cap); full documented design (long pipes, 2-cell
+#   entries, no sR-early-exit) ~= 41M (~2.7x). Even halving + 8t/cell ~= 17M, still over.
+#   2^L*2^R = 2^n is invariant to the split, so Rn tuning cannot rescue it. The belt
+#   destroys MITM's O(2^(n/2)) edge; a sorted-merge would need an O(N log N) belt sort
+#   (>>15M itself). => finishing L+MATCH+OUTPUT yields a machine that STILL fails n=20
+#   (=> 6/7 like the floor, larger footprint => strictly worse footprint-tick score).
+#   DECISION: keep ss.man floor (6/7), submit NOTHING. Do not finish this design.
+# ==========================================================================
+# ==================== STATUS (this file) ====================
+# VERIFIED on the oracle for [3,5,2,6] t=8 (SS_STAGE=R):
+#   * LOAD -> belt [63,8,6,2,5,3,-1,-2]  (SS_STAGE=L0 dumps it exactly).
+#   * PHASE R builds the full R-table: CTR enumerates 63->0->-1 perfectly (traced),
+#     value-scan sums each R-subset (BP=Rmask, accumulate), header decrements CTR
+#     in place, pass-through appends each entry before TSENT. Packed values confirmed
+#     correct (e.g. Rmask=1->sR=6, Rmask=62->sR=10). The append SPLITS the packed
+#     p=Rmask*2^20+sR via `/` (A=p,B=2^20 -> A=Rmask,B=sR) into TWO belt cells
+#     (sR, Rmask) in DESCENDING Rmask order -> clean O(1) MATCH compare later.
+#   Belt after PHASE R = [-1, T, v.., VSENT, (sR63,Rm63),(sR62,Rm62)..(sR0,Rm0), TSENT].
+# The SS_STAGE=R branch below is a table-DUMP for verification only; it currently
+# corrupts the belt after PHASE R completes (dump-loop realignment) and is NOT part
+# of the real machine -- PHASE R itself is proven correct via the CTR trace.
+#
+# REMAINING (not built): PHASE L + MATCH + OUTPUT.  Design (de-risked):
+#   RESET: on CTR<0 (PHASE R done), one rotate-revolution to set CTR=16383 (=2^14-1;
+#     fixed, covers h=n-6<=14 for all n<=20; spurious high Lmask bits map to no value
+#     and are auto-excluded -> correct + lex-smallest preserved). Also stash an LST
+#     belt slot [CTR,LST,T,...] for Lmask<<6 (needed to form `full` at match time,
+#     since the value-scan destroys BP).
+#   PHASE L revolution (BP=Lmask<<6): header decrements CTR (reuse PHASE R header
+#     pattern), sets BP=Lmask<<6 (A=Lmask; M; `6`; W; {; b), writes LST=Lmask<<6,
+#     inits accumulator B=T (read T), value-scan SUBTRACTS included values (reuse
+#     build.py VLOOP: INCLUDE = W,-,M,] ; EXCLUDE = ]) -> at VSENT B = need = T-sL.
+#     MATCH: with 2-cell entries, hold need in B; per entry r(A=sR); -(A=sR-need,
+#     B preserved); X: ==0 -> MATCH (read next cell = Rmask), else resend sR, read
+#     Rmask, resend, continue. FIRST hit (descending) wins. On match: full = LST|Rmask;
+#     route to OUTPUT. No match after CTR<0 -> emit single 0.
+#   OUTPUT: drain the table (r;s until only [.., T, v.., VSENT] with BP=full), then
+#     reuse ss.man's Pass K (popcount->k, emit k), Pass F (filter selected), Pass RE
+#     (reverse-emit selected values in index order).  See build.py lines 125-172.
+# HARNESS: scratchpad/run_ss.js (run to settle), scratchpad/tr.js (trace; build coord
+#   = trace + (2,-5) offset), scratchpad/probe.js (opcode probe). SS_STAGE=L0/R/C.
+# FLOOR: solutions/subset-sum/ss.man is the working 12/20 brute force -- DO NOT run
+#   build.py with SS_STAGE=A/B (it overwrites ss.man); default STAGE=C regenerates it.
+# ============================================================
+STAGE = os.environ.get('SS_STAGE', 'C')
+POW = 1 << 20     # packing multiplier (> max sR = 6*99999)
 
 def build():
     p = lm.Program(); placed = {}
@@ -15,212 +73,165 @@ def build():
         if (x, y) in placed and placed[(x, y)] != ch:
             raise SystemExit(f"COLLISION {(x,y)}: {placed[(x,y)]} vs {ch}")
         placed[(x, y)] = ch; p.put(x, y, ch)
+    def T(x, y, s, d='E'):
+        dx,dy = lm.DIRS[d]
+        for i,ch in enumerate(s): C(x+i*dx, y+i*dy, ch)
 
-    # ---- rooms & pipes ----
-    p.room(10, 0, 42, 92)                    # CTRL cols10..51 rows0..91 interior 11..50 x1..90
+    # ---- rooms & pipes (belt ring; enlarge later for table capacity) ----
+    p.room(10, 0, 42, 92)
     p.input_room(33, -5); p.pipe([(34, -2), (34, -1)])       # I top col34
     p.output_room(54, 5); p.pipe([(52, 6), (53, 6)])         # O right wall row6
-    # Compact belt ring (~41 cells) in the left margin -> low pipe latency.
-    p.room(2, 40, 7, 5)                       # RELAY cols2..8 rows40..44 interior 3..7 x41..43
-    p.pipe([(9, 30), (5, 30), (5, 39)])       # FEED CTRL left row30 -> RELAY top col5
-    p.pipe([(4, 39), (4, 20), (9, 20)])       # RETURN RELAY top col4 -> CTRL left row20
-    C(3, 41, '>'); C(4, 41, '@'); C(5, 41, 'R'); C(6, 41, 's'); C(7, 41, 'v')
-    C(7, 42, '<'); C(3, 42, '^')
+    p.room(2, 94, 7, 5)                                       # RELAY (bottom strip)
+    # FEED long (capacity): CTRL(9,30) down col9 to relay top; RETURN up col4 to CTRL(9,20)
+    p.pipe([(9, 30), (5, 30), (5, 93)])                       # FEED west then down col5 -> relay
+    # RETURN lengthened (capacity ~175 for 2-cell table, belt up to 152)
+    p.pipe([(4, 93), (4, 5), (8, 5), (8, 20), (9, 20)])       # relay top col4 -> CTRL(9,20)
+    C(3, 95, '>'); C(4, 95, '@'); C(5, 95, 'R'); C(6, 95, 's'); C(7, 95, 'v')
+    C(7, 96, '<'); C(3, 96, '^')
 
-    # ================= INIT =================
+    # ================= INIT =================  (belt: enqueue VSENT first)
     p.man(12, 2); C(13, 2, '>')
-    C(34, 2, 'r')     # A=n
-    C(35, 2, 'b')     # BP=n  (outer counter)
-    C(36, 2, 'M')     # B=n
-    C(37, 2, '1')     # A=1
-    C(38, 2, '{')     # A=2^n
-    C(39, 2, 'M')     # B=2^n (CNT_init stash)
-    C(40, 2, '1')     # A=1
-    C(41, 2, 'N')     # A=-1 (SENT)
-    C(42, 2, 'v'); C(42, 3, '<')
-    C(15, 3, 's')     # enqueue SENT
+    C(34, 2, 'r')                       # A=n
+    C(35, 2, 'b')                       # BP=n  (load counter)
+    T(36, 2, '`63`')                    # A=63  (CTR init)  cols36..39
+    C(40, 2, 'M')                       # B=63  (CTR stash)
+    C(41, 2, '1'); C(42, 2, 'N')        # A=-1  (VSENT)
+    C(43, 2, 'v'); C(43, 3, '<')
+    C(15, 3, 's')                       # enqueue VSENT
     C(12, 3, 'v'); C(12, 6, '>')
 
     # ================= LOADLOOP READ =================
-    C(34, 6, 'r')     # A=value
+    C(34, 6, 'r')                       # A=value
     C(35, 6, 'v'); C(35, 7, '<')
-    C(15, 7, 's')     # enqueue value
+    C(15, 7, 's')                       # enqueue value
     C(14, 7, 'v'); C(14, 8, 'v')
+    # ROTATE (r;s;X) rotate until VSENT back to front
+    C(14, 9, 'r'); C(14, 10, 's'); C(14, 11, 'X')
+    C(13, 11, '^'); C(13, 8, '>')
+    C(15, 11, 'v'); C(15, 12, 'm'); C(15, 13, 'd')   # DEC BP; BP>0 loop
+    C(14, 13, '<'); C(12, 13, '^')
 
-    # ================= ROTATE (r;s;X) =================
-    C(14, 9, 'r'); C(14, 10, 's'); C(14, 11, 'X')   # S: A>0 loop(W), A<0 exit(E)
-    C(13, 11, '^'); C(13, 8, '>')                    # loop up col13
-    C(15, 11, 'v'); C(15, 12, 'm'); C(15, 13, 'd')   # exit -> DEC
-    C(14, 13, '<'); C(12, 13, '^')                   # BP>0 loop-read up col12
-
-    # ================= APPEND =================
-    C(15, 15, '>'); C(34, 15, 'r')   # A=t (B=2^n)
-    C(35, 15, 'W')                    # A=2^n,B=t
+    # ================= APPEND CTR,T ================= (belt=[v..,VSENT], B=63)
+    C(15, 15, '>'); C(34, 15, 'r')      # A=t   (B=63)
+    C(35, 15, 'W')                      # A=63, B=t
     C(36, 15, 'v'); C(36, 16, '<')
-    C(15, 16, 's')                    # enqueue CNT
-    C(14, 16, 'W'); C(13, 16, 's')    # A=t ; enqueue T
+    C(15, 16, 's')                      # enqueue CTR(63)
+    C(14, 16, 'W'); C(13, 16, 's')      # A=t ; enqueue T
     C(12, 16, 'v'); C(12, 18, '>'); C(13, 18, 'v'); C(13, 19, '>'); C(14, 19, 'v')
+    # ROTATE2 (r;s;X) until VSENT back to front -> belt=[CTR,T,v..,VSENT] front=CTR
+    C(14, 20, 'r'); C(14, 21, 's'); C(14, 22, 'X')
+    C(13, 22, '^'); C(13, 19, '>')
+    C(15, 22, 'M')                      # exit; B=-1
 
-    # ================= ROTATE2 =================
-    C(14, 20, 'r'); C(14, 21, 's'); C(14, 22, 'X')  # S: A>0 loop(W), A<0(SENT) exit(E)
-    C(13, 22, '^'); C(13, 19, '>')                   # loop up col13
-    C(15, 22, 'M')                                   # B=-1 ; belt=[CNT,T,v..,SENT] front=CNT
+    # append TSENT(-2) at back -> belt=[CTR,T,v..,VSENT,TSENT], front=CTR
+    C(16, 22, 'v'); C(16, 23, '>')
+    C(17, 23, '2'); C(18, 23, 'N'); C(19, 23, 's')   # A=-2 ; enqueue TSENT
+    C(20, 23, 'v'); C(20, 24, '<')
 
-    if STAGE == 'A':
-        C(16, 22, 'v'); C(16, 23, '<'); C(13, 23, 'v'); C(13, 24, '>')
-        C(14, 24, 'r'); C(45, 24, 's'); C(46, 24, 'X')
-        C(46, 25, '<'); C(13, 25, '^'); C(46, 23, 'H')
+    if STAGE == 'L0':
+        # drain belt to O: r; emit; loop (blocks when empty). Verify first 8 outputs.
+        C(14, 24, 'v'); C(14, 25, 'r')                # A=front (arrives S, continues S)
+        C(14, 26, '>'); C(45, 26, 's')                # turn E, emit to O
+        C(46, 26, '^'); C(46, 24, '<')                # up then west back to (14,24)v
         return p, placed
 
-    # ================= SEARCH =================
-    # Blank cells are glide no-ops; only turns/instructions are placed. Corridors
-    # are blank so perpendicular crossings are free.
-    # connector: ROTATE2 M(15,22) -> down col16 -> (16,25)< -> west -> REV entry.
-    # END loopback merges into connector at (16,24)v.
-    C(16, 22, 'v'); C(16, 24, 'v'); C(16, 25, '<'); C(12, 25, 'v'); C(12, 26, '>')
+    # route LOAD exit (20,24)< westward to PHASE R header
+    for x in range(15, 20): C(x, 24, '<')
+    C(14, 24, 'v')
 
-    # ---- REV (row26 eastbound) ----
-    C(14, 26, 'r')     # A=CNT
-    C(15, 26, 'X')     # E: A>0->CW(S)=continue ; A==0->straight(E)=OUTPUT0
-    C(15, 27, 'b')     # BP=cnt (mask)
-    C(15, 28, '+')     # A=cnt-1
-    C(15, 29, 's')     # enqueue cnt-1
-    C(15, 30, 'r')     # A=T
-    C(15, 31, 's')     # resend T
-    C(15, 32, 'M')     # B=T (remaining)
-    C(15, 33, '<'); C(14, 33, 'v')            # -> VLOOP entry (col14 south)
+    # ================= PHASE R HEADER =================
+    C(14, 25, 'r')                       # A=CTR (Rmask), arrives S continues S
+    C(14, 26, 'X')                       # >0 -> W ; ==0 -> S ; <0 -> E=PHASE L/dump
+    # A<0 (east) -> PHASE L (or dump in STAGE R)
+    C(15, 26, '>')                       # east rail to phaseL, continues at (16,26)
+    # A>0 (west) -> merge down at (14,27)
+    C(13, 26, 'v'); C(13, 27, '>')       # west branch turns down then east to (14,27)
+    # A==0 straight south hits (14,27) too
+    C(14, 27, 'v')                       # merge -> south (PROCESS)
+    C(14, 28, 'M')                       # B=Rmask
+    C(14, 29, '1')                       # A=1
+    C(14, 30, '-')                       # A=1-Rmask , B=Rmask
+    C(14, 31, 'N')                       # A=Rmask-1
+    C(14, 32, 's')                       # enqueue CTR'=Rmask-1 (in place)
+    C(14, 33, 'W')                       # A=Rmask , B=Rmask-1
+    C(14, 34, 'b')                       # BP=Rmask (scan mask)
+    C(14, 35, 'M')                       # B=Rmask
+    C(14, 36, '>')                       # turn E for POW literal
+    T(15, 36, '`1048576`')               # A=2^20  cols15..24
+    C(25, 36, '*')                       # A=2^20*Rmask , B=Rmask
+    C(26, 36, 'M')                       # B=p_init=2^20*Rmask (accumulator)
+    C(27, 36, 'v'); C(27, 37, '<')       # turn down then west back toward spine
+    for x in range(15, 27): C(x, 37, '<')
+    C(14, 37, 'v')                       # -> south to T-skip
+    # skip T (r;s pass-through, no accumulate)
+    C(14, 38, 'r')                       # A=T
+    C(14, 39, 's')                       # re-enqueue T
+    # value-scan loop entry
+    C(14, 40, 'v')                       # EXCLUDE re-entry merge
+    C(14, 41, 'v')                       # INCLUDE re-entry merge
+    C(14, 43, 'r')                       # A=item
+    C(14, 44, 's')                       # re-enqueue item
+    C(14, 45, 'X')                       # A>0 -> W=VALUE ; A<0 -> E=VSENT
+    C(13, 45, 'x')                       # W: bit1->N=INCLUDE ; bit0->S=EXCLUDE
+    # INCLUDE (N up col13): accumulate
+    C(13, 44, '+')                       # A=item+B
+    C(13, 43, 'M')                       # B=accum'
+    C(13, 42, ']')                       # BP>>1
+    C(13, 41, '>')                       # -> re-entry (14,41)v
+    # EXCLUDE (S down col13)
+    C(13, 46, ']')                       # BP>>1
+    C(13, 47, '<'); C(12, 47, '^'); C(12, 40, '>')   # up col12 -> re-entry (14,40)v
+    # VSENT (E from X): B=p. route east to pass-through at col20
+    C(15, 45, '>')
+    for x in range(16, 20): C(x, 45, '>')
+    C(20, 45, 'v')                       # down into pass-through
+    # ================= PASS-THROUGH (skip entries, append p at TSENT) =============
+    C(20, 46, 'v')                       # merge (entry re-loop + VSENT entry)
+    C(20, 47, 'r')                       # A=item (entry>0 or TSENT<0), arrives S continues S
+    C(20, 48, 'X')                       # A>0 -> W=entry ; A==0 -> S=entry ; A<0 -> E=TSENT
+    # entry (A>0 -> W col19): resend, loop back up col18 to (18,46)>-> (20,46)v
+    C(19, 48, 's')                       # resend (going W)
+    C(18, 48, '^')                       # turn N up col18
+    C(18, 47, '^'); C(18, 46, '>'); C(19, 46, '>')   # up then east to (20,46)v
+    # entry (A==0 -> S col20): resend, loop up col17 into the same loopback
+    C(20, 49, 's')                       # resend (going S)
+    C(20, 50, '<'); C(17, 50, '^')       # west then up col17
+    C(17, 47, '>')                       # east into (18,47)^ -> up -> (18,46)> loopback
+    # TSENT (A<0 -> E col21): split packed p -> append (sR, Rmask), resend TSENT
+    C(21, 48, 'v')                       # A=-2 (TSENT), B=p ; turn down
+    for y in range(49, 54): C(21, y, 'v')
+    C(21, 54, '>')                       # turn east (below loopback region)
+    T(22, 54, '`1048576`')               # A=2^20  cols22..30
+    C(31, 54, 'W')                       # A=p , B=2^20
+    C(32, 54, '/')                       # A=Rmask , B=sR
+    C(33, 54, 'W')                       # A=sR , B=Rmask
+    C(34, 54, 's')                       # enqueue sR
+    C(35, 54, 'W')                       # A=Rmask , B=sR
+    C(36, 54, 's')                       # enqueue Rmask
+    C(37, 54, '2'); C(38, 54, 'N')       # A=-2
+    C(39, 54, 's')                       # enqueue TSENT
+    # loopback to header: up col40 to row24, west to (14,24)
+    C(40, 54, '^')
+    for y in range(25, 54): C(40, y, '^')
+    C(40, 24, '<')
+    for x in range(15, 40):
+        if (x, 24) not in placed: C(x, 24, '<')
 
-    # ---- VLOOP (r-row 38) ----
-    C(14, 34, 'v')     # EXCLUDE re-entry
-    C(14, 35, 'v')     # INCLUDE re-entry
-    C(14, 38, 'r')     # A=item
-    C(14, 39, 's')     # resend
-    C(14, 40, 'X')     # S: A>0(value)->CW(W)=VALUE ; A<0(END)->CCW(E)=END
-    # VALUE (W)
-    C(13, 40, 'x')     # W: bit1->CW(N)=INCLUDE ; bit0->CCW(S)=EXCLUDE
-    # INCLUDE (N col13)
-    C(13, 39, 'W'); C(13, 38, '-'); C(13, 37, 'M'); C(13, 36, ']'); C(13, 35, '>')
-    # EXCLUDE (S col13 -> up col12 -> re-enter col14 at row34)
-    C(13, 41, ']'); C(13, 42, '<'); C(12, 42, '^'); C(12, 34, '>')
-
-    # ---- END (E from X(14,40)) ----
-    C(15, 40, 'W')     # A=remaining, B=-1
-    C(16, 40, 'X')     # E: ==0->MATCH(straight E) ; >0->CW(S) ; <0->CCW(N) -> REV
-    C(16, 41, '>'); C(24, 41, '^')            # REV branch S -> col24 rail
-    C(16, 39, '>'); C(24, 39, '^')            # REV branch N -> col24 rail
-    C(24, 24, '<')                            # rail top -> west -> (16,24)v
-
-    if STAGE == 'B':
-        # ---- MATCH: recompute w=cnt, output via col19 rail (STAGE B) ----
-        C(17, 40, 'r'); C(18, 40, '-')
-        C(19, 40, '^'); C(19, 10, '>')
-        C(45, 10, 's'); C(46, 10, 'H')
-        C(16, 26, '0'); C(19, 26, '^')        # OUTPUT0 join col19 rail
+    if STAGE == 'R':
+        # PHASE-L branch (A<0 header) east from (15,26)> -> drain belt to O
+        C(16, 26, 'v'); C(16, 27, 'r')   # dequeue belt (arrives S continues S)
+        C(16, 28, '>'); C(45, 28, 's')   # emit to O
+        C(46, 28, '^')                   # up
+        for y in range(26, 28): C(46, y, '^')
+        C(46, 25, '<')
+        for x in range(17, 46):
+            if (x, 25) not in placed: C(x, 25, '<')
+        C(16, 25, 'v')                   # -> (16,26)v loop
         return p, placed
-
-    # ================= OUTPUT (STAGE C) =================
-    # MATCH: END X(16,40) straight E -> route to Pass K entry (14,46) south.
-    C(17, 40, '>'); C(20, 40, 'v'); C(20, 45, '<'); C(14, 45, 'v')
-
-    # ---- Pass K: popcount(w) -> emit k, store w on belt, keep k in B, restore belt ----
-    C(14, 46, 'r')     # A=cnt-1
-    C(14, 47, '-')     # A=w  (B=-1)
-    C(14, 48, 'b')     # BP=w
-    C(14, 49, 's')     # enqueue w -> belt=[T,v..,SENT,w]
-    C(14, 50, '1'); C(14, 51, 'M'); C(14, 52, '0')   # A=0(k), B=1
-    C(14, 53, '>')                            # -> popcount loop (right area)
-    # popcount loop
-    C(26, 53, 'd')     # E: BP>0->CW(S)=loop ; ==0->straight(E)=DONE
-    C(26, 54, 'x')     # S: bit1->CW(W)=INC ; bit0->CCW(E)=SKIP
-    C(25, 54, '+'); C(24, 54, 'v')            # INC: A+=1 -> down
-    C(27, 54, 'v')                            # SKIP -> down
-    C(24, 55, '>'); C(26, 55, 'v'); C(27, 55, '<')   # merge at (26,55)v
-    C(26, 56, ']')     # BP>>=1
-    C(26, 57, '<'); C(23, 57, '^'); C(23, 53, '>')   # loopback up col23 -> d
-    # DONE: M(B=k), emit k, drain to restore belt front=w
-    C(27, 53, 'M')     # B=k
-    C(45, 53, 's')     # send k to O
-    C(46, 53, 'v'); C(46, 58, '<'); C(14, 58, 'v')   # return below popcount -> drain
-    # drain: r;s until SENT resent -> belt=[w,T,v..,SENT]
-    C(14, 59, 'r'); C(14, 60, 's'); C(14, 61, 'X')   # A>0->loop(W) ; A<0(SENT)->PASSF(E)
-    C(13, 61, '^'); C(13, 58, '>')            # loop up col13 -> (14,58)v
-    C(15, 61, 'v'); C(15, 62, '<'); C(14, 62, 'v')   # PASSF exit -> Pass F entry
-
-    # ---- Pass F: filter selected (belt=[w,T,v..,SENT], B=k) -> [sel_decreasing] ----
-    C(14, 63, 'r')     # A=w
-    C(14, 64, 'b')     # BP=w
-    C(14, 65, 'r')     # A=T (discard)
-    C(14, 66, 'v')     # NOTSEL/setup re-entry
-    C(14, 67, 'v')     # SELECTED re-entry
-    C(14, 69, 'r')     # A=item
-    C(14, 70, 'X')     # S: A>0(value)->CW(W)=FVAL ; A<0(SENT)->CCW(E)=FDONE
-    C(13, 70, 'x')     # W: bit1->CW(N)=SELECTED ; bit0->CCW(S)=NOTSEL
-    C(13, 69, 's'); C(13, 68, ']'); C(13, 67, '>')   # SELECTED: enqueue, shift -> (14,67)
-    C(13, 71, ']'); C(13, 72, '<'); C(12, 72, '^'); C(12, 66, '>')  # NOTSEL: shift -> (14,66)
-    C(15, 70, 'v'); C(15, 74, '<'); C(14, 74, 'v')   # FDONE -> Pass RE entry
-
-    # ---- Pass RE: reverse-emit k selected values to O in increasing index order ----
-    C(14, 75, 'W')     # A=size (=k)
-    C(14, 76, 'X')     # S: A>0->CW(W)=DOROT ; A==0->straight(S)=DONE
-    C(14, 77, 'H')     # DONE halt
-    C(13, 76, 'v'); C(13, 77, 'b'); C(13, 78, 'M'); C(13, 79, '1')
-    C(13, 80, 'W'); C(13, 81, '-'); C(13, 82, 'M')   # BP=m, B=m-1
-    C(13, 83, 'v')     # DEQ entry
-    C(13, 84, 'r'); C(13, 85, 'm'); C(13, 86, 'a')   # BP>0->CCW(E)=ENQ ; ==0->straight(S)=OUT
-    C(14, 86, 's'); C(15, 86, '^'); C(15, 83, '<')   # ENQ: re-enqueue -> loop (13,83)
-    C(13, 87, '>'); C(45, 87, 's')            # OUT: send element to O
-    C(46, 87, '^'); C(46, 74, '<')            # loop back -> (14,74)v -> OUTER
-
-    # ---- OUTPUT0 (STAGE C): emit single 0, halt ----
-    C(16, 26, '0'); C(17, 26, 'v'); C(17, 30, '>'); C(45, 30, 's'); C(46, 30, 'H')
 
     return p, placed
 
 if __name__ == '__main__':
     p, _ = build()
-    print(p.render())
     print('footprint', p.footprint())
-    p.save('/Users/visenbaev/icfpc26/solutions/subset-sum/ss_mitm.man')
-
-# ============================================================================
-# MEET-IN-THE-MIDDLE PLAN (algorithm VERIFIED in scratchpad/mitm.py vs brute on
-# all 7 public + crafted cases). This file currently still builds the FULL-ENUM
-# machine (identical to build.py); the MITM engine is NOT yet assembled here.
-# Below is the de-risked design so the build composes cleanly.
-#
-# KEY SIMPLIFICATION (avoids R/L split markers -> lets us REUSE LOAD/SEARCH/OUTPUT):
-#   Keep VRING = [v_{n-1}..v_0, SENT] exactly as LOAD already produces it.
-#   Position each half's mask in the correct bit window; the other half's values
-#   then line up with 0 bits and are auto-excluded -- no marker/counter needed:
-#     h=(n+1)>>1 ; Rn=n>>1 (n = h+Rn).
-#     R-enum: BP = Rmask           (Rmask < 2^Rn ; v_{n-1}..v_h get bits0..Rn-1,
-#                                    v_{h-1}..v_0 get bit0 -> excluded). sum -> sR.
-#     L-enum: BP = Lmask << Rn      (v_{n-1}..v_h get 0, v_{h-1}..v_0 get Lmask's
-#                                    bits, index h-1 <-> Lmask bit0). sum -> sL.
-#   Full winning mask = (Lmask<<Rn) | Rmask  (index i <-> bit n-1-i, unchanged) ->
-#   feed straight into the EXISTING OUTPUT (popcount/filter/reverse-emit).
-#
-# ENGINE = existing descending-mask revolution, but ACCUMULATE sum (sR/sL += val
-#   when bit set) instead of remaining -= val, and NO t-compare in the inner pass.
-#
-# STORAGE = a SECOND ring TRING (own relay + FEED/RETURN pipes; 6 pipes total:
-#   I, O, VFEED, VRETURN, TFEED, TRETURN -> keep 3 incoming and 3 outgoing in
-#   distinct columns per the same nearest-pipe column discipline).
-#
-# PHASE R  (build table): for Rmask = 2^Rn-1 .. 0 (descending, include 0):
-#   BP=Rmask; cycle VRING computing sR; enqueue (sR, Rmask) onto TRING.  (2^Rn revs)
-# PHASE L+MATCH: for Lmask = 2^h-1 .. 0 (descending):
-#   BP=Lmask<<Rn; cycle VRING computing sL; if sL<=t: need=t-sL;
-#   scan TRING once for an entry sR==need (stored descending -> FIRST hit = max
-#   Rmask = lex-smallest R index-set); if hit -> winning mask=(Lmask<<Rn)|Rmask,
-#   go to OUTPUT.  First Lmask (descending) with a hit wins.  If none -> emit 0.
-# TICKS (n=20, h=Rn=10): R-build ~250K ; L+MATCH worst ~2^h L-revs * ~2^h scan-
-#   pairs * ~7 ~= 5-8M ; total < 15M. Fits (and fixes the high-n timeouts).
-#
-# STAGING: (1) PHASE R -> dump TRING, verify (sR,Rmask) pairs on oracle for n=4
-#   (vals [3,5,2,6] -> pairs (8,3)(2,2)(6,1)(0,0));  (2) L+MATCH -> dump winning
-#   full mask, check vs scratchpad/mitm.py;  (3) wire OUTPUT.  Register budget in
-#   L-enum inner scan: A=entry, B=need (const during scan), BP free for compare
-#   flags -> compare via A-need sign (X).  Only submit ss_mitm.man if it passes
-#   ALL 6 small cases AND adds case 7.
-# ============================================================================
+    p.save('/Users/visenbaev/icfpc26/scratchpad/ss_mitm.man')

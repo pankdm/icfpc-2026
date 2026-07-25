@@ -181,10 +181,12 @@ class Sandbox:
 
 
 # ── grading ──────────────────────────────────────────────────────────────────
-def grade(slug, man_path, cases, timeout):
+def grade(slug, man_path, cases, timeout, cap=None):
     cmd = ["node", os.path.join(REPO, "tools", "grade_json.js"), slug, man_path]
     if cases:
         cmd += ["--cases", cases]
+    if cap:
+        cmd += ["--cap", str(int(cap))]
     try:
         r = subprocess.run(cmd, cwd=REPO, capture_output=True, text=True, timeout=timeout)
     except subprocess.TimeoutExpired:
@@ -220,7 +222,7 @@ class GradeCache:
         return res
 
 
-def evaluate(slug, builder_rel, source, args, target, cases, cache=None, baseline_man=None):
+def evaluate(slug, builder_rel, source, args, target, cases, cache=None, baseline_man=None, cap=None):
     """Build + grade one candidate in its own sandbox. Returns (result, man_text).
 
     Short-circuits before the (expensive) oracle call when the build fails or when the
@@ -238,7 +240,7 @@ def evaluate(slug, builder_rel, source, args, target, cases, cache=None, baselin
         def run():
             tmp = os.path.join(sbx.root, "_cand.man")
             open(tmp, "w", encoding="utf-8").write(man_text)
-            r = grade(slug, tmp, cases, args.timeout)
+            r = grade(slug, tmp, cases, args.timeout, cap)
             r["target"] = rel
             return r
 
@@ -282,6 +284,8 @@ def main():
     ap.add_argument("--passes", type=int, default=4)
     ap.add_argument("--budget", type=float, default=float("inf"))
     ap.add_argument("--timeout", type=float, default=120)
+    ap.add_argument("--tick-factor", type=float, default=4.0,
+                    help="reject candidates slower than this x the baseline avg ticks (default 4)")
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
 
@@ -320,6 +324,13 @@ def main():
     if args.dry_run or not knobs:
         return
 
+    # Cap candidate runs relative to the baseline: a build needing >N x the baseline ticks
+    # cannot beat it on score unless its box shrank by the same factor, and letting broken
+    # candidates run to the 5M default cap is what made the first version crawl.
+    tick_cap = int(base["avgTicks"] * args.tick_factor) + 200 if base.get("avgTicks") else None
+    if tick_cap:
+        print(f"candidate tick cap: {tick_cap:,} ({args.tick_factor}x baseline avg)")
+
     best_src, best, best_man = source, base, base_man
     cache = GradeCache()
     tried = set()      # (knob.key, value) already evaluated — never pay for it twice
@@ -357,7 +368,7 @@ def main():
                     break
                 src = patch(best_src, k, v)
                 pending[ex.submit(evaluate, args.slug, builder_rel, src, args, target,
-                                  args.cases, cache, best_man)] = (k, v, src)
+                                  args.cases, cache, best_man, tick_cap)] = (k, v, src)
             for f in futures.as_completed(pending):
                 k, v, src = pending[f]
                 try:

@@ -26,6 +26,10 @@ async function loadProblem(slug) {
 (async () => {
   const [slug, file] = process.argv.slice(2);
   const problem = await loadProblem(slug);
+  // A candidate needing far more ticks than the baseline cannot win on score anyway, and
+  // letting every broken candidate run to the 5M default cap is what makes a search crawl.
+  const cap = arg('--cap');
+  if (cap) problem.tickCap = Number(cap);
   const extra = arg('--cases');
   if (extra) {
     const j = JSON.parse(fs.readFileSync(extra, 'utf8'));

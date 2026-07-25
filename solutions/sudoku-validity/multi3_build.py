@@ -82,11 +82,17 @@ def lay_controller2(prog, cols, W=15, XR=12):
         if not can_place():
             wrap(); route_to(T)
         put(st['x'], st['y'], g); adv()
+    IMAX = 3                                      # rIN may sit at any col <= IMAX (I=2 nearest vs R=5)
     for op in prog:
         k = op if isinstance(op, str) else op[0]
         g = mb.glyph_of(op)
         if k == 'rIN':
-            place_at(I, g)                        # input: col I (start-only)
+            if not can_place():
+                wrap()
+            if st['x'] > IMAX or st['x'] < XL+1:
+                place_at(min(IMAX, XR-1), g)      # glide left to the I-nearest region
+            else:
+                put(st['x'], st['y'], g); adv()
         elif k == 'sD':
             place_at(D, g)                        # dispatch: col D (inside serpentine, inline)
         elif k == 'sS':

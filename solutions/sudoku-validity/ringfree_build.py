@@ -305,13 +305,14 @@ def merger_flat(L, x0, y0, W):
 def build_folded(path):
     L = Layout()
     Wm = 12
-    P = 17
-    Sx = [6, 6 + P, 6 + 2 * P]                 # man room origins: 6,23,40
-    E = [s + Wm - 1 for s in Sx]               # east walls: 17,34,51
+    P = int(__import__('os').environ.get('RF_PITCH', '16'))
+    Sx = [6, 6 + P, 6 + 2 * P]                 # man room origins
+    E = [s + Wm - 1 for s in Sx]               # east walls
     # PA (dist->bot, enters man WEST wall) on the LEFT of each man;
     # PB (topstore->merger, exits store EAST) on the RIGHT — opposite sides so jogs never cross.
-    PA = [4, Sx[0] + 15, Sx[1] + 15]           # 4,21,38  (left gap of each slot)
-    PB = [Sx[0] + 13, Sx[1] + 13, Sx[2] + 13]  # 19,36,53 (right gap of each slot)
+    off = 2 if P >= 17 else 1                   # distance of pass-through col from man wall
+    PA = [4, Sx[1] - off, Sx[2] - off]         # left gap of each slot
+    PB = [E[0] + off, E[1] + off, E[2] + off]  # right gap of each slot
     TOP = KINDS[:3]                            # rowLo,rowHi,colLo
     BOT = KINDS[3:]                            # colHi,boxLo,boxHi
     # bands
@@ -343,7 +344,8 @@ def build_folded(path):
     bstore_south = TS_b + 3
     MG = bstore_south + 3                       # merger north
     Wtot = max(E[2], PB[2]) + 2                 # full width (include rightmost pass-through)
-    mg_south, o_col = merger_flat(L, 0, MG, Wtot)
+    MGX = 5                                      # merger starts at col5 (cols0-4 free for O tuck)
+    mg_south, o_col = merger_flat(L, MGX, MG, Wtot - MGX)
     # ---- distributor (full width, top) ----
     distributor(L, 0, DIST_Y, Wtot)
     # ---- I room: tucked in the left margin below the distributor (adds no width) ----
@@ -366,9 +368,10 @@ def build_folded(path):
         L.pipe([(ocol, bot_c_south[c] + 1), (ocol, TS_b - 1)])
         # BOT store -> merger (straight down)
         L.pipe([(ocol, bstore_south + 1), (ocol, MG - 1)])
-    # ---- O room ----
-    L.output_room(o_col - 1, mg_south + 3)
-    L.pipe([(o_col, mg_south + 1), (o_col, mg_south + 2)])
+    # ---- O room: tucked WEST of the merger (cols0-2), fed from the merger west wall ----
+    orow = MG + 2                               # merger ops row (st)
+    L.output_room(0, orow - 1)                  # cols0-2, rows orow-1..orow+1
+    L.pipe([(MGX - 1, orow), (MGX - 2, orow)])  # merger west wall -> O east wall (cols4,3)
     L.save(path)
     print('FOOT', L.footprint())
     return L

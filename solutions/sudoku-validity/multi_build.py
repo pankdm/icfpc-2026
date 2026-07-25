@@ -23,7 +23,8 @@ ctrl = load('/Users/visenbaev/icfpc26/solutions/sudoku-validity/ctrl_onering.py'
 
 def glyph_of(op):
     k = op if isinstance(op, str) else op[0]
-    if k in ('rIN','rS'): return 'r'
+    if k == 'rIN': return 'r'          # recv_nearest at col I (input)
+    if k == 'rS':  return 'R'          # recv_any: during compute only the ring is ready
     if k in ('sS','sD'): return 's'
     if k == 'c': return str(op[1])
     if k in ('M','W','+','-','*','&','|','{','/'): return k
@@ -48,7 +49,8 @@ def lay_controller(prog, cols, XL=1, W=12):
         cells[(x,y)] = g
     def target(op):
         k = op if isinstance(op,str) else op[0]
-        return {'rIN':cols['I'],'rS':cols['R'],'sS':cols['F'],'sD':cols['D']}.get(k)
+        # rS uses R (recv_any) -> column-FREE; only rIN/sS/sD are column-disciplined.
+        return {'rIN':cols['I'],'sS':cols['F'],'sD':cols['D']}.get(k)
     # placeable op columns: [XL .. XR-1] heading E ; [XL+1 .. XR] heading W.
     # Turn columns XR (E-row end) and XL (W-row end) hold only turn glyphs.
     # Feeder re-entry: @ (XL,1) -> 'v'(XL+1,1) [loop merge] -> '>'(XL+1,2) -> row2 E.
@@ -170,31 +172,32 @@ def man_storage(L, f, y0):
     L.put(f, y0+8, '>'); L.put(f+1, y0+8, '^')
 
 def build_merger(L, x0, y0, W):
-    """Merger spanning W wide (to receive 6 dup pipes on north wall). Left spine at
-    col g=x0+4 does R (M R |)*5 = OR of 6 dups (R=recv_any, order-free), then X:
-      A==0 (ok, straight S)  -> 1 ; s->O ; loop
-      A>0  (dup, CW=West)    -> 0 ; s->O ; H
-    Returns (room_height, south_wall_row, g)."""
-    g = x0+4
-    ops = ['R','M'] + ['R','|','M']*4 + ['R','|']
-    H = len(ops) + 8
+    """FLAT merger spanning W wide (receives 6 dup pipes on north wall). A horizontal
+    OR row does R (M R |)*5 = OR of 6 dups (R=recv_any, position-free), then X:
+      A==0 (ok, straight E)  -> 1 ; s->O ; loop back
+      A>0  (dup, CW=South)   -> 0 ; s->O ; H
+    Output 's' -> O on the south wall (col = ocol, returned). Room is 7 tall."""
+    H = 7
     L.room(x0, y0, W, H)
-    L.put(g-1, y0+1, '@'); L.put(g, y0+1, 'v'); L.put(g+3, y0+1, '<')   # feeder + loop merge/rail-end
-    r = y0+2
+    tr, st = y0+1, y0+2
+    L.put(x0+1, tr, '@'); L.put(x0+2, tr, 'v'); L.put(x0+2, st, '>')
+    ops = ['R','M'] + ['R','|','M']*4 + ['R','|']
+    x = x0+3
     for ch in ops:
-        L.put(g, r, ch); r += 1
-    L.put(g, r, 'X'); xr = r
-    # ok (straight S)
-    L.put(g, xr+1, '1'); L.put(g, xr+2, 's')
-    L.put(g, xr+3, '>'); L.put(g+3, xr+3, '^')       # loop east to col g+3, up to toprail '<'
-    # dup (CW west)
-    L.put(g-1, xr, '0'); L.put(g-2, xr, 's'); L.put(g-3, xr, 'H')
-    return H, y0+H-1, g
+        L.put(x, st, ch); x += 1
+    L.put(x, st, 'X'); xc = x
+    # ok (straight E): 1 ; s(->O) ; loop back to merge via riser
+    L.put(xc+1, st, '1'); L.put(xc+2, st, 's'); ocol = xc+2
+    riser = xc+4
+    L.put(riser, st, '^'); L.put(riser, tr, '<')     # loop east->riser->up->west along toprail
+    # dup (CW South): 0 ; s(->O) ; H
+    L.put(xc, st+1, '0'); L.put(xc, st+2, 's'); L.put(xc, st+3, 'H')
+    return H, y0+H-1, ocol
 
 def build_full():
     prog = ctrl.build_dispatch()
     L = Layout()
-    W = 15
+    W = 16
     cols = dict(I=2, R=5, F=7, D=10)
     Hroom = place_controller(L, prog, cols, W)
     sw = Hroom-1
@@ -217,12 +220,12 @@ def build_full():
     men_sw = MY+9
     # merger (wide enough to receive all 6 dup pipes on its north wall)
     MGY = men_sw+3
-    mh, msw, g = build_merger(L, 0, MGY, DW)
+    mh, msw, ocol = build_merger(L, 0, MGY, DW)
     for f in mcols:
         vpipe(L, f, men_sw, MGY)                       # dup pipes men->merger
-    # O below merger, fed from merger spine col g
+    # O below merger, fed from merger output col
     OY = msw+3
-    L.output_room(g-1, OY); vpipe(L, g, msw, OY)
+    L.output_room(ocol-1, OY); vpipe(L, ocol, msw, OY)
     print(L.render())
     print('FOOT', L.footprint())
     L.save('/Users/visenbaev/icfpc26/solutions/sudoku-validity/multi.man')

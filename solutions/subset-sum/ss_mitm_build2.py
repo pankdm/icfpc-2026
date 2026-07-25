@@ -138,32 +138,37 @@ def build():
     p.pipe([(52, 30), (64, 30), (64, 93)])                   # FEED right row30 -> relay top(64), east of ret
     p.pipe([(62, 93), (62, 40), (52, 40)])                   # RET relay -> right row40 (no feed crossing)
     C(61, 95, '>'); C(62, 95, '@'); C(63, 95, 'R'); C(64, 95, 's'); C(65, 95, 'v'); C(65, 96, '<'); C(61, 96, '^')
+    # NN ring (BOTTOM-CENTER): holds n (1 item).  feed bottom col25, ret bottom col27.
+    p.room(23, 96, 7, 5)                                     # NN relay cols23..29 rows96..100
+    p.pipe([(25, 92), (25, 95)])                             # FEED bottom col25 -> relay top
+    p.pipe([(27, 95), (27, 92)])                             # RET  relay -> bottom col27
+    C(24, 97, '>'); C(25, 97, '@'); C(26, 97, 'R'); C(27, 97, 's'); C(28, 97, 'v'); C(28, 98, '<'); C(24, 98, '^')
 
     # =============================================================================
     # PASS 1a : read n, compute 2^(n-1) into A (B=1).  (n recovered later via q BIT.)
     # =============================================================================
     p.man(12, 2)
     C(12, 2, '@'); H(13, 33, 2, '>'); C(34, 2, 'r')   # walk E to input col34, A=n
-    C(35, 2, 'v'); C(35, 3, '<'); H(13, 34, 3, '<')   # drop, walk W back
-    C(12, 3, 'v'); V(4, 59, 12, 'v')                  # down col12 to row59
-    C(12, 60, 'b')                                    # BP := n
-    C(12, 61, 'm')                                    # BP := n-1
-    C(12, 62, '1')                                    # A := 1
-    C(12, 63, 'M')                                    # B := 1
-    # DOUBLE loop: v(redirect) { m a(BP>0 CCW=E loop) -> A=2^(n-1), B=1
-    C(12, 64, 'v')                                    # entry / loop-back redirect DOWN
-    C(12, 65, '{')                                    # A <<= 1
-    C(12, 66, 'm')                                    # BP -= 1
-    C(12, 67, 'a')                                    # BP>0 (walking S) CCW=E -> loop ; else straight S
-    C(13, 67, '^'); C(13, 66, '^'); C(13, 65, '^'); C(13, 64, '<')  # up col13, W into (12,64)v
-    C(12, 68, '>')                                    # BP==0 fall-through E; A=2^(n-1), B=1
+    C(35, 2, 'v'); V(3, 78, 35, 'v'); C(35, 79, '<'); H(25, 34, 79, '<'); C(24, 79, 'v')  # down col35, W to bottom-center
+    # bottom-center strip (col24): stash n, then DOUBLE loop -> A=2^(n-1), B=1
+    C(24, 80, 's')                                    # stash n -> NN (nearest NN feed col25)
+    C(24, 81, 'b')                                    # BP := n
+    C(24, 82, 'm')                                    # BP := n-1
+    C(24, 83, '1')                                    # A := 1
+    C(24, 84, 'M')                                    # B := 1
+    C(24, 85, 'v')                                    # entry / loop-back redirect DOWN
+    C(24, 86, '{')                                    # A <<= 1
+    C(24, 87, 'm')                                    # BP -= 1
+    C(24, 88, 'a')                                    # BP>0 (walking S) CCW=E -> loop ; else straight S
+    C(25, 88, '^'); C(25, 87, '^'); C(25, 86, '^'); C(25, 85, '<')  # up col25, W into (24,85)v
+    C(24, 89, '>')                                    # BP==0 fall-through E; A=2^(n-1), B=1
 
     # =============================================================================
     # PASS 1b : BIT fill.  while A>0: s->BIT ; }->A>>=1 ; X(A>0 loop).
     # BIT feed attach = right wall row30 (src (52,30)); do s on the RIGHT.
     # Loop spine col50 rows28..32 ; loop-back col49 rows28..31 ; ENTER at (50,27) heading S.
     # =============================================================================
-    H(13, 13, 68, '>'); C(14, 68, '^'); V(28, 67, 14, '^'); C(14, 27, '>')  # up col14 to row27
+    H(25, 47, 89, '>'); C(48, 89, '^'); V(28, 88, 48, '^'); C(48, 27, '>'); C(49, 27, '>')  # up col48 to row27
     H(15, 49, 27, '>'); C(50, 27, 'v')                # E along row27 to col50, drop into loop
     C(50, 28, 's')                                    # enqueue A -> BIT (arrives heading S)
     C(50, 29, 'v'); C(50, 30, '}'); C(50, 31, 'X')    # shift ; S:A>0 CW=W loop, A==0 straight done

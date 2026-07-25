@@ -35,12 +35,12 @@ def build_sasent(c): c.op('7').op('M').op('+').op('M').op('1').op('{')  # A=7;B=
 
 # ---- spread columns (tiny), deeper-left staggered relays ----
 I_=2
-SAf=5;   SAr=6
+SAf=5;   SAr=7        # SA: gap col6 between feed/ret (avoids deep-ring short-circuit)
 HMr=11;  HMf=12       # holders: ret<feed so eastward "r then s-reenq" walks monotonically
 HKr=17;  HKf=18
 HMRr=23; HMRf=24      # Mrem: adjacent (dec is a vertical gadget at col HMRr)
 H1r=33;  H1f=35       # gap 34
-SBr=39;  SBf=40
+SBr=38;  SBf=40       # SB: gap col39 between ret/feed (avoids deep-ring short-circuit)
 SCr=44;  SCf=46       # gap 45 for '+'
 O_=50
 
@@ -109,8 +109,12 @@ def build(stage="tiny"):
         P.p.pipe([(feed,-1),(feed,RY+4)]); P.p.pipe([(ret,RY+4),(ret,-1)])
         for yy in range(RY+4,0):
             for cc in (feed,ret): P.placed.setdefault((cc,yy),'|')
-    ring(SAf,SAr,-70); ring(HMf,HMr,-64); ring(HKf,HKr,-58); ring(HMRf,HMRr,-52)
-    ring(H1f,H1r,-46); ring(SBf,SBr,-40); ring(SCf,SCr,-34)
+    # SA/SB deepened for large cases (SA cap>=NM+1<=257, SB cap>=MK<=256); gaps avoid short-circuit.
+    DA,DB = (-70,-40) if stage=="tiny" else (-292,-272)
+    ring(SAf,SAr,DA); ring(HMf,HMr,-64); ring(HKf,HKr,-58); ring(HMRf,HMRr,-52)
+    # H1 (a-holder) re-read EVERY MAC with only 1 value -> MUST be shallow (round-trip latency
+    # else the man stalls each MAC waiting for a to cycle back).  SC re-read hot too -> shallow.
+    ring(H1f,H1r,-9); ring(SBf,SBr,DB); ring(SCf,SCr,-14)
     IY=-6
     P.p.input_room(I_-1,IY);  P.p.pipe([(I_,IY+3),(I_,-1)])
     P.p.output_room(O_-1,IY); P.p.pipe([(O_,-1),(O_,IY+3)])

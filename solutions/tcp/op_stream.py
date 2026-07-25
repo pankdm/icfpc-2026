@@ -32,11 +32,11 @@ def program():
     P = {}
     P['INIT'] = ['r', ('goto','MAIN')]
     P['MAIN'] = (['r','M'] + LOADW() + ['W','-',            # A=off, B=waiting
-                 'M',('lit',16),'W','-',                    # A=off-16
-                 ('br','HALT','HALT','CONT')])
+                 'M',('lit',15),'W','-',                    # A=off-15
+                 ('br','HALT','CONT','CONT')])              # off-15>0 => off>=16 => HALT
     P['HALT'] = ['c1','N','M','c1','sCMD','c0','sCMD','W','sCMD',   # CMD_WRITE(0,-1)
                  'c0','sCMD','c0','sCMD','c0','sCMD','H']            # CMD_READ(0)
-    P['CONT'] = (['M',('lit',16),'+','M'] + LOADW() + ['+',        # A=seq
+    P['CONT'] = (['M',('lit',15),'+','M'] + LOADW() + ['+',        # A=seq = (off-15)+15+waiting
                  'M',('lit',15),'W','&','M',                       # A=slot,B=slot
                  'c1','sCMD','W','sCMD','M','r','sCMD',            # CMD_WRITE(slot,val)
                  'W','M','c1','{','M'] + LOADF() + ['|'] + STOREF()# fmask|=1<<slot

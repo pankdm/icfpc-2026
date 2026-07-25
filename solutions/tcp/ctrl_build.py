@@ -19,11 +19,20 @@ def rte(L, pts):
     if len(clean) >= 2:
         route(L, clean)
 
-cIN, cCMD, cWF, cWR, cFF, cFR = 4, 10, 16, 22, 28, 34
-PIPECOL = {'r': cIN, 'sCMD': cCMD, 'sWF': cWF, 'rWR': cWR, 'sFF': cFF, 'rFR': cFR}
-PIPECH = {'r': 'r', 'sCMD': 's', 'sWF': 's', 'rWR': 'r', 'sFF': 's', 'rFR': 'r'}
+cIN, cCMD, cWF, cWR, cFF, cFR, cLF, cLR = 4, 10, 16, 22, 28, 34, 40, 46
+PIPECOL = {'r': cIN, 'sCMD': cCMD, 'sWF': cWF, 'rWR': cWR, 'sFF': cFF, 'rFR': cFR, 'sLF': cLF, 'rLR': cLR}
+PIPECH = {'r': 'r', 'sCMD': 's', 'sWF': 's', 'rWR': 'r', 'sFF': 's', 'rFR': 'r', 'sLF': 's', 'rLR': 'r'}
 Ctop = 30
-CWID = 42
+CWID = 62
+
+def build_const15(L, cx, sy):
+    """Self-serving const-15 man: loop r `15` s (its backtick is isolated here).
+    IN (trigger) and OUT (reply 15) attach the BOTTOM wall at cols cLF, cLR."""
+    L.room(cx, sy - 1, 12, 4)                 # interior rows sy, sy+1 ; bottom wall sy+2
+    L.put(cx + 1, sy, '@'); L.put(cx + 2, sy, '>'); L.put(cx + 3, sy, 'r')
+    L.put(cx + 4, sy, '`'); L.put(cx + 5, sy, '1'); L.put(cx + 6, sy, '5'); L.put(cx + 7, sy, '`')
+    L.put(cx + 8, sy, 's'); L.put(cx + 9, sy, 'v')
+    L.put(cx + 2, sy + 1, '^'); L.put(cx + 9, sy + 1, '<')
 
 def build():
     L = Layout()
@@ -33,18 +42,26 @@ def build():
     # input room above cIN
     L.input_room(cIN - 1, Ctop - 4)
     L.pipe([(cIN, Ctop - 2), (cIN, Ctop - 1)])
-    # cmd pipe top wall cCMD -> driver
+    # cmd pipe top wall cCMD -> up above storage men -> down a lane 5 cols off the
+    # driver wall -> short east stub into the driver (avoid wall-adjacency spurious attach)
     dx, dy = cmd_pt
-    L.pipe([(cCMD, Ctop - 1), (cCMD, Ctop - 8), (dx - 1, Ctop - 8), (dx - 1, dy)])
-    # storage men above-right; wire pipes with distinct cols/rows (no crossings)
-    Wy, Fy = Ctop - 14, Ctop - 30
-    W_in, W_out = build_storage(L, 52, Wy)     # W_in=(52,Wy) west, W_out=(62,Wy) east
-    F_in, F_out = build_storage(L, 52, Fy)
-    # WF: ctrl top cWF -> up col16 -> row Wr1 -> col50 -> W_in.  each pipe its own vert col & row.
-    L.pipe([(cWF, Ctop - 1), (cWF, Wy), (W_in[0] - 1, Wy)])                       # 16 up, east to W west
-    L.pipe([(W_out[0] + 1, Wy), (W_out[0] + 2, Wy), (W_out[0] + 2, Ctop - 4), (cWR, Ctop - 4), (cWR, Ctop - 1)])
-    L.pipe([(cFF, Ctop - 1), (cFF, Fy), (F_in[0] - 1, Fy)])                       # 28 up, east to F west
-    L.pipe([(F_out[0] + 1, Fy), (F_out[0] + 3, Fy), (F_out[0] + 3, Ctop - 2), (cFR, Ctop - 2), (cFR, Ctop - 1)])
+    lane = dx - 5
+    L.pipe([(cCMD, Ctop - 1), (cCMD, Ctop - 9), (lane, Ctop - 9), (lane, dy), (dx - 1, dy)])
+    # storage men just above the controller; BOTH pipes attach the man's BOTTOM wall
+    # -> all 4 storage pipes are short straight verticals in distinct columns (no crossings).
+    Wsy = Ctop - 7                          # man interior rows Wsy..Wsy+3; bottom wall Wsy+4=Ctop-3
+    build_storage(L, cWF - 2, Wsy)          # W-man cols 14..24 ; in@cWF=16 out@cWR=22 on bottom wall
+    build_storage(L, cFF - 2, Wsy)          # F-man cols 26..36 ; in@cFF=28 out@cFR=34
+    # WF: ctrl top col16 UP into W-man bottom
+    L.pipe([(cWF, Ctop - 1), (cWF, Ctop - 2)])
+    # WR: W-man bottom col22 DOWN into ctrl top
+    L.pipe([(cWR, Ctop - 2), (cWR, Ctop - 1)])
+    L.pipe([(cFF, Ctop - 1), (cFF, Ctop - 2)])
+    L.pipe([(cFR, Ctop - 2), (cFR, Ctop - 1)])
+    # const-15 man (bottom-wall pipes at cLF/cLR)
+    build_const15(L, 38, Ctop - 5)
+    L.pipe([(cLF, Ctop - 1), (cLF, Ctop - 2)])
+    L.pipe([(cLR, Ctop - 2), (cLR, Ctop - 1)])
     # O
     ox, oy = o_attach
     L.output_room(ox - 1, oy + 3)
@@ -68,8 +85,17 @@ def build():
             out.append(t)
         return out
 
+    def expand(tokens):
+        out = []
+        for t in tokens:
+            if isinstance(t, tuple) and t[0] == 'lit':
+                out += ['c0', 'sLF', 'rLR']      # LOAD15: trigger const15, recv 15 (A=15, B kept)
+            else:
+                out.append(t)
+        return out
+
     for lab in order:
-        toks = P[lab]
+        toks = expand(P[lab])
         head[lab] = y
         L.put(1, y, '@' if lab == 'INIT' else '>')
         if lab == 'INIT':

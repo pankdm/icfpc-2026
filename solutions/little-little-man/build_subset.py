@@ -12,6 +12,7 @@ HERE = os.path.dirname(__file__)
 sys.path.insert(0, os.path.join(HERE, "..", "..", "tools"))
 import littleman as lm
 import flowgrid
+import belt_ram
 
 
 # Scalar addresses fit in one digit, allowing store() to preserve its payload in B.
@@ -239,52 +240,6 @@ def build_flow():
     return f
 
 
-def build_ram(p, ox, oy, n=RAM_N, foldw=48):
-    """Addressable circulating RAM server. Protocol [op,addr,(value)], read replies."""
-    put, text = p.put, p.text
-    # Adapted from memory/belt5: OFF encoding gives a sign-only sentinel drain.
-    put(ox + 1, oy + 1, "@"); text(ox + 2, oy + 1, "`" + str(n) + "`")
-    put(ox + 2 + len(str(n)) + 2, oy + 1, "b")
-    x = ox + 2 + len(str(n)) + 3
-    text(x, oy + 1, "`2000000`"); put(x + 9, oy + 1, "v")
-    # Seed loop.
-    put(x + 9, oy + 2, "<"); put(ox + 6, oy + 2, "a"); put(ox + 7, oy + 2, "m")
-    put(ox + 8, oy + 2, "s"); put(ox + 9, oy + 2, "<")
-    put(ox + 6, oy + 3, ">"); put(ox + 9, oy + 3, "^")
-    put(ox + 1, oy + 2, "v"); put(ox + 1, oy + 3, "v")
-    put(ox + 1, oy + 4, ">"); put(ox + 2, oy + 4, "1"); put(ox + 3, oy + 4, "N")
-    put(ox + 4, oy + 4, "s"); put(ox + 5, oy + 4, "v"); put(ox + 5, oy + 5, "<")
-    put(ox + 2, oy + 5, "v"); put(ox + 16, oy + 5, "<")
-    # command read and seek
-    put(ox + 2, oy + 6, "r"); put(ox + 2, oy + 7, "M")
-    put(ox + 2, oy + 8, "r"); put(ox + 2, oy + 9, "b")
-    put(ox + 2, oy + 10, ">"); put(ox + 6, oy + 10, "v")
-    put(ox + 6, oy + 11, "r"); put(ox + 6, oy + 12, "d")
-    put(ox + 5, oy + 12, "s"); put(ox + 4, oy + 12, "m")
-    put(ox + 3, oy + 12, "^"); put(ox + 3, oy + 10, ">")
-    put(ox + 6, oy + 13, "W"); put(ox + 6, oy + 14, "X")
-    # read
-    put(ox + 6, oy + 15, "W"); put(ox + 6, oy + 16, ">")
-    put(ox + 7, oy + 16, "s"); put(ox + 8, oy + 16, "M")
-    text(ox + 9, oy + 16, "`2000000`"); put(ox + 18, oy + 16, "-")
-    put(ox + 19, oy + 16, "N"); put(ox + 20, oy + 16, "s"); put(ox + 21, oy + 16, "v")
-    put(ox + 21, oy + 17, "v"); put(ox + 21, oy + 18, "v"); put(ox + 21, oy + 19, "<")
-    # write
-    put(ox + 4, oy + 14, "v"); put(ox + 4, oy + 15, "r"); put(ox + 4, oy + 16, "M")
-    put(ox + 4, oy + 17, ">"); text(ox + 5, oy + 17, "`2000000`")
-    put(ox + 14, oy + 17, "+"); put(ox + 15, oy + 17, "v")
-    put(ox + 15, oy + 18, "<"); put(ox + 10, oy + 18, "s")
-    put(ox + 9, oy + 18, "v"); put(ox + 9, oy + 19, ">"); put(ox + 10, oy + 19, "v")
-    # drain
-    put(ox + 10, oy + 20, "v"); put(ox + 10, oy + 21, "r")
-    put(ox + 10, oy + 22, "s"); put(ox + 10, oy + 23, "X")
-    put(ox + 9, oy + 23, "^"); put(ox + 9, oy + 20, ">"); put(ox + 16, oy + 23, "^")
-    p.room(ox, oy, 24, 25)
-    # Command uses bottom col2 (preserves the proven input-vs-belt tie-break);
-    # reply exits the right wall beside the read-only send.
-    return (ox + 2, oy + 25), (ox + 6, oy + 25), (ox + 10, oy + 25), (ox + 24, oy + 16)
-
-
 CTRL_CODE = 300
 
 
@@ -312,22 +267,7 @@ def build():
     # Place RAM and display below the controller, then route outside its bbox.
     cy = inp[1]
     rox, roy = CTRL_CODE + 48, cy + 80
-    ram_in, ram_out, belt_out, read_reply = build_ram(p, rox, roy)
-    # RAM belt + relay.
-    base = roy + 32
-    pts = [(belt_out[0], belt_out[1]), (belt_out[0], base), (rox + 48, base)]
-    yy = base
-    for j in range(7):
-        nx = rox + (70 if j % 2 == 0 else 48)
-        pts += [(nx, yy), (nx, yy + 1)]
-        yy += 1
-    pts += [(rox + 71, yy)]
-    p.pipe(pts)
-    rx = rox + 72
-    p.room(rx, yy - 2, 6, 6)
-    p.text(rx + 1, yy, ">@rv"); p.text(rx + 4, yy + 1, "<s.^", "W")
-    p.pipe([(rx - 1, yy + 1), (ram_out[0], yy + 1),
-            (ram_out[0], ram_out[1] + 2), ram_out])
+    ram = belt_ram.build(p, rox, roy, RAM_N)
     # Input room.
     p.input_room(inp[0] - 1, cy + 12)
     p.pipe([(inp[0], cy + 11), (inp[0], cy)])
@@ -343,8 +283,10 @@ def build():
     p.pipe([(sx + 4, sy - 1), (sx + 4, sy - 3),
             (CTRL_CODE + 30, sy - 3), (CTRL_CODE + 30, cy)])
     # Command dog-legs around the RAM's left wall, then enters bottom-col2.
+    ram_cmd = ram["command"]
     p.pipe([(ram_cmd[0], cy), (ram_cmd[0], roy - 3), (rox - 3, roy - 3),
-            (rox - 3, ram_in[1] + 3), (ram_in[0], ram_in[1] + 3), ram_in])
+            (rox - 3, ram_cmd[1] + 3), (ram_cmd[0], ram_cmd[1] + 3), ram_cmd])
+    read_reply = ram["reply"]
     p.pipe([(read_reply[0], read_reply[1]), (ram_reply[0], read_reply[1]),
             (ram_reply[0], cy)])
     # 16x16 display, DATA on left and SWAP on bottom.

@@ -16,30 +16,27 @@ import sys
 sys.path.insert(0, '/Users/visenbaev/icfpc26/tools')
 from layout import Layout
 
-def emit_montree(L, cb, y0, leaf_fn):
-    """Monotonic tree. Returns {slot: leaf_col=cb+slot}. Man enters (cb,y0) S, B=seq."""
-    Wd = [8, 4, 2, 1]                    # weight per level = 2^(3-level)
+def emit_montree(L, entry_col, y0, leaf_fn):
+    """Monotonic tree, 3 ops/level via `w & X` (X branches on sign — no `b`).
+    Man enters (entry_col,y0) heading S with B=seq. Per level l (MSB-first):
+    A=w (w=2^(3-l)); A=w&seq (=w if bit set else 0); X: A>0 -> CW = WEST by w,
+    A==0 -> straight S. So a set bit moves WEST. leaf col = entry_col - slot.
+    12 rows (y0..y0+11); leaves at y0+12. Returns {slot: leaf_col}."""
+    Wd = [8, 4, 2, 1]
     leaves = {}
     def node(level, col, row):
         w = Wd[level]
         L.put(col, row,     str(w))      # A = w
         L.put(col, row + 1, '&')         # A = w & seq
-        L.put(col, row + 2, 'b')         # BP = A
-        L.put(col, row + 3, 'a')         # CCW(east) iff bit set
-        # set-child: glide east w on row+3, drop south at col+w
-        for k in range(1, w):
-            L.put(col + k, row + 3, '-') if False else None   # leave blank glide
-        L.put(col + w, row + 3, 'v')     # turn S at the set-child column
-        crow = row + 4
+        L.put(col, row + 2, 'X')         # A>0 -> CW(west) ; A==0 -> straight S
+        L.put(col - w, row + 2, 'v')     # set-child: after westward glide, turn S
+        crow = row + 3
         if level < 3:
             node(level + 1, col,     crow)   # clear child (straight S)
-            node(level + 1, col + w, crow)   # set child
-        else:
-            leaf_fn(L, col,     crow, 'clear')  # handled by caller: slot known by col
-    node(0, cb, y0)
-    # leaves at row y0+16, cols cb..cb+15
+            node(level + 1, col - w, crow)   # set child (west by w)
+    node(0, entry_col, y0)
     for s in range(16):
-        leaves[s] = cb + s
+        leaves[s] = entry_col - s            # slot0 -> entry_col ; slot15 -> entry_col-15
     return leaves
 
 
@@ -164,18 +161,19 @@ def emit_checker(L, cx, cy):
 
 def build_full():
     L = Layout()
-    CB = 15
+    CB = 15                                        # west end of the lane band
+    ENTRY = CB + 15                                # montree entry (east); leaf s -> ENTRY-s
     yr = 2
     y0 = yr + 1
-    LEAFROW = y0 + 16
+    LEAFROW = y0 + 12                              # montree is 12 rows now
     # ---- READER ----
     L.put(1, yr, '@'); L.put(2, yr, 'r')          # discard n
     L.put(3, yr, '>')                              # loop entry
     L.put(4, yr, 'r')                              # seq -> A
     L.put(5, yr, 'M')                              # B = seq
-    L.put(6, yr, 's')                              # forward seq -> checker (seq-pipe nearest at top)
-    L.put(CB, yr, 'v')                             # glide E to CB, into tree
-    leaves = emit_montree(L, CB, y0, lambda *a: None)
+    L.put(6, yr, 's')                              # forward seq -> checker
+    L.put(ENTRY, yr, 'v')                          # glide E to ENTRY, into tree
+    leaves = emit_montree(L, ENTRY, y0, lambda *a: None)
     for s in range(16):
         c = leaves[s]
         L.put(c, LEAFROW, 'r')                     # read val (only reader-incoming = input)
@@ -192,23 +190,23 @@ def build_full():
     for s in range(16):
         c = leaves[s]
         L.pipe([(c, RWALL + 1), (c, TW - 1)])
-    # ---- SWEEPER ----
+    # ---- SWEEPER (mirrored: lane i at col ENTRY-i=CB+15-i, sweep EAST->WEST) ----
     R0, R1, R2, R3, Rw = TW + 1, TW + 2, TW + 3, TW + 4, TW + 5
     BW = TW + 6
     for i in range(16):
-        c = CB + i
-        if i % 2 == 0:
+        c = CB + 15 - i                            # lane i column
+        if i % 2 == 0:                             # DOWN-col
             L.put(c, R0, 'v'); L.put(c, R1, 'r'); L.put(c, R2, 's')
-            if i != 15: L.put(c, R3, '>')
-        else:
+            if i != 15: L.put(c, R3, '<')          # exit WEST
+        else:                                      # UP-col
             L.put(c, R3, '^'); L.put(c, R2, 'r'); L.put(c, R1, 's')
-            if i != 15: L.put(c, R0, '>')
-    c15 = CB + 15
-    L.put(c15, R0, '>')
-    ec = CB + 16; wc = CB - 1
-    L.put(ec, R0, 'v'); L.put(ec, Rw, '<')
-    L.put(wc, Rw, '^'); L.put(wc, R0, '>')
-    L.put(wc - 1, R0, '@')
+            if i != 15: L.put(c, R0, '<')          # exit WEST
+    # lane15 (i=15, up) at col CB (west) wraps back to lane0 (col CB+15, east)
+    L.put(CB, R0, '<')                             # lane15 top exit WEST
+    wc = CB - 1; ec = CB + 16
+    L.put(wc, R0, 'v'); L.put(wc, Rw, '>')         # west col down, turn E onto rail
+    L.put(ec, Rw, '^'); L.put(ec, R0, '<')         # east col up, turn W into lane0
+    L.put(wc + 1, Rw, '@')                         # spawn on rail heading E
     L.room(0, TW, CB + 18, BW - TW + 1)
     sc = CB + 8                       # sweeper drain outgoing column
 

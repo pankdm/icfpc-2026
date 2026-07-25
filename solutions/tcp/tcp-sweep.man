@@ -5,23 +5,19 @@
     v
   +-------------------------------+
   |                               |
-v<|@r>rMs        v                |
-| |              8                |
-| |              &                |
-| |              b                |
-| |              a       v        |
-| |              4       4        |
-| |              &       &        |
-| |              b       b        |
-| |              a   v   a   v    |
-| |              2   2   2   2    |
-| |              &   &   &   &    |
-| |              b   b   b   b    |
-| |              a v a v a v a v  |
-| |              1 1 1 1 1 1 1 1  |
-| |              & & & & & & & &  |
-| |              b b b b b b b b  |
-| |              avavavavavavavav |
+v<|@r>rMs                       v |
+| |                             8 |
+| |                             & |
+| |                     v       X |
+| |                     4       4 |
+| |                     &       & |
+| |                 v   X   v   X |
+| |                 2   2   2   2 |
+| |                 &   &   &   & |
+| |               v X v X v X v X |
+| |               1 1 1 1 1 1 1 1 |
+| |               & & & & & & & & |
+| |              vXvXvXvXvXvXvXvX |
 | |              rrrrrrrrrrrrrrrr |
 | |              ssssssssssssssss |
 | |  ^           <<<<<<<<<<<<<<<< |
@@ -30,11 +26,11 @@ v<|@r>rMs        v                |
 |                ||||||||||||||||
 |                vvvvvvvvvvvvvvvv
 | +-------------------------------+
-| |            @>v>v>v>v>v>v>v>v>v|
-| |              rsrsrsrsrsrsrsrs |
+| |             v<v<v<v<v<v<v<v<v<|
 | |              srsrsrsrsrsrsrsr |
-| |              >^>^>^>^>^>^>^>^ |
-| |             ^                <|
+| |              rsrsrsrsrsrsrsrs |
+| |              ^<^<^<^<^<^<^<^< |
+| |             >@               ^|
 | +-------------------------------+
 |                        v
 |                        |

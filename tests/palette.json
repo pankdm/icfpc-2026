@@ -190,5 +190,6 @@
   "scoring": "footprint-tick",
   "slug": "palette",
   "status": "practice",
-  "tickCap": null
+  "tickCap": null,
+  "uberStrict": false
 }

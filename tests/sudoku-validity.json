@@ -2921,5 +2921,6 @@
   "scoring": "footprint-tick",
   "slug": "sudoku-validity",
   "status": "graded",
-  "tickCap": null
+  "tickCap": null,
+  "uberStrict": true
 }

@@ -127,5 +127,6 @@
   "scoring": "footprint-tick",
   "slug": "atoi",
   "status": "practice",
-  "tickCap": null
+  "tickCap": null,
+  "uberStrict": false
 }

@@ -77,5 +77,6 @@
   "scoring": "footprint-tick",
   "slug": "triangle",
   "status": "graded",
-  "tickCap": null
+  "tickCap": null,
+  "uberStrict": false
 }

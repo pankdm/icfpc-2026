@@ -2838,5 +2838,6 @@
   "scoring": "footprint",
   "slug": "history-lesson",
   "status": "graded",
-  "tickCap": null
+  "tickCap": null,
+  "uberStrict": false
 }

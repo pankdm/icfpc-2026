@@ -439,5 +439,6 @@
   "scoring": "footprint-tick",
   "slug": "sort-numbers",
   "status": "graded",
-  "tickCap": null
+  "tickCap": null,
+  "uberStrict": false
 }

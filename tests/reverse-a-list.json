@@ -428,5 +428,6 @@
   "scoring": "footprint-tick",
   "slug": "reverse-a-list",
   "status": "graded",
-  "tickCap": null
+  "tickCap": null,
+  "uberStrict": false
 }

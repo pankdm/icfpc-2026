@@ -247,5 +247,6 @@
   "scoring": "footprint-tick",
   "slug": "subset-sum",
   "status": "graded",
-  "tickCap": 15000000
+  "tickCap": 15000000,
+  "uberStrict": false
 }

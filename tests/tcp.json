@@ -781,5 +781,6 @@
   "scoring": "footprint-tick",
   "slug": "tcp",
   "status": "graded",
-  "tickCap": null
+  "tickCap": null,
+  "uberStrict": false
 }

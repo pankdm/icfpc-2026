@@ -184,5 +184,6 @@
   "scoring": "footprint-tick",
   "slug": "max-element",
   "status": "practice",
-  "tickCap": null
+  "tickCap": null,
+  "uberStrict": false
 }

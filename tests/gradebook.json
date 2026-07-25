@@ -611,5 +611,6 @@
   "scoring": "footprint-tick",
   "slug": "gradebook",
   "status": "graded",
-  "tickCap": null
+  "tickCap": null,
+  "uberStrict": false
 }

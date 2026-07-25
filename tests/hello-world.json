@@ -39,5 +39,6 @@
   "scoring": "footprint-tick",
   "slug": "hello-world",
   "status": "practice",
-  "tickCap": null
+  "tickCap": null,
+  "uberStrict": false
 }

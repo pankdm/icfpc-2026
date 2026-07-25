@@ -528,5 +528,6 @@
   "scoring": "footprint-tick",
   "slug": "memory",
   "status": "graded",
-  "tickCap": null
+  "tickCap": null,
+  "uberStrict": false
 }

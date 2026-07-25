@@ -203,5 +203,6 @@
   "scoring": "footprint-tick",
   "slug": "brackets",
   "status": "graded",
-  "tickCap": null
+  "tickCap": null,
+  "uberStrict": false
 }

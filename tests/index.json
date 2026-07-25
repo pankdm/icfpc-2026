@@ -44,6 +44,24 @@
     "status": "graded",
     "tickCap": null
   },
+  "little-little-little-man": {
+    "name": "LLLM",
+    "privateCount": 0,
+    "publicCount": 10,
+    "scoring": "footprint-tick",
+    "set": "Semester 4",
+    "status": "graded",
+    "tickCap": 15000000
+  },
+  "little-little-man": {
+    "name": "LLM",
+    "privateCount": 0,
+    "publicCount": 14,
+    "scoring": "footprint-tick",
+    "set": "Semester 4",
+    "status": "graded",
+    "tickCap": 50000000
+  },
   "matmul": {
     "name": "Matrix Multiply",
     "privateCount": 0,
@@ -80,6 +98,15 @@
     "status": "practice",
     "tickCap": null
   },
+  "pathfinder": {
+    "name": "Pathfinder",
+    "privateCount": 0,
+    "publicCount": 7,
+    "scoring": "footprint-tick",
+    "set": "Semester 4",
+    "status": "graded",
+    "tickCap": 15000000
+  },
   "plotter": {
     "name": "Plotter",
     "privateCount": 0,
@@ -97,6 +124,15 @@
     "set": "Semester 1",
     "status": "graded",
     "tickCap": null
+  },
+  "snake": {
+    "name": "Snake",
+    "privateCount": 0,
+    "publicCount": 5,
+    "scoring": "footprint-tick",
+    "set": "Semester 4",
+    "status": "graded",
+    "tickCap": 15000000
   },
   "sort-numbers": {
     "name": "Sort",

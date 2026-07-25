@@ -1555,5 +1555,6 @@
   "scoring": "footprint-tick",
   "slug": "matmul",
   "status": "graded",
-  "tickCap": null
+  "tickCap": null,
+  "uberStrict": false
 }

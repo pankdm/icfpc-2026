@@ -260,14 +260,14 @@ def lay_controller(p, flow, x0=0, y0=0):
     return ports["ri"], ports["rr"], ports["sc"], ports["sd"], ports["ss"]
 
 
-def build():
+def build_program(flow, ram_size):
+    """Attach a compiled Flow to the shared input/RAM/scratch/display hardware."""
     p = lm.Program()
-    flow = build_flow()
     inp, ram_reply, ram_cmd, data, swap = lay_controller(p, flow)
     # Place RAM and display below the controller, then route outside its bbox.
     cy = inp[1]
     rox, roy = CTRL_CODE + 48, cy + 80
-    ram = belt_ram.build(p, rox, roy, RAM_N)
+    ram = belt_ram.build(p, rox, roy, ram_size)
     # Input room.
     p.input_room(inp[0] - 1, cy + 12)
     p.pipe([(inp[0], cy + 11), (inp[0], cy)])
@@ -297,6 +297,10 @@ def build():
             (dx - 1, dy + 8)])
     p.pipe([(swap[0], cy), (swap[0], dy + 20), (dx + 8, dy + 20), (dx + 8, dy + 18)])
     return p
+
+
+def build():
+    return build_program(build_flow(), RAM_N)
 
 
 if __name__ == "__main__":

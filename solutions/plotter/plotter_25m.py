@@ -277,7 +277,7 @@ def _body_segments():
                 a2s=c2s.ops, a2k=c2k.ops, corr=corr_ops)
 
 
-def build(band_right=31):                  # band_right=31 -> near-square 83x83 box optimum
+def build(band_right=30):                  # band_right=30 -> square 82x82 box 6724 optimum
     PC.set_geometry(band_right)
     BL, BR = PC.BL, PC.BR
     p = lm.Program()
@@ -336,7 +336,7 @@ def build(band_right=31):                  # band_right=31 -> near-square 83x83 
         for yy in range(yb + 2, step_start):
             hput(p, rail, yy, "v")
         # ---- merge below everything ----
-        mrow = ey + 2
+        mrow = ey + 1
         for yy in range(ey + 1, mrow):
             hput(p, rail, yy, "v")             # step's final rail descent
         for yy in range(sy + 1, mrow):

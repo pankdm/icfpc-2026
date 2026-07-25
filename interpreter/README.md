@@ -20,6 +20,22 @@ python3 -m interpreter run PROGRAM.man INPUT.txt OUTPUT.txt \
 
 `run` executes until all little men stop and the output pipe drains, an error occurs, or the tick limit is reached.
 
+## Split instruction (`Y`)
+
+`Y` removes the executing little man and births two copies on the cells immediately to his right
+and left relative to his incoming heading. Each copy faces away from `Y` and inherits A, B, and
+Backpack. The right copy keeps the splitter's creation-order position; the left copy is newest.
+Neither copy executes or moves again until the next tick.
+
+Split and collision behavior follows the official [Y, precisely](https://icfpcontest2026.com/split)
+rules:
+
+- `Y` executes unconditionally, including when a birth cell is blocked;
+- a birth in a wall is a fatal error;
+- a birth on another man kills both men without an error;
+- same-cell arrivals, swaps, and movement into a blocked man kill every involved man;
+- at most 65,536 little men may be alive.
+
 ## Check a solution and calculate scores
 
 ```sh
@@ -66,4 +82,6 @@ The CLI checker currently compares numeric output files only. We should add disp
 python3 -m unittest discover -s interpreter/tests -v
 ```
 
-The current tests cover room and pipe parsing, numeric literals, output checking, staged rounds, tick counting, scoring, and the CLI.
+The current tests cover room and pipe parsing, numeric literals, output checking, staged rounds,
+tick counting, scoring, the CLI, exact split ordering/timing, split birth failures, runner limits,
+and movement/spawn collisions.

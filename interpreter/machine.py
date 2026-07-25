@@ -9,6 +9,7 @@ from .parser import DIRECTIONS, Pipe, Point, Program
 MIN_INT64 = -(1 << 63)
 MAX_INT64 = (1 << 63) - 1
 MASK64 = (1 << 64) - 1
+MAX_LIVE_MEN = 65_536
 
 
 @dataclass
@@ -20,6 +21,7 @@ class LittleMan:
     off: int = 0
     backpack: int = 0
     stopped: bool = False
+    born_this_tick: bool = False
 
 
 @dataclass
@@ -123,6 +125,8 @@ class LittlemanMachine:
         )
 
     def _tick(self) -> None:
+        for man in self.men:
+            man.born_this_tick = False
         self._shift_pipes()
         self._process_output()
         if self._expected_complete():
@@ -172,7 +176,9 @@ class LittlemanMachine:
 
     def _execute_men(self) -> set[int]:
         blocked: set[int] = set()
-        for man_index, man in enumerate(self.men):
+        execution_count = len(self.men)
+        for man_index in range(execution_count):
+            man = self.men[man_index]
             if man.stopped:
                 continue
             character = self.program.cell(man.position)
@@ -247,6 +253,8 @@ class LittlemanMachine:
                 man.backpack = wrap_int64(man.backpack >> 1)
             elif character == "x":
                 man.direction = turn_clockwise(man.direction) if man.backpack & 1 else turn_counterclockwise(man.direction)
+            elif character == "Y":
+                self._execute_split(man_index)
             elif character == "q":
                 incoming = self.program.rooms[man.room_id].incoming
                 if not incoming:
@@ -259,6 +267,54 @@ class LittlemanMachine:
             else:
                 raise RuntimeFailure(f"bad-op: invalid instruction {character!r} at {man.position}")
         return blocked
+
+    def _execute_split(self, man_index: int) -> None:
+        splitter = self.men[man_index]
+        live_count = sum(not man.stopped for man in self.men)
+        if live_count >= MAX_LIVE_MEN:
+            raise RuntimeFailure(f"man-limit: split would exceed {MAX_LIVE_MEN} live little men")
+
+        right_direction = turn_clockwise(splitter.direction)
+        left_direction = turn_counterclockwise(splitter.direction)
+        right = LittleMan(
+            room_id=splitter.room_id,
+            position=add_points(splitter.position, right_direction),
+            direction=right_direction,
+            main=splitter.main,
+            off=splitter.off,
+            backpack=splitter.backpack,
+            born_this_tick=True,
+        )
+        left = LittleMan(
+            room_id=splitter.room_id,
+            position=add_points(splitter.position, left_direction),
+            direction=left_direction,
+            main=splitter.main,
+            off=splitter.off,
+            backpack=splitter.backpack,
+            born_this_tick=True,
+        )
+
+        self.men[man_index] = right
+        self.men.append(left)
+        birth_indices = (man_index, len(self.men) - 1)
+
+        room = self.program.rooms[splitter.room_id]
+        for birth_index in birth_indices:
+            position = self.men[birth_index].position
+            if position[0] in (room.left, room.right) or position[1] in (room.top, room.bottom):
+                raise RuntimeFailure(f"wall: split birthed a little man in wall cell {position}")
+
+        birth_positions = {self.men[birth_index].position for birth_index in birth_indices}
+        for position in birth_positions:
+            occupants = [
+                index
+                for index, man in enumerate(self.men)
+                if not man.stopped and man.position == position
+            ]
+            if len(occupants) > 1:
+                for occupant in occupants:
+                    self.men[occupant].stopped = True
 
     def _execute_pipe_instruction(self, man: LittleMan, character: str) -> bool:
         room = self.program.rooms[man.room_id]
@@ -341,7 +397,7 @@ class LittlemanMachine:
     def _move_men(self, blocked: set[int]) -> None:
         moving: dict[int, Point] = {}
         for man_index, man in enumerate(self.men):
-            if man.stopped or man_index in blocked:
+            if man.stopped or man.born_this_tick or man_index in blocked:
                 continue
             target = (man.position[0] + man.direction[0], man.position[1] + man.direction[1])
             room = self.program.rooms[man.room_id]
@@ -349,13 +405,34 @@ class LittlemanMachine:
                 raise RuntimeFailure(f"wall: little man at {man.position} entered wall cell {target}")
             moving[man_index] = target
 
-        positions: dict[Point, list[int]] = {}
-        for man_index, man in enumerate(self.men):
-            position = moving.get(man_index, man.position)
-            positions.setdefault(position, []).append(man_index)
-        colliding = {man_index for indices in positions.values() if len(indices) > 1 for man_index in indices}
+        colliding: set[int] = set()
+        targets: dict[Point, list[int]] = {}
         for man_index, target in moving.items():
-            self.men[man_index].position = target
+            targets.setdefault(target, []).append(man_index)
+        for indices in targets.values():
+            if len(indices) > 1:
+                colliding.update(indices)
+
+        stationary: dict[Point, list[int]] = {}
+        for man_index, man in enumerate(self.men):
+            if not man.stopped and man_index not in moving:
+                stationary.setdefault(man.position, []).append(man_index)
+        for man_index, target in moving.items():
+            occupants = stationary.get(target, [])
+            if occupants:
+                colliding.add(man_index)
+                colliding.update(occupants)
+
+        origins = {man.position: man_index for man_index, man in enumerate(self.men) if man_index in moving}
+        for man_index, target in moving.items():
+            other_index = origins.get(target)
+            if other_index is not None and moving.get(other_index) == self.men[man_index].position:
+                colliding.add(man_index)
+                colliding.add(other_index)
+
+        for man_index, target in moving.items():
+            if man_index not in colliding:
+                self.men[man_index].position = target
         for man_index in colliding:
             self.men[man_index].stopped = True
 
@@ -427,3 +504,7 @@ def turn_counterclockwise(direction: Point) -> Point:
 
 def reading_order(point: Point) -> tuple[int, int]:
     return point[1], point[0]
+
+
+def add_points(left: Point, right: Point) -> Point:
+    return left[0] + right[0], left[1] + right[1]

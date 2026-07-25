@@ -1,9 +1,8 @@
 # Littleman: how multiple little men interact
 
-Reverse-engineered from the reference interpreter (`littleman.wasm`, Go 1.25.7, non-stripped)
-via (a) embedded symbol/struct/docstring extraction and (b) black-box experiments driving the
-WASM oracle headless in Node. Every "CONFIRMED" claim below was observed directly in the oracle;
-items marked **OPEN** are deferred to the differential fuzzer built alongside the Rust interpreter.
+Based on the official [`Y, precisely`](https://icfpcontest2026.com/split) clarification, supplemented
+by black-box experiments against the reference interpreter. The official clarification supersedes
+earlier reverse-engineered interpretations of split identity, birth timing, swaps, and runner limits.
 
 Coordinate convention (from oracle snapshots): `pos = [x, y] = [col, row]`; `dir` is a unit vector,
 `east=[1,0]`, `south=[0,1]` (y increases downward), `north=[0,-1]`, `west=[-1,0]`.
@@ -37,71 +36,39 @@ StepCapSystem / StepCounterSystem → CleanupSystem / ClearSuppressedSystem → 
 ```
 
 This matches the prose tick order (pipes shift → I/O → execute → move) and additionally shows that
-**wall checks and collision resolution happen *after* movement**, and cleanup (reaping halted men)
-happens near the end of the tick. Execution is fully deterministic.
+Ordinary **wall checks and movement-collision resolution happen *after* movement**. A `Y` birth in
+a wall and a collision at a birth cell are resolved immediately during the split. Cleanup (reaping
+halted men) happens near the end of the tick. Execution is fully deterministic.
 
 ---
 
-## 3. `Y` — split / fork (CONFIRMED)
+## 3. `Y` — split / fork
 
-When a man executes `Y`, on that single tick:
+When a man executes `Y`, he disappears and two copies are born immediately:
 
-- **He turns 90° clockwise** relative to his incoming heading and then takes his normal step that way.
-- A **clone** is placed in the cell **90° counter-clockwise** of the `Y` cell, already **facing** that
-  counter-clockwise direction.
-- The clone inherits **A, B, and Backpack exactly** (verified: `A=5, BP=5` propagated to the copy).
-  It is a full duplicate except position and heading. The clone receives a **fresh entity id**
-  (ids are shared across runners/rooms and increase; e.g. the first fork produced id `2` while the
-  room was id `1`).
-- "The incoming heading is lost": neither man keeps the original direction — original → CW, clone → CCW.
+- the **right copy** is one cell clockwise from the incoming heading and faces away from `Y`;
+- the **left copy** is one cell counter-clockwise from the incoming heading and faces away from `Y`;
+- both inherit A, B, and Backpack exactly;
+- neither executes its birth cell nor moves until the next tick;
+- the right copy replaces the splitter in creation order; the left copy is newest and acts last.
 
-General rule, incoming direction `d`: original heading becomes `rotateCW(d)`; clone spawns at
-`Ycell + rotateCCW(d)` facing `rotateCCW(d)`.
-
-Worked example — man at `[3,3]` heading east `[1,0]` steps onto `Y`:
-- original → `[3,4]` heading south `[0,1]`
-- clone (new id) → `[3,2]` heading north `[0,-1]`
-
-Timing: the original executes `Y`, turns CW, and moves one cell that tick (normal execute-then-move).
-The clone is **placed** on the CCW-adjacent cell that tick and does not take an extra step until the
-next tick.
-
-`Y` is **always enabled** — there is an internal `forkEnabled` flag + `maxRunners` cap in the config
-struct, but the public `load(session, cells, input, expected, framesJson)` entrypoint (used by editor
-and grader alike) exposes no toggle, and the default is on. `Y` is advertised by `validOps()`.
-
-**Hazards:**
-- If the clone's spawn cell, or the original's forward cell, is a **wall**, the normal wall
-  consequence fires and **ends the whole program** (see §5). Every spawned man needs a planned fate.
-- Re-entrancy: a man may hit the same `Y` repeatedly and fork again each time (confirmed — reflected
-  men re-entered a `Y` and produced 2nd/3rd-generation clones).
-- **OPEN:** exact value of the `maxRunners` cap (a cap exists; value not yet pinned).
+`Y` is unconditional. Both births are attempted even when a birth cell is occupied or is a wall.
+A wall birth is fatal. A birth on another little man kills both without an error. The live-runner
+limit is **65,536**; a split that exceeds it is fatal.
 
 ---
 
-## 4. Collision: two men would occupy the same cell (CONFIRMED)
+## 4. Collisions
 
-When two active men's moves would place them on the **same cell** in the same tick, **both men stop in
-place and halt** — they do *not* enter the shared cell, and neither "wins." This was reproduced across
-16 routed head-on configurations: in every case the two men ended up 2 cells apart, each facing the
-shared middle cell, then halted.
+Every involved man dies, without an error, when:
 
-- The collision-halt is a **clean halt** (`reason:"done"` when it ends the program) — **not** a fatal
-  error. It behaves like `H` for the men involved.
-- Matches the prose rule "when he touches another little man, both stop."
+- two or more men arrive on the same cell in one tick;
+- adjacent men exchange cells in one tick;
+- a mover enters a blocked or otherwise stationary man's cell;
+- a split births a copy on an occupied cell;
+- two splits birth copies on the same cell.
 
-**Structural note on head-on geometry:** the two children of a *single* fork are always an even
-Manhattan distance apart from any common cell, so a single fork can only ever produce the
-**same-cell** collision above — the two men can never become adjacent and exchange cells.
-
-**Swap / pass-through: NO (strong empirical evidence).** Men cannot pass through each other. A
-randomized search of 4000 multi-fork programs (producing many 3–4 man collisions) detected **zero**
-position-swaps: two men never exchange adjacent cells. Combined with the same-cell rule, the engine
-prevents both same-cell occupation and adjacent-exchange — colliding men halt. (Empirical, not a
-hand-proof.)
-
-**OPEN (deferred to fuzzer):**
-- **Perpendicular** same-cell arrival (assumed to follow the same "both halt" rule, not yet isolated).
+Collision resolution is symmetric: a stationary or blocked occupant dies together with the mover.
 
 ## 4b. Blocking & phasing — no pass-through (CONFIRMED)
 
@@ -127,9 +94,8 @@ length L** — giving tick-exact control for timing experiments.
   collision (movement is what triggers collisions; parked men never do) — a compact holding pen.
 - **Pipes never carry men** (arrowheads sit outside the room wall; a man walking at a pipe exit hits
   the wall → fatal). Men move only by walking; only data/backpack values travel pipes.
-- **Inter-man processing order** within a tick (by entity id / spawn `seq`, or by reading-order
-  position?). Not yet isolated; matters for pipe contention when co-located men send/receive the same
-  tick. `insertRunnerID` / `runnerSeq` suggest an id/seq-ordered runner set.
+- **Inter-man processing order** is creation order. On `Y`, the right copy keeps the splitter's place
+  and the left copy becomes newest.
 
 ---
 
@@ -156,9 +122,8 @@ length L** — giving tick-exact control for timing experiments.
 - They share only: the global tick clock (lockstep), pipes between rooms, displays, and IO rooms.
 - Contention over shared pipes follows the pipe-targeting rules (nearest = Manhattan to the attachment
   segment, reading-order tie-break; `R`/`U` take from the first ready incoming pipe in reading order;
-  `S` writes to all outgoing pipes and blocks if any is full). Inter-*man* ordering when two men in
-  different rooms act on a shared resource the same tick is the same **OPEN** processing-order question
-  as §4.
+  `S` writes to all outgoing pipes and blocks if any is full). When men in different rooms act on a
+  shared resource in the same tick, they do so in creation order.
 
 ---
 
@@ -184,12 +149,13 @@ Runners are listed in ascending id order. Reaped (halted) runners disappear from
 
 | Situation | Result |
 |---|---|
-| Man steps on `Y` | Forks: original turns CW & steps; clone spawns 1 cell CCW facing CCW, inherits A/B/BP |
-| Two men → same cell same tick | Both stop in place and **halt** (clean, `reason:"done"`) |
+| Man steps on `Y` | Original disappears; right and left copies are born beside `Y`, inherit A/B/BP, and wait until next tick |
+| Split birth on occupied cell | New copy and occupant both die; non-fatal |
+| Two men → same cell or swap cells | Every involved man dies; non-fatal |
 | Man halts (`H` or collision) | Removed from the world next tick (reaped); not an obstacle |
 | Man moves onto a wall | **Fatal** error, whole program ends |
 | Men in different rooms | No physical contact; interact only via pipes/displays/IO + lockstep clock |
 | Program ends | All men halted, or fatal error, or step cap |
 
-**Open items for the fuzzer:** swap resolution, perpendicular same-cell, inter-man processing order,
-`maxRunners` value.
+The official split clarification resolves the earlier open questions about swaps, creation order,
+spawn collisions, and the maximum runner count.

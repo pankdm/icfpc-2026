@@ -86,10 +86,14 @@ Bitwise operations use 64-bit two's-complement representation.
 | `d` | Turn clockwise if `BP > 0`, otherwise continue straight. |
 | `a` | Turn counter-clockwise if `BP > 0`, otherwise continue straight. |
 | `x` | Turn clockwise if the low bit of `BP` is `1`, otherwise counter-clockwise. |
+| `Y` | Replace this man with right and left copies beside `Y`; both inherit all registers and begin acting next tick. |
 | `.` or space | No operation; continue straight. |
 | `H` | Halt this little man. |
 
-A little man also stops when he touches another little man; both stop. The program continues while at least one little man remains active.
+The right `Y` copy keeps the splitter's creation-order position and the left copy becomes newest.
+Birth in a wall is fatal; birth on another man kills both. Same-cell arrivals, cell swaps, and
+movement into a blocked man also kill every involved man without an error. At most 65,536 little
+men may be alive. See [Y, precisely](https://icfpcontest2026.com/split).
 
 ## Pipes and Concurrency
 

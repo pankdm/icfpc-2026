@@ -107,19 +107,18 @@ def place_room_cells(prog, x0, y0, lay):
 def distributor(prog, x0, y0, W):
     """Read r,c,v from the single incoming pipe (I); broadcast each via S to ALL
     outgoing pipes (the 6 compute-men pipes on the south wall). Loop: r S r S r S.
-    Room spans full width W so its south wall reaches every compute man's column.
-    Returns south-wall row."""
-    prog.room(x0, y0, W, 5)
-    a, b, c = y0 + 1, y0 + 2, y0 + 3
-    prog.put(x0 + 1, a, '@'); prog.put(x0 + 2, a, 'v')
-    ops = '>rSrSrS'
+    Compact 2-interior-row racetrack (H=4). Returns south-wall row."""
+    prog.room(x0, y0, W, 4)
+    a, b = y0 + 1, y0 + 2
+    prog.put(x0 + 1, a, '@'); prog.put(x0 + 2, a, '>')
+    ops = 'rSrSrS'
     for i, g in enumerate(ops):
-        prog.put(x0 + 2 + i, b, g)
-    endx = x0 + 2 + len(ops)             # cell after last op (S)
-    prog.put(endx, b, 'v')               # drop south
-    prog.put(endx, c, '<')               # loopback west
-    prog.put(x0 + 2, c, '^')             # up into '>' at (x0+2,b)
-    return y0 + 4                        # south wall row
+        prog.put(x0 + 3 + i, a, g)
+    endx = x0 + 3 + len(ops)             # cell after last op (S)
+    prog.put(endx, a, 'v')               # drop south
+    prog.put(endx, b, '<')               # loopback west
+    prog.put(x0 + 2, b, '^')             # up into '>' at (x0+2,a)
+    return y0 + 3                        # south wall row
 
 def store_man(prog, f, y0):
     """Vertical storage man (proven r & s r | M). Room (f-2,y0,5,10).
@@ -286,8 +285,9 @@ def store_compact(L, sx, sy):
     return (sx, sy, 8, 4)
 
 def merger_flat(L, x0, y0, W):
-    """Flat full-width merger; 6 dup pipes on NORTH wall (recv_any). Returns (south_row, o_col)."""
-    H = 7
+    """Flat merger; 6 dup pipes on NORTH wall (recv_any). H=6 (dup arm folded to 2 rows).
+    Returns (south_row, o_col)."""
+    H = 6
     L.room(x0, y0, W, H)
     tr, st = y0 + 1, y0 + 2
     L.put(x0 + 1, tr, '@'); L.put(x0 + 2, tr, 'v'); L.put(x0 + 2, st, '>')
@@ -299,13 +299,14 @@ def merger_flat(L, x0, y0, W):
     L.put(xc + 1, st, '1'); L.put(xc + 2, st, 's'); ocol = xc + 2
     riser = xc + 4
     L.put(riser, st, '^'); L.put(riser, tr, '<')
-    L.put(xc, st + 1, '0'); L.put(xc, st + 2, 's'); L.put(xc, st + 3, 'H')
+    # dup arm (A>0, CW=South) folded to 2 rows: 0 then turn W -> s -> H
+    L.put(xc, st + 1, '0'); L.put(xc, st + 2, '<'); L.put(xc - 1, st + 2, 's'); L.put(xc - 2, st + 2, 'H')
     return y0 + H - 1, ocol
 
 def build_folded(path):
     L = Layout()
     Wm = 12
-    P = int(__import__('os').environ.get('RF_PITCH', '16'))
+    P = int(__import__('os').environ.get('RF_PITCH', '14'))
     Sx = [6, 6 + P, 6 + 2 * P]                 # man room origins
     E = [s + Wm - 1 for s in Sx]               # east walls
     # PA (dist->bot, enters man WEST wall) on the LEFT of each man;
@@ -316,8 +317,8 @@ def build_folded(path):
     TOP = KINDS[:3]                            # rowLo,rowHi,colLo
     BOT = KINDS[3:]                            # colHi,boxLo,boxHi
     # bands
-    DIST_Y = 0; dist_south = DIST_Y + 4
-    DY_t = 7                                   # top compute north
+    DIST_Y = 0; dist_south = DIST_Y + 3        # distributor H=4 -> south wall at y0+3
+    DY_t = 6                                   # top compute north (gap 3 -> 2 empty rows)
     # place top compute men
     top_lays = []
     for c, (kind, hilo) in enumerate(TOP):
@@ -350,7 +351,7 @@ def build_folded(path):
     distributor(L, 0, DIST_Y, Wtot)
     # ---- I room: tucked in the left margin below the distributor (adds no width) ----
     L.input_room(0, DY_t)                       # cols 0-2, rows DY_t..DY_t+2
-    place_pipe(L, [(1, DY_t - 1), (1, dist_south + 1)], (0, -1))  # up into dist south wall (incoming)
+    jog_pipe(L, [(1, DY_t - 1), (1, dist_south + 1)], (0, -1))  # up into dist south wall (incoming)
     # ============ PIPES ============
     for c in range(3):
         icol = Sx[c] + 3                        # compute local IN col (north)

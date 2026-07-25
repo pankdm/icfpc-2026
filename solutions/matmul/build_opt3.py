@@ -212,13 +212,14 @@ def place_sasb(b, cbot, sa_mode, sb_mode):
               RL=-11, RY=20, ef=-7, er=-12, rrcol=-5)
     if sb_mode=="up":
         folded_on(b, [11,10,9,8,7], [15,14,13,12], -35, -3, -39)
-    elif sb_mode=="hang":   # SB hung on the RIGHT: feed body FAR, return body NEAR, ef<er
-        hang4(b, 11, 12, [52,53,54], [43,42,41], top, bot,
-              RL=45, RY=20, ef=-15, er=-14, rrcol=51)
+    elif sb_mode=="hang":   # SB hung on the RIGHT (beside narrowed CTRL wall@33): feed FAR, return NEAR, ef<er
+        hang4(b, 11, 12, [46,47,48], [37,36,35], top, bot,
+              RL=39, RY=20, ef=-15, er=-14, rrcol=45)
 
 def build(stage="drainA", W=31, H=42, sa_mode="up", sb_mode="up"):
     if stage in ("run","full"):
         W=40; H=74
+        if sb_mode=="hang": W=34   # CTRL interior only uses up to col 32; narrow it when SB hangs beside
     b=B(); C=b.C
     p=b.p
     p.room(0,0,W,H)   # CTRL: top wall y=0, interior rows 1..H-2, cols 1..W-2

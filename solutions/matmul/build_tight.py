@@ -27,7 +27,11 @@ import sys, os
 sys.path.insert(0, "/Users/visenbaev/icfpc26/tools")
 import littleman as lm
 
-OFFSET=1000000; SA_SENT=30000; SC_SENT=-1
+OFFSET=262144; SA_SENT=16384; SC_SENT=-1   # OFFSET=1<<18 (> max|c|~156816); SA_SENT=1<<14
+# constants BUILT via digit+shift op-sequences (no backtick literals -> no vertical-literal clash).
+# Each helper takes an E-heading cursor, leaves A=const (B scratched).
+def build_offset(c): c.op('9').op('M').op('+').op('M').op('1').op('{')  # A=9;B=9;A=18;B=18;A=1;A=1<<18
+def build_sasent(c): c.op('7').op('M').op('+').op('M').op('1').op('{')  # A=7;B=7;A=14;B=14;A=1;A=1<<14
 
 # ---- spread columns (tiny), deeper-left staggered relays ----
 I_=2
@@ -93,7 +97,7 @@ class Cur:
     def clone(s): return Cur(s.P,s.x,s.y,s.d)
 
 def build(stage="tiny"):
-    W=54; H=66
+    W=56; H=66
     P=Prog(); C=P.C
     P.p.room(0,0,W,H)
 
@@ -136,28 +140,29 @@ def build(stage="tiny"):
     # ================= SEED-A : BP=NM ; loop r I -> s SA ; then SA_SENT =================
     C(2,7,'>'); C(3,7,'d')                     # entry ; BP>0 CW E->S
     C(3,8,'r'); C(3,9,'s'); C(3,10,'m'); C(3,11,'<'); C(2,11,'^')   # body col3, loop col2 rows8-11
-    c=Cur(P,4,7,E).litE(SA_SENT)               # racetrack exit (BP=0) -> A=SA_SENT (`30000` cols4-10)
-    c.turn(S).turn(Wd).to_col(SAf).op('s')     # v@(11,7); west row8 to col5; s SA<-SENT ; cursor (4,8)W
-    c.to_col(1).turn(S).to_row(12).turn(E)     # glide (4,8)->(1,8) [blank under literal], down to (2,12)
+    c=Cur(P,4,7,E); build_sasent(c)            # racetrack exit (BP=0) -> A=SA_SENT (built, cols4-9)
+    c.turn(S).turn(Wd).to_col(SAf).op('s')     # v@(10,7); west row8 to col5; s SA<-SENT ; cursor (4,8)W
+    # link to SeedB: DOWN col4 (below SeedA body cols3 rows8-11) then turn E into SeedB (row12)
+    c.turn(S).to_row(12).turn(E)               # 'v'@(4,8) down to (4,12) '>' -> E into SeedB
 
     # ================= SEED-B : BP=MK ; loop r I -> s SB =================
     c.to_col(HMr).op('r').to_col(HMf).op('s').op('M')          # r HM=M ; reenq ; B=M
     c.to_col(HKr).op('r').to_col(HKf).op('s').op('*').op('b')  # r HK=K ; reenq ; A=MK ; BP=MK
     link(c,14,down=c.x+1)                                       # -> (2,14) E
     C(2,14,'>'); C(3,14,'d')                                   # racetrack entry ; BP>0 CW E->S
-    C(3,15,'r')                                                # body: r I -> A=b
-    bl=Cur(P,4,15,E).to_col(SBf).op('s').op('m')               # s SB ; m
+    C(3,15,'r'); C(3,16,'>')                                   # body: r I -> A=b (S) ; turn E
+    bl=Cur(P,4,16,E).to_col(SBf).op('s').op('m')               # s SB ; m  (row16)
     bl.turn(S).turn(Wd).to_col(2).turn(N).to_row(14)           # loop up col2 -> (2,14)'>'
     c=Cur(P,4,14,E)                                            # racetrack exit (BP=0)
 
     # ================= SEED-C : BP=K ; loop OFFSET->SC ; SC_SENT ; HMR<-M =================
-    link(c,18,down=15)                                         # -> (2,18) E (down col15, clear of body)
+    link(c,20,down=15)                                         # -> (2,20) E (row19 leg clear of SeedB bl@row17)
     c.to_col(HKr).op('r').to_col(HKf).op('s').op('b')          # r HK=K ; reenq ; BP=K
-    link(c,22,down=c.x+1)                                      # -> (2,22) E
-    rc=22
+    link(c,24,down=c.x+1)                                      # -> (2,24) E
+    rc=24
     C(2,rc,'>'); C(3,rc,'d')
     C(3,rc+1,'v'); C(3,rc+2,'>')                               # drop into body lane rc+2 heading E
-    cbody=Cur(P,4,rc+2,E).litE(OFFSET)                         # A=OFFSET
+    cbody=Cur(P,4,rc+2,E); build_offset(cbody)                # A=OFFSET (built, cols4-9)
     cbody.to_col(SCf).op('s').op('m')                          # s SC ; m
     cbody.turn(S).turn(Wd).to_col(2).turn(N).to_row(rc)       # loop up col2 to (2,rc)'>'
     cdone=Cur(P,4,rc,E)                                        # exit d straight E (A junk)
@@ -165,6 +170,7 @@ def build(stage="tiny"):
     cdone.to_col(14).turn(S).to_row(28).turn(Wd).to_col(1).turn(S).to_row(29).turn(E)
     cdone.to_col(HMr).op('r').to_col(HMf).op('s')       # r HM=M ; s reenq  (A=M)
     cdone.to_col(HMRf).op('s')                          # s HMR <- M  (Mrem init)  (A=M)
+    cdone.to_col(H1f).op('s')                           # s H1 <- M  (DUMMY seed; first BLOCK discards it)
     cdone.op('1').op('N')                               # A=-1 (SC_SENT)
     cdone.to_col(SCf).op('s')                           # s SC <- SENT
     cdone.turn(S).to_row(30).turn(Wd).to_col(1).turn(S) # onto FETCHA highway col1, heading S
@@ -180,12 +186,11 @@ def build(stage="tiny"):
     ccwc.op('H')                           # HALT (one cell north of X)
     # ---- BLOCK (cwc heading S ; B=a) : load a into H1, BP=K ----
     blk=cwc; blk.to_row(FE+2).turn(E)      # -> row FE+2 (34), E
-    blk.to_col(HKr).op('r').op('b')        # r HK=K ; BP=K   (B=a)
+    blk.to_col(HKr).op('r').to_col(HKf).op('s').op('b')   # r HK=K ; reenq ; BP=K   (B=a)
     blk.to_col(H1r).op('r').op('W').op('s')# r H1 discard ; W A=a,B=old ; s H1 push a
-    # route into KLOOP entry (H1r, KY) via convergence cell (H1r-1, KY)='>'
     KY=FE+4                                 # 36
-    # route on row FE+2 (above KLOOP) west to H1r-1, then down to KLOOP entry '>' @ (H1r-1,KY)
-    blk.turn(Wd).to_col(H1r-1).turn(S).to_row(KY).turn(E)   # converge '>' @ (H1r-1,KY) -> (H1r,KY)
+    # route DOWN to row FE+3, then west (below the H1 load) to the KLOOP convergence '>' @ (H1r-1,KY)
+    blk.turn(S).turn(Wd).to_col(H1r-2).turn(S).to_row(KY).turn(E)   # -> (H1r-1,KY)'>' -> (H1r,KY)
     # ---- KLOOP (row KY, E) ----
     k=Cur(P,H1r,KY,E)
     k.op('r')                               # (H1r) r H1 -> A=a
@@ -208,23 +213,26 @@ def build(stage="tiny"):
     OY=52
     C(2,OY,'>')                             # OUTLOOP convergence cell (col2 blank elsewhere in runtime)
     def go_outloop(c): assert c.x==2,(c.x,c.y,c.d); c.to_row(OY)
+    build_offset(dst); dst.op('M')          # A=OFFSET ; B=OFFSET  (resident across OUTLOOP)
     dst.turn(S).to_row(50).turn(Wd).to_col(2).turn(S); go_outloop(dst)   # down into (2,OY)
-    # ---- OUTLOOP lane (row OY, E from (3,OY)) ----
-    ol=Cur(P,3,OY,E).to_col(SCr).op('r')    # r SC -> A=v
+    # ---- OUTLOOP lane (row OY, E from (3,OY)) : B holds OFFSET throughout ----
+    ol=Cur(P,3,OY,E).to_col(SCr).op('r')    # r SC -> A=v  (B=OFFSET)
     ecw,eccw,_=ol.X()                       # v>0 emit -> CW(S) ; v<0 SENT -> CCW(N)
-    # ---- emit (ecw heading S) : real=v-OFFSET -> O ; reset OFFSET ; loop OUTLOOP ----
+    # ---- emit (ecw heading S ; A=v, B=OFFSET) : real=v-OFFSET -> O ; reset OFFSET ; loop ----
     em=ecw; em.turn(Wd).to_col(3).turn(S).to_row(OY+2).turn(E)   # emit lane
-    em.op('M').litE(OFFSET).op('W').op('-') # B=v ; A=OFFSET ; W A=v,B=OFFSET ; - A=real
-    em.to_col(O_).op('s')                   # emit real
-    em.turn(S).to_row(OY+3).turn(Wd).to_col(3).turn(E)          # reset lane
-    em.litE(OFFSET).to_col(SCf).op('s')     # A=OFFSET ; s SC push OFFSET
+    em.op('-')                              # A=v-OFFSET=real (B=OFFSET)
+    em.to_col(O_).op('s').op('W')           # emit real ; W A=OFFSET,B=real
+    em.turn(S).to_row(OY+3).turn(Wd).to_col(SCf).op('s').op('M')  # reset lane (W): s SC push OFFSET ; M restore B
     em.turn(S).to_row(OY+4).turn(Wd).to_col(2).turn(N); go_outloop(em)  # loop back up col2
-    # ---- SENT (eccw heading N) : push SENT ; reset Mrem=M ; -> FETCHA ----
-    dn=eccw; dn.turn(E).to_col(48).turn(S).to_row(OY+6).turn(Wd).to_col(3).turn(E)  # descend via col48
-    dn.op('1').op('N').to_col(SCf).op('s')  # A=-1 ; s SC push SENT
-    dn.turn(S).to_row(OY+7).turn(Wd).to_col(3).turn(E)          # reset lane
-    dn.to_col(HMr).op('r').to_col(HMf).op('s').to_col(HMRf).op('s')  # r HM=M;reenq;s HMR (reset Mrem)
-    dn.turn(S).to_row(OY+8).turn(Wd).to_col(1).turn(N); go_fetcha(dn)  # up col1 -> FETCHA
+    # ---- SENT (eccw heading N ; A=SENT=-1) : push SENT ; reset Mrem=M ; -> FETCHA ----
+    #   descend via col53 (east of emit lanes, which reach only col52) to rows below emit.
+    #   one WESTWARD pass on row OY+6 (no east-detour): push SENT, drain stale Mrem, reach col3.
+    dn=eccw; dn.turn(E).to_col(53).turn(S).to_row(OY+6).turn(Wd)  # descend col53, head W on row OY+6
+    dn.to_col(SCf).op('s')                  # s SC push SENT (A=-1 from OUTLOOP read)
+    dn.to_col(HMRr).op('r')                 # r HMR : DRAIN stale Mrem
+    dn.to_col(3).turn(S).to_row(OY+8).turn(E)                   # down to reset lane
+    dn.to_col(HMr).op('r').to_col(HMf).op('s').to_col(HMRf).op('s')  # r HM=M;reenq;s HMR (push M)
+    dn.turn(S).to_row(OY+9).turn(Wd).to_col(1).turn(N); go_fetcha(dn)  # up col1 -> FETCHA
 
     return P
 

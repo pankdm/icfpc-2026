@@ -16,10 +16,16 @@ bash sim/fetch-oracle.sh        # once: downloads littleman.wasm + wasm_exec.js 
 ```
 Node 20+ (v25 here) and Python 3 stdlib only — **no npm/pip install**.
 
-- **`.env` with `API_KEY=...` is NOT in the working tree.** Without it `submit.py` exits
-  and *nothing can be submitted*. Ask the user for the team key before promising a submit.
+- **`.env` holds `API_KEY=...`** (gitignored). It authorises `POST /submissions` and
+  `GET /submissions/:id` — nothing else. Team: *Snakes, Monkeys, and Two Smoking Lambdas*.
+- **The dashboard needs a browser session cookie**, not the API key: `~/.icfpc-cookie`
+  (or `$ICFPC_COOKIE`). The login form sits behind a Cloudflare Turnstile, so it **cannot
+  be scripted** — grab the cookie from DevTools → Network → any `/api/v1/` request.
 - Rust is **not installed** on this machine (`cargo` missing) — `interp/` can't be built
   here. That's fine: the WASM oracle is ground truth, and it's fast.
+- **The submitted program text is not retrievable from anywhere** (checked: Bearer
+  `GET /submissions/:id` and every `dashboard/*` route omit it). **git is the only copy of
+  what we submitted — never submit a build that is not committed.**
 
 ## Dev loop
 
@@ -64,30 +70,48 @@ scratchpad/                throwaway probes, gadget prototypes, POC builders
 Note `docs/OVERVIEW.md`'s "Interpreter status TODO: pipes…" is **stale** — the Rust interp
 got full parity (pipes/IO/literals/display/rounds) in `403a927`.
 
-## Where the scores are today
+## Where we actually stand
 
-Local score = `max(w,h)² × avg public ticks`; the server averages over ~2–3× more (private)
-cases, so server ≈ local × 1.0–1.6. Board = best full-solver score, **lower is better**.
+Run `python3 tools/ours.py` (points/rank/gap, public data) and `python3 tools/submissions.py
+--match` (server-side box/ticks per submission, needs the cookie). **Do not trust local
+scores or commit messages for this** — local grading only sees public cases, and two entries
+below were wrong in exactly that way until the dashboard corrected them.
 
-| problem (set) | our champion | local score | board best | note |
-|---|---|---|---|---|
-| triangle (S1) | `p2.man` 9×9 | 1,053 | 832 | 6/6 |
-| memory (S1) | `belt5.man` 42×42 | 36.0M | 27,867 | server 160.6M — far off board |
-| reverse-a-list (S1) | `manual-fork/v2_46k.man` 12×10 | 32,526 | 19,481 | server ~46k; hand-built fork machine |
-| sort-numbers (S1) | `select-v5.man` 21×21 | 774k | 27,210 | server ~1.97M (v4) |
-| history-lesson (S2) | `history-lesson-with-year.man` 84×84 | 7,056 | 5,929 | **footprint-only** scoring |
-| brackets (S2) | `stack6.man` 23×23 | 167k | 300 | server 421k @ stack5 |
-| tcp / Packet Reassembly (S2) | `tcp-sweep2.man` 41×41 | 1.83M | 329,349 | server 2,896,783 (20/20) |
-| plotter (S2) | `plotter-tight31.man` 81×81 | 202M | 862,560 | server 297,019,750 (20/20) |
-| gradebook (S3) | `gradebook-compact.man` 69×130 | 858M | 42.2M | server 3.15B; **box is height-bound → fold it** |
-| matmul (S3) | `matmul-tight2.man` 89×82 | 441M | 5.56M | 7/7 |
-| sudoku-validity (S3) | `ringfree4.man` 43×41 | 7.56M | 49,720 | server 7,668,172 (20/20) |
-| subset-sum (S3) | `parallel256-prefix-compact-*.man` | — | 500 | **12/20 only** (n=20 exceeds tick cap) |
-| snake, pathfinder, LLM, LLLM (S4) | — | — | see status.py | **not started**; specs cached in `tests/` |
+As of 2026-07-25 ~17:00Z we are **rank 27/235, 21.84 points, 10.16 still available**:
 
-Everything graded except the four Semester-4 problems is passing all cases; the gap to the
-board is almost entirely **score**, not correctness. Semester 4 is untouched — 4 problems ×
-up to 2 points is the largest single opportunity left.
+| problem | live build | box | avgTicks | our score | board best | pts | left |
+|---|---|---|---|---|---|---|---|
+| Pathfinder | 7/18 cases | — | — | — | 11.1B | **0.00** | **2.00** |
+| LLM | none | — | — | — | 95.5B | **0.00** | **2.00** |
+| Snake | 5/17 cases | — | — | 22.7B | 72.7M | **0.00** | **2.00** |
+| LLLM | *not in git* | 149×1469 | 5,078,601 | 10.96T | 1.27B | 1.13 | 0.87 |
+| Grade Book | `gradebook-compact.man` | 69×130 | 186,578 | 3.15B | 42.2M | 1.49 | 0.51 |
+| Plotter | `plotter-tight31.man` | 81×81 | 45,270 | 297M | 862,560 | 1.51 | 0.49 |
+| Sudoku Auditor | `ringfree4.man` | 43×41 | 4,147 | 7.67M | 49,720 | 1.55 | 0.45 |
+| Matrix Multiply | `matmul-opt5.man` ← **not** tight2 | 61×61 | 61,831 | 230M | 15.2M | 1.62 | 0.38 |
+| Subset Sum | `parallel256-prefix-compact-r13-c21` | 634×588 | 162,350 | 65.3B | **500** | 1.63 | 0.37 |
+| Sort | `select-v5.man` | 21×21 | 2,723 | 1.20M | 27,210 | 1.69 | 0.31 |
+| Packet Reassembly | ⚠️ **not in git** | 35×35 | 1,738 | 2.13M | 329,349 | 1.71 | 0.29 |
+| Brackets | `stack6.man` | 23×23 | 578 | 305,884 | 300 | 1.76 | 0.24 |
+| History Lesson | `history-lesson-with-year.man` | 84×84 | — | 7,056 | 5,929 | 1.84 | 0.16 |
+| Memory | `manual_4.man` / `addr-compare.man` | 26×26 | 23,556 | 15.9M | 27,867 | 1.95 | 0.05 |
+| Reverse a List | `manual-11x11.man` | 11×11 | 187 | 22,603 | 19,481 | 1.97 | 0.03 |
+| Triangle | `weave8x8.man` | 8×8 | 13 | **832** | 832 | **2.00** | 0.00 |
+
+**⚠️ Packet Reassembly's live 35×35 build is not in git** (searched every blob in history;
+the repo's best is `tcp-sweep2.man` at 41×41 / 2.90M). It cannot be reproduced or improved
+from the repo. Same for the LLLM 149×1469 build. Whoever has them locally must commit them.
+
+### What is worth doing (this is the whole strategy)
+
+- **Semester 4 correctness is worth 6.00 points; every score optimisation on all 12 solved
+  problems combined is worth ~3.3.** Snake, Pathfinder and LLM currently earn **zero**.
+- **Passing only public cases earns nothing.** Eligibility needs ≥1 *private* pass, and a
+  partial solve that happens to cover exactly the public cases (Snake 5/17, Pathfinder 7/18
+  — the public counts are 5 and 7) scores 0.00, not "partial credit". Generalising a
+  half-working Semester-4 solution is worth more than any amount of folding elsewhere.
+- Of the tuning targets, **Grade Book (+61 height slack) and LLLM (+1320 height slack)** are
+  the only ones with large mechanical box headroom left; the rest are already square.
 
 ## What actually moves the score
 
@@ -108,6 +132,30 @@ Score is `max(w,h)² × avg ticks`. In this repo's history the wins came, in ord
 
 Keep short pipes (length adds latency *and* ticks), and remember ticks stop at the **final
 correct output** — crashing into a wall afterwards is free, `H` is often unnecessary.
+
+### Automated tuning (`tools/autotune.py`)
+
+```bash
+python3 tools/autotune.py <slug> solutions/<slug>/build*.py --jobs 8 [-- builder args]
+```
+Perturbs one integer literal in the builder, regenerates the `.man`, grades it, and keeps
+the change only if it still passes every case **and** scores strictly lower — steepest
+descent in parallel waves. Builds run in a temp sandbox and output goes to new
+`*-tuned.man` / `*_tuned.py` files, so it cannot damage a working solution.
+
+What it found so far, and what that tells you:
+- **sudoku-validity: 7,556,863 → 7,209,468** (box 1849 → 1764) from a single literal
+  (`Sx = [1 + i*P …]` → `[0 + …]`, sliding a block one column left). Converged after that.
+- **sort-numbers: nothing.** All 712 single-literal perturbations of `select_build_v5.py`
+  either broke the build (474), failed cases (224), or scored worse — `select-v5` is a
+  local optimum. Hand-tuned champions usually are; expect small or no wins there.
+- **tcp: the builder no longer runs** — `sweep_build.py --full2` dies with
+  `layout.Collision at (3,21)`, so `tcp-sweep2.man` cannot be regenerated at all.
+
+Use it on *fresh* or *recently hand-built* solutions (Semester 4), where nobody has yet
+swept the geometry by hand; it is largely wasted on the old, heavily hand-folded ones.
+Ticks measured on public cases are a proxy — pass `--cases stress.json` when a design's
+timing is delicate. Box shrinks (like the sudoku one) are always safe.
 
 ## Semantics you will get wrong from the spec alone
 

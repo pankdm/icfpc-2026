@@ -384,20 +384,20 @@ def main():
                     stats["fail"] += 1
                 else:
                     stats["ok"] += 1
-                results.append((k, v, res, src))
+                results.append((k, v, res, src, man))
                 if args.verbose and not res.get("inert"):
                     print(f"    {k.name:>14} {k.value:>6} -> {v:<6} {fmt(res)}")
 
-        wins = [(r["score"], k, v, r, s) for k, v, r, s in results if is_win(r, best["score"])]
+        wins = [(r["score"], k, v, r, s, m) for k, v, r, s, m in results if is_win(r, best["score"])]
         print(f"  {stats['ok']} valid, {stats['fail']} fail, {stats['inert']} inert, "
               f"{stats['buildfail']} build-error, {cache.hits} cache hits"
               f"{f' — {len(wins)} improve' if wins else ' — no improvement'}")
         if wins:
             wins.sort(key=lambda w: w[0])
-            score, k, v, res, src = wins[0]
+            score, k, v, res, src, man = wins[0]
             print(f"  ACCEPT {k.name} {k.value} -> {v}:  {fmt(res)}")
             accepted.append((k.name, k.value, v, score))
-            best_src, best, best_man = src, res, _rebuild_man(res, src, args, builder_rel, target)
+            best_src, best, best_man = src, res, man
         if out_of_budget:
             print("budget exhausted")
             break

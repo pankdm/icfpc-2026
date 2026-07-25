@@ -98,6 +98,44 @@ import littleman as lm
 # HARNESS: node scratchpad/run_ss.js <file.man> "4 3 5 2 6 8" [cap]  (dump/settle)
 #          node tools/grade.js subset-sum <file.man>                 (oracle 7/7)
 # STAGE env: DUMPBIT / DUMPMAIN / DUMPDELTA gate an output-drain for verification.
+#
+# =====================================================================================
+# SESSION FINDINGS / STATUS  (read before continuing -- these cost real debugging):
+# VERIFIED ON ORACLE (committed): PASS 1a (double 1->2^(n-1) via {-by-1 loop, keeps B=1)
+#   and PASS 1b (BIT belt = [2^(n-1)..1]).  DUMPBIT: n=4->[8,4,2,1], n=10->[512..1].
+# WIP / UNVERIFIED (below, PASS 1c value-load): the man BLOCKS at the BIT-fill s and
+#   value-load never completes -- a routing bug in the PASS1c setup path (it re-enters
+#   the fill loop / jams a belt).  Do NOT trust it; likely needs a re-route or rebuild.
+#
+# *** CRITICAL ARCHITECTURAL LESSON -- ticks are WALK-BOUND ***
+#   This "one big 42x92 CTRL room with weaving corridors" layout is NON-VIABLE for the
+#   full machine: for n=4, PASS 1a/1b + PASS1c-setup already burned ~6000 ticks purely
+#   walking long corridors (col50 down 50 rows, col45 up, etc).  The MERGE phase runs
+#   ~2046 iterations (n=20); at even hundreds of walk-ticks each that is millions of
+#   ticks -> case 6 (n=20) TIMES OUT (>15M) even if functionally correct = 6/7 = no
+#   better than the ss.man floor.  MUST rearchitect: place hot-loop belt attaches
+#   ADJACENT (a few cells apart) so the man's per-op route is short, and FOLD to a
+#   compact box (see matmul/plotter fold lessons in MEMORY).  The current sprawl trades
+#   footprint AND ticks badly.  Recommend: tiny CTRL room with all belt attaches on ONE
+#   short wall, ops in a compact inner loop; separate the rare LOAD path from the hot
+#   MERGE loop.
+#
+# ROUTING RULES LEARNED (all cost oracle iterations):
+#   * A ring (belt) needs a RELAY ROOM **with a forwarder man** (`>@Rsv` + `<`/`^` loop)
+#     to shuttle feed->ret; a bare relay room does NOT move items (belt stays empty).
+#   * feed(out) and ret(in) pipes must not CROSS: route the ret's horizontal approach so
+#     the feed's vertical leg is outside it (relay placed east/beyond), or wrap ret ABOVE
+#     the feed's vertical span (MAIN pattern: ret attaches row20 above feed row30, wraps
+#     via row5 top).  Two pipes sharing a cell => LOAD ERR "pipe interrupted".
+#   * pipes must not pass through OTHER rooms (O room, other relays) -> reroute.
+#   * nearest-pipe = min Manhattan(op cell -> attach path[0]/path[last]); keep belts in
+#     separate REGIONS (input=top, MAIN=left, BIT=right, NN=bottom) so r/s are unambiguous.
+#   * loop-back into an op-spine must land on a 'v'/'>' REDIRECT cell (not an op cell, or
+#     the man re-executes it); after `s`/`r` the man KEEPS its heading (walks into a wall
+#     if the next cell is a room border) -> always follow s/r with an arrow before a wall.
+#   * `q` for a ring's count is UNRELIABLE (items spread across feed/relay/ret) -> stash
+#     scalars (n) on a dedicated 1-item ring (NN) and re-read.
+#   * render() trims to bbox: file coords = abs + (-minx,-miny); here (offx=+2, offy=-5).
 # =====================================================================================
 
 STAGE = os.environ.get('SS_STAGE', 'DUMPBIT')
@@ -149,7 +187,7 @@ def build():
     # =============================================================================
     p.man(12, 2)
     C(12, 2, '@'); H(13, 33, 2, '>'); C(34, 2, 'r')   # walk E to input col34, A=n
-    C(35, 2, 'v'); V(3, 78, 35, 'v'); C(35, 79, '<'); H(25, 34, 79, '<'); C(24, 79, 'v')  # down col35, W to bottom-center
+    C(35, 2, '>'); C(36, 2, 'v'); V(3, 78, 36, 'v'); C(36, 79, '<'); H(25, 35, 79, '<'); C(24, 79, 'v')  # down col36, W to bottom-center
     # bottom-center strip (col24): stash n, then DOUBLE loop -> A=2^(n-1), B=1
     C(24, 80, 's')                                    # stash n -> NN (nearest NN feed col25)
     C(24, 81, 'b')                                    # BP := n
@@ -182,6 +220,30 @@ def build():
         C(50, 40, 'r')                                   # read BIT ret (nearest incoming at (50,40))
         V(41, 44, 50, 'v'); C(50, 45, 's')               # down to (50,45) emit -> OUTPUT
         C(50, 46, '<'); C(49, 46, '^'); V(40, 45, 49, '^'); C(49, 39, '>')  # loop back up col49 to (50,39)
+        return p, placed
+
+    # =============================================================================
+    # PASS 1c : value load.  BP=n counter (from NN).  loop: r input -> s MAIN.
+    # MAIN = [v_0 .. v_{n-1}] (front=v_0).
+    # =============================================================================
+    # setup: reach NN from west (end heading E), r NN->A=n ; M ; s->NN ; b->BP=n ; up col45 -> row8 -> (13,9)
+    V(33, 86, 50, 'v')                               # down col50 to row86
+    C(50, 87, '<'); H(15, 49, 87, '<'); C(14, 87, '^'); V(84, 86, 14, '^'); C(14, 83, '>')
+    H(15, 25, 83, '>'); C(26, 83, 'r')               # r NN -> A=n (heading E)
+    C(27, 83, 'M'); C(28, 83, 's'); C(29, 83, 'b')   # B=n ; re-stash n->NN ; BP=n
+    H(30, 44, 83, '>'); C(45, 83, '^'); V(9, 82, 45, '^'); C(45, 8, '<')
+    H(14, 44, 8, '<'); C(13, 8, 'v'); C(13, 9, 'v')  # W row8 to col13, down to (13,9) -> top edge (13,10)
+    # value-load rectangle: top row10 (read), right col35, bottom row30 (s MAIN), loop-back col12.
+    C(13, 10, '>'); H(14, 33, 10, '>'); C(34, 10, 'r')   # read v (nearest incoming = input)
+    C(35, 10, 'v'); V(11, 29, 35, 'v'); C(35, 30, '<')   # down right edge
+    H(15, 34, 30, '<'); C(14, 30, 's')                   # s -> MAIN (nearest MAIN feed row30)
+    C(13, 30, 'm'); C(12, 30, 'd')                       # BP-- ; BP>0 CW=N loop, BP==0 straight W exit
+    V(11, 29, 12, '^'); C(12, 10, '>')                   # loop-back up col12 -> (13,10)
+    C(11, 30, 'v')                                       # exit (BP==0) -> down to transform / dump
+
+    if STAGE == 'DUMPMAIN':
+        # (trace-verify value-load: watch the s->MAIN ops.)  minimal exit + halt to build.
+        C(11, 31, 'H')
         return p, placed
 
     return p, placed

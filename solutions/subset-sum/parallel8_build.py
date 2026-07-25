@@ -542,7 +542,8 @@ def build_worker(
 def build_collector(builder, right, candidate_columns, collector_y=COLLECTOR_Y):
     p = builder.program
     C0 = builder.cell
-    ox, oy = 0, collector_y
+    ox = 2 if PREFIX_MODE and COMPACT_WORKER else 0
+    oy = collector_y
 
     compact_tail = False
 
@@ -551,23 +552,42 @@ def build_collector(builder, right, candidate_columns, collector_y=COLLECTOR_Y):
             y -= 8
         C0(ox + x, oy + y, char)
 
-    builder.room(10, oy, right - 10, 80)
-    builder.room(2, oy + 32, 7, 5)
-    p.pipe(
-        [(9, oy + 77), (1, oy + 77), (1, oy + 38), (5, oy + 38), (5, oy + 37)]
-    )
-    p.pipe([(4, oy + 31), (4, oy + 20), (9, oy + 20)])
-    C(3, 33, ">")
-    builder.man(4, oy + 33)
-    C(5, 33, "R")
-    C(6, 33, "s")
-    C(7, 33, "v")
-    C(7, 34, "<")
-    C(3, 34, "^")
+    builder.room(ox + 10, oy, right - 10, 80)
+    if PREFIX_MODE and COMPACT_WORKER:
+        builder.room(ox + 6, oy + 32, 4, 6)
+        p.pipe(
+            [
+                (ox + 9, oy + 77),
+                (ox + 7, oy + 77),
+                (ox + 7, oy + 38),
+            ]
+        )
+        p.pipe([(ox + 7, oy + 31), (ox + 7, oy + 20), (ox + 9, oy + 20)])
+        builder.man(ox + 7, oy + 33)
+        C(8, 33, "v")
+        C(7, 34, ">")
+        C(8, 34, "v")
+        C(7, 35, "s")
+        C(8, 35, "r")
+        C(7, 36, "^")
+        C(8, 36, "<")
+    else:
+        builder.room(2, oy + 32, 7, 5)
+        p.pipe(
+            [(9, oy + 77), (1, oy + 77), (1, oy + 38), (5, oy + 38), (5, oy + 37)]
+        )
+        p.pipe([(4, oy + 31), (4, oy + 20), (9, oy + 20)])
+        C(3, 33, ">")
+        builder.man(4, oy + 33)
+        C(5, 33, "R")
+        C(6, 33, "s")
+        C(7, 33, "v")
+        C(7, 34, "<")
+        C(3, 34, "^")
 
     stream_x = right - 6
 
-    builder.man(12, oy + 2)
+    builder.man(ox + 12, oy + 2)
     C(13, 2, ">")
     C(stream_x, 2, "r")
     C(stream_x + 1, 2, "b")
@@ -621,15 +641,22 @@ def build_collector(builder, right, candidate_columns, collector_y=COLLECTOR_Y):
     C(17, 8, ">")
 
     end_x = candidate_columns[-1] + 12
+    if PREFIX_MODE and COMPACT_WORKER:
+        end_x = min(end_x, right - 3)
     if PREFIX_MODE:
         if COMPACT_WORKER:
             C(19, 8, "r")
             C(20, 8, "X")
             C(20, 9, ">")
         for column in candidate_columns:
-            C(column, 8, "r")
-            C(column + 1, 8, "X")
-            C(column + 1, 9, ">")
+            read_column = (
+                column - 2
+                if COMPACT_WORKER and column == candidate_columns[-1]
+                else column
+            )
+            C(read_column, 8, "r")
+            C(read_column + 1, 8, "X")
+            C(read_column + 1, 9, ">")
         C(end_x, 8, "0")
         C(end_x + 1, 8, "v")
         C(end_x + 1, 9, "v")
@@ -747,8 +774,19 @@ def build_collector(builder, right, candidate_columns, collector_y=COLLECTOR_Y):
     C(46, 86, "^")
     C(46, 73, "<")
 
-    p.output_room(44, oy + 82)
-    p.pipe([(45, oy + 80), (45, oy + 81)])
+    if PREFIX_MODE and COMPACT_WORKER:
+        p.output_room(ox + right + 2, oy + 77)
+        p.pipe(
+            [
+                (ox + 45, oy + 80),
+                (ox + 45, oy + 81),
+                (ox + right + 3, oy + 81),
+                (ox + right + 3, oy + 80),
+            ]
+        )
+    else:
+        p.output_room(44, oy + 82)
+        p.pipe([(45, oy + 80), (45, oy + 81)])
 
 
 def build():

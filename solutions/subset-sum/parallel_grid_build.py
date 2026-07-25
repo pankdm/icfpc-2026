@@ -21,7 +21,7 @@ if ROWS < 1 or ROWS > 16 or ROWS > WORKERS:
 WORKER_X0 = 10 if base.PREFIX_MODE and base.COMPACT_WORKER else 8
 COMPACT_WIDTH_DELTA = 0
 WORKER_GAP = (
-    31 + COMPACT_WIDTH_DELTA
+    30 + COMPACT_WIDTH_DELTA
     if base.PREFIX_MODE and base.COMPACT_WORKER
     else base.WORKER_GAP
 )
@@ -59,7 +59,7 @@ def compare_station(builder, x, y):
 
 def build_row_broadcaster(builder, y, room_right, worker_bases, worker_y, preprocess):
     p = builder.program
-    reader_shift = 3 if base.PREFIX_MODE and base.COMPACT_WORKER else 0
+    reader_shift = 4 if base.PREFIX_MODE and base.COMPACT_WORKER else 0
 
     def C(x, cell_y, character):
         builder.cell(x + reader_shift, cell_y, character)
@@ -206,6 +206,7 @@ def build():
     row_ids = [worker_ids[index * columns : (index + 1) * columns] for index in range(ROWS)]
     row_ids = [ids for ids in row_ids if ids]
     collector_sources = []
+    reader_rights = []
 
     for row_index, ids in enumerate(row_ids):
         row_y = row_index * ROW_STRIDE
@@ -213,8 +214,14 @@ def build():
         worker_y = row_y + WORKER_Y
         collector_y = row_y + COLLECTOR_Y
         bases = worker_bases[: len(ids)]
+        reader_right = (
+            bases[-1] + candidate_offset
+            if base.PREFIX_MODE and base.COMPACT_WORKER
+            else room_right
+        )
+        reader_rights.append(reader_right)
         build_row_broadcaster(
-            builder, broadcaster_y, room_right, bases, worker_y, row_index == 0
+            builder, broadcaster_y, reader_right, bases, worker_y, row_index == 0
         )
         candidate_columns = [
             base.build_worker(builder, worker_base, worker_id, worker_y, collector_y)
@@ -234,12 +241,19 @@ def build():
         else:
             if row_index and not (base.PREFIX_MODE and base.COMPACT_WORKER):
                 candidate_columns.insert(0, FINAL_PRIOR_COLUMN)
-            base.build_collector(builder, room_right, candidate_columns, collector_y)
+            final_room_right = (
+                room_right - 4
+                if base.PREFIX_MODE and base.COMPACT_WORKER
+                else room_right
+            )
+            base.build_collector(
+                builder, final_room_right, candidate_columns, collector_y
+            )
 
     first_y = BROADCAST_Y
     if base.PREFIX_MODE and base.COMPACT_WORKER:
         p.input_room(8, first_y)
-        p.pipe([(11, first_y + 1), (12, first_y + 1)])
+        p.pipe([(11, first_y + 1), (13, first_y + 1)])
     else:
         p.input_room(5, first_y)
         p.pipe([(8, first_y + 1), (9, first_y + 1)])
@@ -247,25 +261,45 @@ def build():
     for row_index in range(len(row_ids) - 1):
         source_y = row_index * ROW_STRIDE + BROADCAST_Y + 2
         destination_y = (row_index + 1) * ROW_STRIDE + BROADCAST_Y + 1
-        p.pipe(
-            [
-                (room_right, source_y),
-                (room_right + 1, source_y),
-                (room_right + 1, destination_y),
-                (room_right, destination_y),
-            ]
-        )
+        if base.PREFIX_MODE and base.COMPACT_WORKER:
+            outer_x = max(reader_rights[row_index], reader_rights[row_index + 1]) + 1
+            p.pipe(
+                [
+                    (reader_rights[row_index], source_y),
+                    (outer_x, source_y),
+                    (outer_x, destination_y),
+                    (reader_rights[row_index + 1], destination_y),
+                ]
+            )
+        else:
+            p.pipe(
+                [
+                    (room_right, source_y),
+                    (room_right + 1, source_y),
+                    (room_right + 1, destination_y),
+                    (room_right, destination_y),
+                ]
+            )
 
     final_collector_y = (len(row_ids) - 1) * ROW_STRIDE + COLLECTOR_Y
     last_broadcaster_y = (len(row_ids) - 1) * ROW_STRIDE + BROADCAST_Y
-    p.pipe(
-        [
-            (room_right, last_broadcaster_y + 2),
-            (room_right + 1, last_broadcaster_y + 2),
-            (room_right + 1, final_collector_y + 6),
-            (room_right, final_collector_y + 6),
-        ]
-    )
+    if base.PREFIX_MODE and base.COMPACT_WORKER:
+        p.pipe(
+            [
+                (reader_rights[-1], last_broadcaster_y + 2),
+                (reader_rights[-1] + 2, last_broadcaster_y + 2),
+                (reader_rights[-1] + 2, final_collector_y - 1),
+            ]
+        )
+    else:
+        p.pipe(
+            [
+                (room_right, last_broadcaster_y + 2),
+                (room_right + 1, last_broadcaster_y + 2),
+                (room_right + 1, final_collector_y + 6),
+                (room_right, final_collector_y + 6),
+            ]
+        )
 
     for row_index, source in enumerate(collector_sources):
         next_collector_y = (row_index + 1) * ROW_STRIDE + COLLECTOR_Y
@@ -280,7 +314,9 @@ def build():
                     source,
                     (8, source[1]),
                     (8, destination_y),
-                    (9, destination_y),
+                    (11, destination_y)
+                    if row_index + 1 == len(row_ids) - 1
+                    else (9, destination_y),
                 ]
             )
             continue

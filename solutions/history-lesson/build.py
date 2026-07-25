@@ -76,7 +76,7 @@ THREE GOTCHAS discovered (verified against the reference oracle):
      restorer, which is why neither ever halts either -- they just block forever on
      an empty `r` once the feeder is done, which is free (output has already settled).
 
-Usage:  python3 build.py   (writes history-lesson-v3.man next to this file)
+Usage:  python3 build.py   (writes history-lesson-v4.man next to this file)
 """
 import os, sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'tools'))
@@ -87,16 +87,20 @@ I64 = 9223372036854775807
 
 
 # ------------------------------------------------------------------ tokenization + packing
+PUNCT_SPACE_TOKENS = (b',', b':', b';', b'.')
+
+
 def tokenize(data, offset=31):
-    """Omit spaces after comma/colon; their shifted values become tokens."""
+    """Omit spaces after comma/colon/semicolon/period; their shifted values become tokens."""
     symbols, i = [], 0
     while i < len(data):
-        if data[i:i + 2] in (b', ', b': '):
+        ch = data[i:i + 1]
+        if ch in PUNCT_SPACE_TOKENS and data[i:i + 2] == ch + b' ':
             symbols.append(data[i] - offset)
             i += 2
         else:
-            if data[i] in (ord(','), ord(':')):
-                raise ValueError('punctuation-space tokens require every comma/colon to be followed by space')
+            if ch in PUNCT_SPACE_TOKENS:
+                raise ValueError(f'punctuation-space token {ch!r} requires a following space')
             symbols.append(data[i] - offset)
             i += 1
     return symbols
@@ -172,73 +176,109 @@ def build(data, base=92, maxbytes=10, digit_widths=(16, 16, 18, 18), offset=31):
     feeder_bottom = nrows + 1
     p.room(0, 0, cR + 2, nrows + 2)
 
+    # Every tail block (decoder + expanders + restorer) places its own literal's
+    # backticks at relative offset +2/+5 from its own left wall. The feeder's
+    # boustrophedon alignment trick (gotcha #1) means the SAME backtick columns
+    # repeat on every feeder row, so any tail block landing on one of those
+    # columns vertical-pairs with a feeder literal across the wall in between
+    # ("non-digit in literal"). Find the actual forbidden columns from the
+    # rendered feeder (rows 1 and 2, covering both east/west parity) and use a
+    # greedy leftmost search for every block's position instead of guessing.
+    forbidden_cols = {x for y in (1, 2) for x in range(cR + 2) if p.get(x, y) == '`'}
+
+    def leftmost_safe_x(prev_max, gap_min=4, offsets=(2, 5)):
+        x = prev_max + gap_min
+        while any((x + o) in forbidden_cols for o in offsets):
+            x += 1
+        return x
+
     # decoder room, pulled up against the feeder: the feeder->decoder pipe bends
     # (down 1 cell, then east) instead of running straight down, so the decoder
     # only needs to sit 1 row below the feeder instead of 3 (saves 2 rows).
-    # Keep the footer two columns left of the old layout. The feeder's bottom
-    # wall has room at x=1 for the pipe, and this removes the final width slack.
-    p.put(1, feeder_bottom + 1, 'v')
-    p.put(1, feeder_bottom + 2, '>')
-    DX = 2                          # decoder's left wall (the bend pipe's target)
+    DX = leftmost_safe_x(-3)         # decoder's left wall; -3 so DX starts >= 1
+                                      # (room for the bend-pipe cell at DX-1)
+    p.put(DX - 1, feeder_bottom + 1, 'v')
+    p.put(DX - 1, feeder_bottom + 2, '>')
     dy0 = feeder_bottom + 1
-    c0, R = DX + 4, feeder_bottom + 2
-    p.put(c0 - 3, R, '@'); p.put(c0 - 2, R, 'r'); p.put(c0 - 1, R, '>')
-    seq = ['M', '`'] + list(str(base)) + ['`', 'W', '/', 'W', 's', 'W', 'X']
-    for j, ch in enumerate(seq):
-        p.put(c0 + j, R, ch)
-    cE = c0 + len(seq) - 1
-    p.put(cE, R + 1, '<'); p.put(c0 - 1, R + 1, '^')      # q>0 loop-back corridor
-    p.put(cE + 1, R, 'r'); p.put(cE + 2, R, 'v'); p.put(cE + 2, R + 1, '<')  # q==0 fetch
-    dmaxc = cE + 2
+    R = feeder_bottom + 2
+    assert base == 92, "decoder block below hardcodes the `29` (->92 westward) base literal"
+    # One shared 9x2 block does spawn + first-fetch + the full divmod loop (both
+    # "more digits in this chunk" and "fetch the next chunk" re-enter the same
+    # path). '`29`' read westward crosses '9' then '2' -> value 92.
+    #   row R:    >  W  /  W  s  W  X  @  v
+    #   row R+1:  ^  `  2  9  `  M  <  r  <
+    row1 = ['>', 'W', '/', 'W', 's', 'W', 'X', '@', 'v']
+    row2 = ['^', '`', '2', '9', '`', 'M', '<', 'r', '<']
+    for j, ch in enumerate(row1):
+        p.put(DX + 1 + j, R, ch)
+    for j, ch in enumerate(row2):
+        p.put(DX + 1 + j, R + 1, ch)
+    dmaxc = DX + 1 + len(row1) - 1   # rightmost content column ('v'/'<')
     p.room(DX, dy0, dmaxc - DX + 2, 4)
 
     # A streaming one-token expander: forward every input symbol, then test it
     # with XOR. A matching token yields zero and takes the east path, which emits
-    # shifted space (1); every other value takes the lower return path.
-    def expander(ex0, token):
-        p.room(ex0, R - 1, 19, 4)
-        p.put(ex0 + 1, R, '@')
-        p.text(ex0 + 2, R, f'`{token}`M>>rs~X`1`sv')
-        p.put(ex0 + 17, R + 1, '<')
-        p.put(ex0 + 12, R + 1, '<')
-        p.put(ex0 + 8, R + 1, '^')
-        return ex0 + 17
+    # each value in `emit` (shifted space (1) by default; a bigram token emits
+    # its two decoded symbols instead); every other value takes the lower return
+    # path. Same shared-loop trick as the decoder/restorer: '>' is the loop-entry,
+    # '@' is a harmless pass-through visited only by the match branch, and the
+    # token literal on row2 is stored digit-reversed for westward reading.
+    #   row R:    >  M  r  s  ~  X  <emit values, each `v`+digits+`s`>  v
+    #   row R+1:  ^  `  d  d  `  <  ...blank...                     @  <
+    def expander(ex0, token, emit=(1,), row=None):
+        row = R if row is None else row
+        emit_cells = []
+        for v in emit:
+            emit_cells += [str(v)] if 0 <= v <= 9 else ['`'] + list(str(v)) + ['`']
+            emit_cells.append('s')
+        row1 = ['>', 'M', 'r', 's', '~', 'X'] + emit_cells + ['v']
+        n = len(row1)
+        row2 = [' '] * n
+        row2[0] = '^'
+        row2[1:5] = ['`'] + list(str(token)[::-1]) + ['`']
+        row2[5] = '<'            # mismatch entry, matches row1's 'X'
+        row2[n - 2] = '@'        # pass-through, only visited by the match branch
+        row2[n - 1] = '<'        # match entry, matches row1's 'v'
+        p.room(ex0, row - 1, n + 2, 4)
+        for j, ch in enumerate(row1):
+            p.put(ex0 + 1 + j, row, ch)
+        for j, ch in enumerate(row2):
+            p.put(ex0 + 1 + j, row + 1, ch)
+        return ex0 + 1 + n - 1
 
-    comma_x = dmaxc + 4
+    comma_x = leftmost_safe_x(dmaxc)
     comma_max = expander(comma_x, 13)
-    colon_x = comma_max + 5
+    colon_x = leftmost_safe_x(comma_max)
     colon_max = expander(colon_x, 27)
+    semicolon_x = leftmost_safe_x(colon_max)
+    semicolon_max = expander(semicolon_x, ord(';') - offset)
+    period_x = leftmost_safe_x(semicolon_max)
+    period_max = expander(period_x, ord('.') - offset)
 
-    # Restorer room, same rows as the decoder: receives a shifted symbol, adds
-    # `offset` back, and forwards the real byte to O.
-    rx0 = colon_max + 4
-    p.put(rx0 + 1, R, '@')
-    cx = rx0 + 2
-    p.put(cx, R, '`'); cx += 1
-    for ch in str(offset):
-        p.put(cx, R, ch); cx += 1
-    p.put(cx, R, '`'); cx += 1
-    p.put(cx, R, 'M'); cx += 1
-    p.put(cx, R, '>'); cx += 1     # one-time: face east after setup
-    rcol_r = cx
-    p.put(cx, R, '>'); cx += 1     # loop-entry: the return corridor lands here and
-                                    # must re-face east (landing straight on 'r' would
-                                    # leave the runner still facing north -> wall)
-    p.put(cx, R, 'r'); cx += 1
-    p.put(cx, R, '+'); cx += 1
-    p.put(cx, R, 's'); cx += 1
-    rcol_v = cx
-    p.put(cx, R, 'v')
-    p.put(rcol_r, R + 1, '^')
-    p.put(rcol_v, R + 1, '<')
-    rmaxc = cx
+    # Restorer room, same rows as the decoder: one shared 7x2 block does spawn +
+    # first-receive + the full receive/restore/send loop, same trick as the
+    # decoder ('@' sits mid-loop as a harmless pass-through on every re-entry).
+    # '`13`' read westward crosses '3' then '1' -> value 31 (the OFFSET).
+    #   row R:    >     M  r  +  s  v
+    #   row R+1:  ^  `  1  3  `  @  <
+    assert offset == 31, "restorer block below hardcodes the `13` (->31 westward) offset literal"
+    rx0 = leftmost_safe_x(period_max)
+    row1 = ['>', ' ', 'M', 'r', '+', 's', 'v']
+    row2 = ['^', '`', '1', '3', '`', '@', '<']
+    for j, ch in enumerate(row1):
+        p.put(rx0 + 1 + j, R, ch)
+    for j, ch in enumerate(row2):
+        p.put(rx0 + 1 + j, R + 1, ch)
+    rmaxc = rx0 + len(row1)
     p.room(rx0, R - 1, rmaxc - rx0 + 2, 4)
 
     ox = rmaxc + 4
     p.output_room(ox, R - 1)
     p.pipe([(dmaxc + 2, R), (comma_x - 1, R)])                 # decoder -> comma
     p.pipe([(comma_max + 2, R), (colon_x - 1, R)])             # comma -> colon
-    p.pipe([(colon_max + 2, R), (rx0 - 1, R)])                 # colon -> restorer
+    p.pipe([(colon_max + 2, R), (semicolon_x - 1, R)])         # colon -> semicolon
+    p.pipe([(semicolon_max + 2, R), (period_x - 1, R)])        # semicolon -> period
+    p.pipe([(period_max + 2, R), (rx0 - 1, R)])                # period -> restorer
     p.pipe([(rmaxc + 2, R), (ox - 1, R)])                      # restorer -> O
     return p, len(chunks), nrows
 
@@ -246,7 +286,7 @@ def build(data, base=92, maxbytes=10, digit_widths=(16, 16, 18, 18), offset=31):
 if __name__ == '__main__':
     data = open(os.path.join(HERE, 'icfp-history.txt'), 'rb').read()
     p, nchunks, nrows = build(data)
-    out = os.path.join(HERE, 'history-lesson-v3.man')
+    out = os.path.join(HERE, 'history-lesson-v4.man')
     open(out, 'w').write(p.render() + '\n')
     w, h, score = p.footprint()
     print(f'wrote {out}: {w}x{h} score={score}  chunks={nchunks} rows={nrows}')

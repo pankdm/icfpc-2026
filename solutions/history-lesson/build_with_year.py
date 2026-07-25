@@ -1,16 +1,37 @@
 #!/usr/bin/env python3
-"""Build history-lesson with a stateful year decoder.
+"""Build the 84-wide `history-lesson` program with a stateful year decoder.
 
-The source stream keeps the 1996--1999 prefixes literal.  Every ``"; YYYY: "``
-boundary from 2000 onward is represented by symbol zero.  Zero is outside the normal shifted ASCII
-alphabet (1..91), so a streaming stage can distinguish it without consuming
-the register that holds its state.
+The required output is a fixed ASCII history.  Its encoded stream uses the
+shifted alphabet ``symbol = ASCII - 31`` (ordinary symbols are 1..91), plus two
+synthetic glyphs:
 
-That stage starts with the base-92 packed spelling ``"; 2000: "`` in B.  On a
-zero it sends the packed spelling, increments the one's-place base-92 digit,
-and corrects the decimal carry after each tenth year.  A normal base-92 decoder
-immediately downstream expands the complete spelling, including its trailing
-space.
+* ``13`` is the comma glyph.  Source ``, `` is encoded as only ``13``; the
+  comma expander later maps it to ``13, 1`` (comma followed by shifted space).
+* ``0`` is the year-boundary glyph.  Every ``"; YYYY: "`` boundary from 2000
+  through 2026 is encoded as one zero.  The 1996--1999 prefixes, all colons,
+  semicolons, periods, and their spaces remain ordinary shifted characters.
+
+The feeder packs the symbols LSB-first in base 92.  Its physical decimal
+literal widths are ``(18, 16, 17, 16)``; odd rows traverse those slots in
+reverse order.  A zero cannot be the most-significant packed symbol because a
+base-92 divmod decoder would otherwise discard it, so the packer ends a chunk
+immediately before any such zero.
+
+Pipeline:
+
+    feeder -> base-92 decoder -> year decoder -> base-92 unpacker
+           -> comma expander -> +31 restorer -> O
+
+The first decoder turns feeder literals into shifted symbols.  The year decoder
+passes every positive symbol through unchanged.  For a zero it sends the packed
+base-92 spelling ``"; 2000: "`` held in B to the unpacker.  B advances by
+``92**5`` (the one's-digit position in ``; YYYY: ``); BP counts ten generated
+years.  At a decimal rollover it applies ``92**4 - 10*92**5`` before resetting
+BP, which corrects 2009->2010 and 2019->2020.  The unpacker therefore emits the
+full separator, year, colon, and space without a separate colon-space stage.
+
+Finally, the comma expander restores omitted comma spaces and the restorer adds
+31 to every shifted symbol, yielding raw ASCII at O.
 
 Usage: python3 build_with_year.py
 """

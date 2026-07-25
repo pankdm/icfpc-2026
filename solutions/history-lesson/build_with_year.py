@@ -2,25 +2,35 @@
 """Build the 84-wide `history-lesson` program with a stateful year decoder.
 
 The required output is a fixed ASCII history.  Its encoded stream uses the
-shifted alphabet ``symbol = ASCII - 31`` (ordinary symbols are 1..91), plus two
-synthetic glyphs:
+shifted alphabet ``symbol = ASCII - 31`` (ordinary symbols are 1..91), plus
+three synthetic glyphs:
 
 * ``13`` is the comma glyph.  Source ``, `` is encoded as only ``13``; the
   comma expander later maps it to ``13, 1`` (comma followed by shifted space).
 * ``0`` is the year-boundary glyph.  Every ``"; YYYY: "`` boundary from 2000
   through 2026 is encoded as one zero.  The 1996--1999 prefixes, all colons,
   semicolons, periods, and their spaces remain ordinary shifted characters.
+* ``2`` is the phrase glyph for ``"and "`` (21 occurrences).  Like the year
+  glyph it is a *full* replacement: the phrase expander swaps it for the
+  phrase's packed base-92 spelling, which the shared unpacker then expands.
 
 The feeder packs the symbols LSB-first in base 92.  Its physical decimal
-literal widths are ``(18, 16, 17, 16)``; odd rows traverse those slots in
+literal widths are ``(15, 18, 18, 16)``; odd rows traverse those slots in
 reverse order.  A zero cannot be the most-significant packed symbol because a
 base-92 divmod decoder would otherwise discard it, so the packer ends a chunk
 immediately before any such zero.
 
 Pipeline:
 
-    feeder -> base-92 decoder -> year decoder -> base-92 unpacker
-           -> comma expander -> +31 restorer -> O
+    feeder -> base-92 decoder -> year decoder -> phrase expander
+           -> base-92 unpacker -> comma expander -> +31 restorer -> O
+
+Tokenizing ``"and "`` is the only phrase substitution that pays for itself.
+A packed literal costs the same ~1.97 decimal digits per character that the
+feeder does, so a phrase only wins through repetition, and it must win back
+the 4 x (16 + digits) cells its room occupies.  ``"and "`` nets about +54
+cells; ``", USA"``, ``" for "`` and ``"Haskell"`` are all net negative.  See
+scratchpad/history-lesson/optimize_focused.py for the search.
 
 The first decoder turns feeder literals into shifted symbols.  The year decoder
 passes every positive symbol through unchanged.  For a zero it sends the packed
@@ -52,7 +62,7 @@ LAST_GENERATED_YEAR = 2026
 PUNCT_SPACE_TOKENS = (b",",)
 # 84-column feeder: the asymmetric order matters because odd feeder rows read
 # physical slots in reverse.  This is the best current narrow layout.
-DEFAULT_DIGIT_WIDTHS = (18, 16, 17, 16)
+DEFAULT_DIGIT_WIDTHS = (15, 18, 18, 16)
 
 
 def packed_symbols(symbols: list[int], base: int = BASE) -> int:
@@ -70,9 +80,27 @@ YEAR_STEP = BASE**5
 # back ten and increment the tens digit.
 DECADE_CORRECTION = BASE**4 - 10 * BASE**5
 
+# A third synthetic glyph, alongside the comma (13) and year-boundary (0)
+# glyphs described in the module docstring: a reserved, otherwise-unused
+# shifted-ASCII symbol standing in for a whole recurring phrase.  Unlike the
+# comma glyph -- which is KEPT in the output plus an appended space -- a
+# phrase glyph is a FULL replacement, the same idea as the year machine's `0`
+# glyph.  `AND_GLYPH` must not collide with any byte actually used by
+# icfp-history.txt; `build()` asserts this at build time.
+#
+# No leading space: the ", " token already eats the space before many "and"s,
+# so " and " only matches 13 times while "and " matches 21.  Substituting it
+# anywhere is safe even mid-word (expanding the glyph reproduces the identical
+# bytes), so e.g. "Iceland " would round-trip correctly too.
+AND_PHRASE = "and "
+AND_GLYPH = 2  # byte 33 '!', unused in icfp-history.txt
+PACKED_AND_PHRASE = packed_text(AND_PHRASE)
+
 
 def tokenize_with_year(data: bytes, offset: int = OFFSET) -> list[int]:
-    """Tokenize punctuation spaces and consecutive generated year boundaries."""
+    """Tokenize punctuation spaces, phrase glyphs, and consecutive generated
+    year boundaries."""
+    and_phrase_bytes = AND_PHRASE.encode("ascii")
     symbols: list[int] = []
     i = 0
     expected_year = FIRST_GENERATED_YEAR
@@ -85,6 +113,11 @@ def tokenize_with_year(data: bytes, offset: int = OFFSET) -> list[int]:
                 expected_year += 1
                 continue
 
+        if data.startswith(and_phrase_bytes, i):
+            symbols.append(AND_GLYPH)
+            i += len(and_phrase_bytes)
+            continue
+
         ch = data[i : i + 1]
         if ch in PUNCT_SPACE_TOKENS and data[i : i + 2] == ch + b" ":
             symbols.append(data[i] - offset)
@@ -94,6 +127,11 @@ def tokenize_with_year(data: bytes, offset: int = OFFSET) -> list[int]:
         symbol = data[i] - offset
         if not 1 <= symbol < BASE:
             raise ValueError(f"byte {data[i]} at offset {i} is outside the source alphabet")
+        if symbol == AND_GLYPH:
+            raise ValueError(
+                f"byte {data[i]} at offset {i} collides with the reserved AND_GLYPH; "
+                "pick a different unused symbol value"
+            )
         symbols.append(symbol)
         i += 1
 
@@ -153,11 +191,11 @@ def build(
     digit_widths: tuple[int, ...] = DEFAULT_DIGIT_WIDTHS,
     offset: int = OFFSET,
 ) -> tuple[Program, int, int]:
-    """Build feeder -> decoder -> year stage -> decoder -> expanders -> output."""
+    """Build feeder -> decoder -> year stage -> phrase -> decoder -> expanders -> O."""
     if base != BASE or offset != OFFSET or digit_widths != DEFAULT_DIGIT_WIDTHS:
         raise ValueError(
-            "the folded decoder layout requires base=92, offset=31, and "
-            "digit_widths=(18, 16, 17, 16)"
+            f"the folded decoder layout requires base=92, offset=31, and "
+            f"digit_widths={DEFAULT_DIGIT_WIDTHS}"
         )
 
     symbols = tokenize_with_year(data, offset)
@@ -212,12 +250,12 @@ def build(
             x += 1
         return x
 
-    # All tail machines share this row.  The year machine is seven rows high,
-    # so lift the common row six cells below the feeder.
+    # The year machine's receive row.  The year machine is seven rows high, so
+    # lift this row six cells below the feeder.
     run_row = feeder_bottom + 6
-    # The first decoder sits one row above the state loop.  This keeps its
-    # bottom edge level with the year room instead of extending the footprint.
-    decoder_row = run_row - 1
+    # The first decoder shares that row, so feeder -> decoder -> year is one
+    # straight horizontal run and the decoder lands in band B (see below).
+    decoder_row = run_row
 
     def base_decoder(x0: int, row: int = run_row) -> int:
         """Place the shared 9x2 base-92 divmod loop and return its content max-x."""
@@ -320,8 +358,69 @@ def build(
     # Fold the remaining pipeline beside the year room.  The output room is
     # tucked beneath it, so the long final pipe does not add a feeder row.
     upper_row = feeder_bottom + 2
-    unpack_x = 46
-    unpack_max = base_decoder(unpack_x, upper_row)
+
+    def phrase_expander(x0: int, glyph: int, packed_value: int, row: int) -> int:
+        """Full-replacement decoder stage for a reserved 'phrase' glyph:
+        unlike `expander()`'s comma glyph (kept in the output, plus a
+        trailing space), a phrase glyph is entirely replaced -- the same idea
+        as the year machine's `0` glyph.  On match, sends `packed_value` (a
+        multi-symbol base-92 literal) to the downstream unpacker instead of
+        the glyph itself; on mismatch, passes the original symbol through
+        unchanged.  Must sit BEFORE the base-92 unpacker in the pipeline (not
+        after it, like the comma expander), because its match output is
+        itself a *packed* value the unpacker needs to re-expand.
+
+        Both branches converge on a single shared `s`, which is what keeps
+        this room 2 content rows (4 tall) instead of 3 -- and 4-tall is what
+        lets it share a tail band with base_decoder/expander/restorer.  The
+        shared `W` just before that `s` leaves the right value in A either
+        way:
+
+            mismatch arrives A = glyph^symbol, B = symbol -> W gives A = symbol
+            match    arrives A = packed,       B = packed -> W gives A = packed
+
+        Match gets A == B == packed for free by executing `M` right after
+        crossing its literal.
+
+            row1: @  >  `  g  `  M  r  W  ~  X  `packed`  M  v
+                  0  1  2  3  4  5  6  7  8  9  10...     .  x_v
+            row2:    ^  s  W  .  .  .  .  .  <  ......    <
+                     1  2  3  4  5  6  7  8  9           x_v
+
+        The glyph reload sits on row1 rather than on the return corridor so
+        that `@` can sit at row1's west end: a spawned man has A = 0, and if
+        he ever crossed the shared `s` he would emit a spurious 0 ahead of
+        the real stream.
+
+        `glyph` must be a single decimal digit (1-9) to keep its reload
+        literal 3 cells wide, which is what the row2 offsets above assume.
+        """
+        if not 1 <= glyph <= 9:
+            raise ValueError("phrase_expander requires a single-digit glyph")
+        digits = str(packed_value)
+        base = x0 + 1
+
+        row1 = ["@", ">", "`", str(glyph), "`", "M", "r", "W", "~", "X",
+                "`", *digits, "`", "M", "v"]
+        x_branch = 9              # the X cell
+        x_v = len(row1) - 1       # the v cell
+
+        row2 = [" ", "^", "s", "W"]
+        row2 += ["."] * (x_branch - len(row2))
+        row2 += ["<"]             # mismatch landing
+        row2 += ["."] * (x_v - len(row2))
+        row2 += ["<"]             # match landing
+        assert len(row2) == len(row1) == x_v + 1
+
+        width = len(digits) + 16
+        assert x_v + 3 == width
+        program.room(x0, row - 1, width, 4)
+        put_row(program, base, row, row1)
+        put_row(program, base, row + 1, row2)
+        return x0 + width - 2     # content max-x (base_decoder's convention)
+
+    if AND_GLYPH + offset in set(data):
+        raise ValueError("AND_GLYPH collides with a byte actually used by the source text")
 
     def expander(x0: int, token: int, row: int) -> int:
         row1 = [">", "M", "r", "s", "~", "X", "1", "s", "v"]
@@ -334,56 +433,60 @@ def build(
         put_row(program, x0 + 1, row + 1, row2)
         return x0 + 9
 
-    comma_x = 59
-    comma_max = expander(comma_x, ord(",") - offset, upper_row)
+    # Two staggered 4-row bands to the right of the year machine.  A single
+    # band (the old layout) cannot hold the phrase room as well -- it was
+    # already full at 84 columns -- and a second band costs only one tail row
+    # because the 7-row year machine already reaches down past band A.
+    #
+    #   band A, y run_row-5 .. run_row-2 : output, restorer, comma
+    #   band B, y run_row-1 .. run_row+2 : phrase, unpack   (run_row = year's
+    #                                      receive row, so year -> phrase is a
+    #                                      straight horizontal hop)
+    #
+    # The bands must not share a row: band A's bottom border and band B's top
+    # border would otherwise be the same cells, which is room overlap, and the
+    # cross-band pipe would have nowhere to cross.
+    #
+    # Band A runs right-to-left so the one cross-band pipe (unpack -> comma)
+    # can climb a free column east of both bands instead of crossing a room.
+    band_a_row = run_row - 4
+    band_b_row = run_row
+    right0 = year_max + 4
 
-    upper_backticks = {
-        unpack_x + 2,
-        unpack_x + 5,
-        comma_x + 2,
-        comma_x + 5,
-    }
+    phrase_max = phrase_expander(right0, AND_GLYPH, PACKED_AND_PHRASE, band_b_row)
+    unpack_x = phrase_max + 4
+    unpack_max = base_decoder(unpack_x, band_b_row)
 
-    def safe_literal_x(candidates: range) -> int:
-        for candidate in candidates:
-            columns = {candidate + 2, candidate + 5}
-            if not (columns & forbidden_columns) and not (columns & upper_backticks):
-                return candidate
-        raise ValueError("could not place folded tail without vertical literal pairing")
+    output_x = right0
+    program.output_room(output_x, band_a_row)
+    restorer_x = output_x + 5
+    program.room(restorer_x, band_a_row - 1, 9, 4)
+    put_row(program, restorer_x + 1, band_a_row, [">", " ", "M", "r", "+", "s", "v"])
+    put_row(program, restorer_x + 1, band_a_row + 1, ["^", "`", "1", "3", "`", "@", "<"])
+    comma_x = restorer_x + 11
+    comma_max = expander(comma_x, ord(",") - offset, band_a_row)
 
-    restorer_x = safe_literal_x(range(72, 77))
-    program.room(restorer_x, upper_row - 1, 9, 4)
-    put_row(program, restorer_x + 1, upper_row, [">", " ", "M", "r", "+", "s", "v"])
-    put_row(program, restorer_x + 1, upper_row + 1, ["^", "`", "1", "3", "`", "@", "<"])
-    output_x = 45
-    if output_x <= year_x + 27:
-        raise ValueError("folded output room overlaps the year stage")
-    program.output_room(output_x, run_row - 1)
-
+    # feeder -> decoder -> year, all on the year's receive row.
+    program.pipe([(decoder_max + 2, run_row), (year_x - 1, run_row)])
+    # year -> phrase -> unpack: straight hops along band B.
+    program.pipe([(year_x + 28, band_b_row), (right0 - 1, band_b_row)])
+    program.pipe([(phrase_max + 2, band_b_row), (unpack_x - 1, band_b_row)])
+    # unpack -> comma is the only cross-band pipe.  It must leave heading east
+    # (a pipe's start arrow's *backward* neighbour has to sit on the source
+    # room's border, and unpack's east wall only faces east), then climb the
+    # free column past both bands and come back west into comma's east wall.
+    climb_x = unpack_max + 3
     program.pipe(
         [
-            (decoder_max + 2, decoder_row),
-            (decoder_max + 3, decoder_row),
-            (decoder_max + 3, run_row),
-            (year_x - 1, run_row),
+            (unpack_max + 2, band_b_row),
+            (climb_x, band_b_row),
+            (climb_x, band_a_row + 1),
+            (comma_max + 2, band_a_row + 1),
         ]
     )
-    # State -> upper unpacker.  The state room's only `s` instructions select
-    # this pipe even though it attaches above their execution rows.
-    program.pipe([(year_x + 28, upper_row), (unpack_x - 1, upper_row)])
-    program.pipe([(unpack_max + 2, upper_row), (comma_x - 1, upper_row)])
-
-    program.pipe([(comma_max + 2, upper_row), (restorer_x - 1, upper_row)])
-    # The restorer sends east, then the pipe loops below the tail and enters O
-    # from its right side.
-    program.pipe(
-        [
-            (restorer_x + 9, upper_row),
-            (83, upper_row),
-            (83, run_row),
-            (output_x + 3, run_row),
-        ]
-    )
+    # comma -> restorer -> output, walking back west along band A.
+    program.pipe([(comma_x - 1, band_a_row + 1), (restorer_x + 9, band_a_row + 1)])
+    program.pipe([(restorer_x - 1, band_a_row + 1), (output_x + 3, band_a_row + 1)])
     return program, len(chunks), rows
 
 

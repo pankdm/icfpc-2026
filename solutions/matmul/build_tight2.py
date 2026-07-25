@@ -200,10 +200,12 @@ def build(stage="tiny"):
     # SA/SB deepened for large cases (SA cap>=NM+1<=257, SB cap>=MK<=256); gaps avoid short-circuit.
     if stage=="fold":
         # holders shallow (hold 1-2 values): short straight rings tucked in the escape band.
-        ring(HMf,HMr,-20); ring(HKf,HKr,-24); ring(HMRf,HMRr,-28)
+        ring(HMf,HMr,-6); ring(HKf,HKr,-8); ring(HMRf,HMRr,-10)
         ring(H1f,H1r,-9); ring(SCf,SCr,-14)
         # SA beside-LEFT serpentine (mouths SAf=5/SAr=7 already far-left -> no leg-crossing).
-        hang4(P, SAf, SAr, [-2,-3,-4,-5,-6], [-15,-16,-17,-18,-19], 1, 62,
+        # SA drains MONOTONICALLY (each a read once, never reenq) -> feed absorbs the bulk,
+        # so the RETURN leg needs only ~2 cols (saves width).
+        hang4(P, SAf, SAr, [-2,-3,-4,-5,-6], [-15], 1, 62,
               RL=-13, RY=25, ef=-8, er=-10, rrcol=-7)
         # SB beside-RIGHT serpentine.  Mouths SBf=40/SBr=38 are MID-WALL -> the leads must
         # cross the SC(44,46)/O(50) mouths; route them on HIGH escape rows (-15/-16) above

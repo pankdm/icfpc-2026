@@ -51,7 +51,19 @@ Three cooperating men (separates ROAMING from STATE — the key to fitting 3 reg
   3. STACK-MAN (decstack coprocessor): holds the include/exclude bit-stack in ITS
      OWN registers where shifts work (push = A=A<<1|bit via `{`/`|`; pop = bit=A&1
      then `}`). KEEPER pushes/pops via a small pipe protocol. This offloads the
-     decstack so the KEEPER never has to shift it.
+     decstack so the KEEPER never has to shift it. A working bit-stack push/pop
+     pattern already exists: solutions/brackets/stack2.man (BP-based).
+
+VERIFIED SO FAR (oracle-checked, committed):
+  * Stage 1/2 tape: load + O(1) walk-read + revisit (this file; ss_proto/ss_revisit).
+  * KEEPER descend decision ALU (the 3-register crux): scratchpad/ss_keeper.py
+    passes all 5 cases (solution / can't-reach prune / include / exclude / v==rem
+    boundary) using only A,B (remaining persists in B across the v_d read; branch
+    via `X` sign-turn). This retires the register-pressure unknown prior agents hit.
+STILL TO BUILD (integration of known patterns, no unsolved crux):
+  backtrack keeper (mirror of descend + decstack pop), stack-man wiring, head
+  cursor + head<->keeper pipe protocol, dynamic counter-loader (+ sentinel &
+  target routing), output reverse-emit (count then selected v_i ascending).
 
 WHY 3 REGISTERS SUFFICE (the crux prior agents hit):
   A man has A,B,BP. Every read writes A; BP cannot be shifted-into or read back

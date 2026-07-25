@@ -23,19 +23,16 @@ v-----------------<|>rMs              v |
 |                  |   ssssssssssssssss |
 |                  |^  <<<<<<<<<<<<<<<< |
 |                  +--------------------+
-|                      vvvvvvvvvvvvvvvv
-|                      ||||||||||||||||
-|                      vvvvvvvvvvvvvvvv
-| +---------------+  +------------------+
-| |>         v    |  |v<v<v<v<v<v<v<v<v<|
-| |@>r-b]]]]d>qdv |  | srsrsrsrsrsrsrsr |
-| | ^<      1  r  |<<| rsrsrsrsrsrsrsrs |
-| |         N  s  |  | ^<^<^<^<^<^<^<^< |
->>|         s  1  |  |>@               ^|
-  |         H  +  |  +------------------+
-  |            M  |
-  |          ^ <  |
-  |^ dq         < |
+| +---------------+    vvvvvvvvvvvvvvvv
+| |>         v    |    ||||||||||||||||
+| |@>r-b]]]]d>qdv |    vvvvvvvvvvvvvvvv
+| | ^<      1  r  |<<+------------------+
+| |         N  s  |  |v<v<v<v<v<v<v<v<v<|
+>>|         s  1  |  | srsrsrsrsrsrsrsr |
+  |         H  +  |  | rsrsrsrsrsrsrsrs |
+  |            M  |  | ^<^<^<^<^<^<^<^< |
+  |          ^ <  |  |>@               ^|
+  |^ dq         < |  +------------------+
   +---------------+
           v
           v

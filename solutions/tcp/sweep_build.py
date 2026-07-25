@@ -300,7 +300,7 @@ def build_full2():
     sc = SWX                                        # drain leaves sweeper WEST wall
 
     # ---- CHECKER ---- (west of the sweeper; drain attaches its EAST wall)
-    cx, cy = 0, TW                                 # top-left; rows align with sweeper
+    cx, cy = 0, TW - 3                             # raise checker so its bottom ~ sweeper bottom
     hints = emit_checker(L, cx, cy)
 
     # ---- PIPES ----

@@ -1,20 +1,16 @@
 #!/usr/bin/env python3
 """Build history-lesson with a stateful year decoder.
 
-The source stream keeps the 1996--1999 prefixes literal.  Every boundary from
-2000 onward,
-
-    ; YYYY:
-
-is represented by symbol zero.  Zero is outside the normal shifted ASCII
+The source stream keeps the 1996--1999 prefixes literal.  Every ``"; YYYY: "``
+boundary from 2000 onward is represented by symbol zero.  Zero is outside the normal shifted ASCII
 alphabet (1..91), so a streaming stage can distinguish it without consuming
 the register that holds its state.
 
-That stage starts with the base-92 packed spelling ``"; 2000:"`` in B.  On a
+That stage starts with the base-92 packed spelling ``"; 2000: "`` in B.  On a
 zero it sends the packed spelling, increments the one's-place base-92 digit,
 and corrects the decimal carry after each tenth year.  A normal base-92 decoder
-immediately downstream expands the spelling.  The later colon expander adds
-the space after the colon.
+immediately downstream expands the complete spelling, including its trailing
+space.
 
 Usage: python3 build_with_year.py
 """
@@ -32,8 +28,10 @@ BASE = 92
 OFFSET = 31
 FIRST_GENERATED_YEAR = 2000
 LAST_GENERATED_YEAR = 2026
-PUNCT_SPACE_TOKENS = (b",", b":")
-DEFAULT_DIGIT_WIDTHS = (16, 16, 18, 18)
+PUNCT_SPACE_TOKENS = (b",",)
+# 84-column feeder: the asymmetric order matters because odd feeder rows read
+# physical slots in reverse.  This is the best current narrow layout.
+DEFAULT_DIGIT_WIDTHS = (18, 16, 17, 16)
 
 
 def packed_symbols(symbols: list[int], base: int = BASE) -> int:
@@ -44,8 +42,8 @@ def packed_text(text: str, offset: int = OFFSET, base: int = BASE) -> int:
     return packed_symbols([ord(ch) - offset for ch in text], base)
 
 
-INITIAL_YEAR_CODE = packed_text(f"; {FIRST_GENERATED_YEAR}:")
-# The changing one's digit is the sixth symbol in "; YYYY:".
+INITIAL_YEAR_CODE = packed_text(f"; {FIRST_GENERATED_YEAR}: ")
+# The changing one's digit is the sixth symbol in "; YYYY: ".
 YEAR_STEP = BASE**5
 # After the common step, "...9" has a digit one beyond '9'.  Move that digit
 # back ten and increment the tens digit.
@@ -138,7 +136,7 @@ def build(
     if base != BASE or offset != OFFSET or digit_widths != DEFAULT_DIGIT_WIDTHS:
         raise ValueError(
             "the folded decoder layout requires base=92, offset=31, and "
-            "digit_widths=(16, 16, 18, 18)"
+            "digit_widths=(18, 16, 17, 16)"
         )
 
     symbols = tokenize_with_year(data, offset)
@@ -196,6 +194,9 @@ def build(
     # All tail machines share this row.  The year machine is seven rows high,
     # so lift the common row six cells below the feeder.
     run_row = feeder_bottom + 6
+    # The first decoder sits one row above the state loop.  This keeps its
+    # bottom edge level with the year room instead of extending the footprint.
+    decoder_row = run_row - 1
 
     def base_decoder(x0: int, row: int = run_row) -> int:
         """Place the shared 9x2 base-92 divmod loop and return its content max-x."""
@@ -207,14 +208,14 @@ def build(
         return x0 + 9
 
     decoder_x = leftmost_safe_x(-3, (2, 5))
-    decoder_max = base_decoder(decoder_x)
+    decoder_max = base_decoder(decoder_x, decoder_row)
 
     # Bring the feeder pipe down to the lower common row.
     feeder_pipe_x = decoder_x - 1
     program.put(feeder_pipe_x, feeder_bottom + 1, "v")
-    for y in range(feeder_bottom + 2, run_row):
+    for y in range(feeder_bottom + 2, decoder_row):
         program.put(feeder_pipe_x, y, "|")
-    program.put(feeder_pipe_x, run_row, ">")
+    program.put(feeder_pipe_x, decoder_row, ">")
 
     # Stateful year stage, 28x7.  Its receive/control loop is on interior row 5:
     #
@@ -293,12 +294,11 @@ def build(
     year_max = year_x + 26
 
     # A second base decoder is the year "unpacker".  Ordinary shifted symbols
-    # are one-digit base-92 chunks and pass through unchanged.
-    # Fold the remaining pipeline into two tiers to keep it within the feeder's
-    # 85-column bound.  The upper tier sits beside the year room; the lower tier
-    # runs back west into O.
+    # are one-digit base-92 chunks and pass through unchanged.  Generated
+    # boundaries already include their colon-space, so there is no colon stage.
+    # Fold the remaining pipeline beside the year room.  The output room is
+    # tucked beneath it, so the long final pipe does not add a feeder row.
     upper_row = feeder_bottom + 2
-    lower_row = feeder_bottom + 6
     unpack_x = 46
     unpack_max = base_decoder(unpack_x, upper_row)
 
@@ -330,39 +330,39 @@ def build(
                 return candidate
         raise ValueError("could not place folded tail without vertical literal pairing")
 
-    colon_x = safe_literal_x(range(60, 70))
-    expander(colon_x, ord(":") - offset, lower_row)
-
-    restorer_x = safe_literal_x(range(49, colon_x - 10))
-    program.room(restorer_x, lower_row - 1, 9, 4)
-    put_row(program, restorer_x + 1, lower_row, [">", " ", "M", "r", "+", "s", "v"])
-    put_row(program, restorer_x + 1, lower_row + 1, ["^", "`", "1", "3", "`", "@", "<"])
-    output_x = restorer_x - 5
+    restorer_x = safe_literal_x(range(72, 77))
+    program.room(restorer_x, upper_row - 1, 9, 4)
+    put_row(program, restorer_x + 1, upper_row, [">", " ", "M", "r", "+", "s", "v"])
+    put_row(program, restorer_x + 1, upper_row + 1, ["^", "`", "1", "3", "`", "@", "<"])
+    output_x = 45
     if output_x <= year_x + 27:
         raise ValueError("folded output room overlaps the year stage")
-    program.output_room(output_x, lower_row - 1)
+    program.output_room(output_x, run_row - 1)
 
-    program.pipe([(decoder_max + 2, run_row), (year_x - 1, run_row)])
+    program.pipe(
+        [
+            (decoder_max + 2, decoder_row),
+            (decoder_max + 3, decoder_row),
+            (decoder_max + 3, run_row),
+            (year_x - 1, run_row),
+        ]
+    )
     # State -> upper unpacker.  The state room's only `s` instructions select
     # this pipe even though it attaches above their execution rows.
     program.pipe([(year_x + 28, upper_row), (unpack_x - 1, upper_row)])
     program.pipe([(unpack_max + 2, upper_row), (comma_x - 1, upper_row)])
 
-    # Comma -> lower colon: route around the right side and enter the colon room
-    # from the right.  A room's r/s operations do not depend on attachment side.
-    colon_input_x = colon_x + 11
-    drop_x = colon_input_x + 1
+    program.pipe([(comma_max + 2, upper_row), (restorer_x - 1, upper_row)])
+    # The restorer sends east, then the pipe loops below the tail and enters O
+    # from its right side.
     program.pipe(
         [
-            (comma_max + 2, upper_row),
-            (drop_x, upper_row),
-            (drop_x, lower_row),
-            (colon_input_x, lower_row),
+            (restorer_x + 9, upper_row),
+            (83, upper_row),
+            (83, run_row),
+            (output_x + 3, run_row),
         ]
     )
-    # The lower tier flows west: colon -> restorer -> O.
-    program.pipe([(colon_x - 1, lower_row), (restorer_x + 9, lower_row)])
-    program.pipe([(restorer_x - 1, lower_row), (output_x + 3, lower_row)])
     return program, len(chunks), rows
 
 

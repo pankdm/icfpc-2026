@@ -213,8 +213,8 @@ def place_sasb(b, cbot, sa_mode, sb_mode):
     if sb_mode=="up":
         folded_on(b, [11,10,9,8,7], [15,14,13,12], -35, -3, -39)
     elif sb_mode=="hang":   # SB hung on the RIGHT (beside narrowed CTRL wall@33): feed FAR, return NEAR, ef<er
-        hang4(b, 11, 12, [46,47,48], [37,36,35], top, bot,
-              RL=39, RY=20, ef=-14, er=-13, rrcol=45)
+        hang4(b, 11, 12, [44,45,46], [36,35,34], top, bot,
+              RL=37, RY=20, ef=-12, er=-11, rrcol=43)
 
 def build(stage="drainA", W=31, H=42, sa_mode="up", sb_mode="up"):
     if stage in ("run","full"):
@@ -286,12 +286,13 @@ def build(stage="drainA", W=31, H=42, sa_mode="up", sb_mode="up"):
         # small rings + IO FIRST so folded pipeC checks against them.
         # SC: relay raised to -12 (shallower center -> SB escapes shallower) but feed pipe
         # FOLDED through col 14 to keep capacity >=18 (cap<17 stalls the MAC -> avgTicks up).
-        _rx,_RY=16,-12
+        _rx,_RY=15,-10   # relay cols 15..20 (avoids H1 left wall @21), rows -10..-7
         p.room(_rx,_RY,6,4)
         C(_rx+1,_RY+1,'@'); C(_rx+2,_RY+1,'>'); C(_rx+3,_RY+1,'R'); C(_rx+4,_RY+1,'v')
         C(_rx+2,_RY+2,'^'); C(_rx+3,_RY+2,'s'); C(_rx+4,_RY+2,'<')
-        p.pipe([(SCf,-1),(SCf,-2),(14,-2),(14,-6),(SCf,-6),(SCf,-8)])   # feed (attach 17): folded (row<=-2 to keep single wall-attach), enters relay bottom
-        p.pipe([(SCr,-8),(SCr,-1)])                            # return (attach 18): straight
+        # feed=rx+1=16 (relay entry), ret=rx+2=17; connect them to CTRL attach cols 17,18.
+        p.pipe([(SCf,-1),(SCf,-2),(13,-2),(13,-5),(16,-5),(16,-6)])   # feed: attach 17 -> folded -> relay entry 16
+        p.pipe([(17,-6),(18,-6),(SCr,-1)])                           # return: relay exit 17 -> attach 18
         ring(H1f,H1r, 21, -8)       # H1 tiny, relay cols 21..26 (clear of O room 27..29)
         IY=-6
         p.input_room(I_-1,IY); p.pipe([(I_,IY+3),(I_,-1)])

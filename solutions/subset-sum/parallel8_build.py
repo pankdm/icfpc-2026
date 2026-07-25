@@ -98,7 +98,7 @@ def build_compact_prefix_worker(builder, base_x, worker_id, worker_y, collector_
     extra_bits = PARTITION_BITS - 6
     if extra_bits < 0:
         raise ValueError("compact prefix worker requires at least 64 workers")
-    width_delta = 4 * extra_bits
+    width_delta = 0
     room_width = 25 + width_delta
     interior_width = room_width - 2
     main_left = base_x + 4
@@ -142,11 +142,23 @@ def build_compact_prefix_worker(builder, base_x, worker_id, worker_y, collector_
             row[target] = character
         rows.append(row)
 
+    rows[0] = [" "] * interior_width
+    first_row = list(f"@rM{PARTITION_BITS}W-b 0Mr")
+    for index in range(extra_bits):
+        first_row.extend(
+            "r+M"
+            if worker_id >> (PARTITION_BITS - 1 - index) & 1
+            else "r  "
+        )
+    first_row.append("v")
+    first_row_start = interior_width - len(first_row)
+    rows[0][first_row_start:] = first_row
+
     rows[1] = [" "] * interior_width
     rows[1][0:4] = "vsN1"
     rows[1][-1] = "<"
     cursor = interior_width - 2
-    for index in range(PARTITION_BITS):
+    for index in range(extra_bits, PARTITION_BITS):
         rows[1][cursor] = "r"
         if worker_id >> (PARTITION_BITS - 1 - index) & 1:
             rows[1][cursor - 1] = "+"
@@ -154,7 +166,6 @@ def build_compact_prefix_worker(builder, base_x, worker_id, worker_y, collector_
         cursor -= 3
 
     digits = f"{worker_id:03d}"
-    rows[0][14 + width_delta] = str(PARTITION_BITS)
     literal_delta = min(width_delta, 4)
     rows[11][7 + literal_delta : 10 + literal_delta] = reversed(digits)
     rows[12][20 + width_delta] = digits[0]
@@ -611,6 +622,10 @@ def build_collector(builder, right, candidate_columns, collector_y=COLLECTOR_Y):
 
     end_x = candidate_columns[-1] + 12
     if PREFIX_MODE:
+        if COMPACT_WORKER:
+            C(19, 8, "r")
+            C(20, 8, "X")
+            C(20, 9, ">")
         for column in candidate_columns:
             C(column, 8, "r")
             C(column + 1, 8, "X")

@@ -192,6 +192,7 @@ def pack_chunks(symbols: list[int], widths: tuple[int, ...]) -> list[int]:
 class Layout:
     widths: tuple[int, ...]
     chunks: int
+    extra_rows: int = FEEDER_EXTRA_ROWS
 
     @property
     def grid_width(self) -> int:
@@ -210,7 +211,7 @@ class Layout:
     @property
     def planned_height(self) -> int:
         """Full layout height after reserving the feeder's decoder/footer rows."""
-        return self.grid_height + FEEDER_EXTRA_ROWS
+        return self.grid_height + self.extra_rows
 
     @property
     def side(self) -> int:
@@ -275,12 +276,12 @@ def render_feeder(symbols: list[int], layout: Layout) -> str:
     return "\n".join("".join(row) for row in cells)
 
 
-def best_layout(symbols: list[int], max_slots: int = 5) -> Layout:
+def best_layout(symbols: list[int], max_slots: int = 5, extra_rows: int = FEEDER_EXTRA_ROWS) -> Layout:
     """Find the smallest square-side feeder among useful physical slot layouts."""
     table = take_table(symbols)
     # The checked-in layout is a valid, useful upper bound.  It also keeps this
     # exhaustive search compact: wider layouts cannot improve the feeder side.
-    upper = Layout((16, 16, 18, 18), pack_count(table, (16, 16, 18, 18))).side
+    upper = Layout((16, 16, 18, 18), pack_count(table, (16, 16, 18, 18)), extra_rows).side
     # For a given digit width, no slot can consume more than this many symbols at
     # any source offset.  Summing these maxima gives a safe, tight row-capacity
     # bound before trying each order's actual greedy pack.
@@ -295,13 +296,13 @@ def best_layout(symbols: list[int], max_slots: int = 5) -> Layout:
             capacity = sum(max_take[d] for d in widths)
             if capacity == 0:
                 continue
-            if (len(symbols) + capacity - 1) // capacity + 2 + FEEDER_EXTRA_ROWS > upper:
+            if (len(symbols) + capacity - 1) // capacity + 2 + extra_rows > upper:
                 continue
             # A physical slot list is read forward then backward.  Width order can
             # change a few boundary chunks, so check every distinct order here.
             for widths in set(itertools.permutations(widths)):
                 try:
-                    layout = Layout(widths, pack_count(table, widths))
+                    layout = Layout(widths, pack_count(table, widths), extra_rows)
                 except AssertionError:
                     # A narrow slot can only encode a subset of symbols; another
                     # ordering (or width list) may still be usable.
@@ -320,6 +321,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--add", action="append", default=[], metavar="TEXT", help="add an auto-marked special glyph")
     parser.add_argument("--no-defaults", action="store_true", help="do not include the comma-space and colon-space glyphs")
     parser.add_argument("--max-slots", type=int, default=5, help="search up to this many feeder slots (default: 5)")
+    parser.add_argument("--feeder-extra-rows", type=int, default=FEEDER_EXTRA_ROWS,
+                        help=f"rows reserved below the feeder (default: {FEEDER_EXTRA_ROWS})")
     return parser.parse_args()
 
 
@@ -327,6 +330,8 @@ def main() -> None:
     args = parse_args()
     if not 1 <= args.max_slots <= 7:
         raise SystemExit("--max-slots must be between 1 and 7")
+    if args.feeder_extra_rows < 0:
+        raise SystemExit("--feeder-extra-rows must be non-negative")
     data = open(args.text, "rb").read()
     glyphs = ([] if args.no_defaults else SPECIAL_GLYPHS) + EXTRA_GLYPHS + [Glyph(text) for text in args.add]
     try:
@@ -335,13 +340,13 @@ def main() -> None:
     except ValueError as error:
         raise SystemExit(f"mapping error: {error}") from error
 
-    layout = best_layout(symbols, args.max_slots)
+    layout = best_layout(symbols, args.max_slots, args.feeder_extra_rows)
     print(f"text: {len(data)} bytes -> {len(symbols)} encoded symbols ({len(data) - len(symbols)} saved)")
     print("special glyphs:")
     for glyph, (_, symbol), count in zip(glyphs, mappings, counts):
         print(f"  {glyph.text!r:28} -> {chr(symbol + OFFSET)!r:4}  symbol={symbol:2}  uses={count}")
     print(f"best square-aware layout: {layout.grid_width}x{layout.planned_height}  side={layout.side}")
-    print(f"  feeder grid={layout.grid_width}x{layout.grid_height} (+{FEEDER_EXTRA_ROWS} reserved rows)")
+    print(f"  feeder grid={layout.grid_width}x{layout.grid_height} (+{layout.extra_rows} reserved rows)")
     print(f"  slots={len(layout.widths)} widths={list(layout.widths)} chunks={layout.chunks} rows={layout.rows}")
     with open(PROPOSED_GRID_PATH, "w") as output:
         output.write(render_feeder(symbols, layout) + "\n")

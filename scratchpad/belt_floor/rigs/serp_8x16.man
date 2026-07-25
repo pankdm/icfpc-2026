@@ -1,0 +1,18 @@
++--------------------+
+|                    |
+| @rsrsrsrsrsrsrsrsv |
+| vsrsrsrsrsrsrsrsr< |
+| >rsrsrsrsrsrsrsrsv |
+| vsrsrsrsrsrsrsrsr< |
+| >rsrsrsrsrsrsrsrsv |
+| vsrsrsrsrsrsrsrsr< |
+| >rsrsrsrsrsrsrsrsv |
+|  srsrsrsrsrsrsrsr< |
+|                    |
+|                    |
++--------------------+
+     ^            v
+     ^            v
+    +-+          +-+
+    |I|          |O|
+    +-+          +-+

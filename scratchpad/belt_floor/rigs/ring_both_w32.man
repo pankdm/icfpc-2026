@@ -1,0 +1,12 @@
++---------------------------------------------------------------------+              +---------------------------------------------------------------------+
+|                                                                     |>------------>|                                                                     |
+| @>RsRsRsRsRsRsRsRsRsRsRsRsRsRsRsRsRsRsRsRsRsRsRsRsRsRsRsRsRsRsRsRsv |              | @>RsRsRsRsRsRsRsRsRsRsRsRsRsRsRsRsRsRsRsRsRsRsRsRsRsRsRsRsRsRsRsRsv |
+|  ^sRsRsRsRsRsRsRsRsRsRsRsRsRsRsRsRsRsRsRsRsRsRsRsRsRsRsRsRsRsRsRsR< |              |  ^sRsRsRsRsRsRsRsRsRsRsRsRsRsRsRsRsRsRsRsRsRsRsRsRsRsRsRsRsRsRsRsR< |
+|                                                                     |<------------<|                                                                     |
++---------------------------------------------------------------------+              +---------------------------------------------------------------------+
+     ^
+     |
+     ^
+    +-+
+    |I|
+    +-+

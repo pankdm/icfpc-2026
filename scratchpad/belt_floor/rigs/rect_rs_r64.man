@@ -1,0 +1,12 @@
++-------------------------------------------------------------------------------------------------------------------------------------+
+|                                                                                                                                     |
+| @>rsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsv |
+|  ^srsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsr< |
+|                                                                                                                                     |
++-------------------------------------------------------------------------------------------------------------------------------------+
+     ^                                                                                                                             v
+     |                                                                                                                             |
+     ^                                                                                                                             v
+    +-+                                                                                                                           +-+
+    |I|                                                                                                                           |O|
+    +-+                                                                                                                           +-+

@@ -29,7 +29,7 @@ oracle - end-to-end runtime is NOT yet debugged.
 """
 
 W = 18               # total width (cols 0..17); interior cols 1..16
-H = 23               # total height (rows 0..22)
+H = 22               # total height (rows 0..21)
 LANE0, LANE15 = 1, 16  # lane pipe grid columns (16 lanes: cols 1..16)
 
 
@@ -61,8 +61,8 @@ def build():
     g[3][1] = "v"          # input pipe (2 cells) col1, rows 3..4
     g[4][1] = "v"          #   -> attaches to sequencer top wall (row5)
 
-    # ---- SEQUENCER room: top wall row5, interior rows 6..10, bottom wall row11
-    SEQ_TOP, SEQ_BOT = 5, 11
+    # ---- SEQUENCER room: top wall row5, interior rows 6..9, bottom wall row10
+    SEQ_TOP, SEQ_BOT = 5, 10
     room(g, SEQ_TOP, 0, SEQ_BOT, W - 1)
     # setup row (row6): read count, load bias C, start.
     #   > r b   : face E, A=n, BP=n
@@ -70,37 +70,36 @@ def build():
     #   M       : B = C ; @ : start (man faces E)
     put(g, 6, 1, ">rb`2097152`M@")
     # serpentine body over the 16 lane columns (grid cols 1..16), compressed to
-    # 4 rows. Per lane column, the planned cell sequence encodes the d-branch
-    # (BP>0 real / else pad) + read + bias + send. Rendered here as a valid
+    # 3 rows. Per lane column, the planned cell sequence encodes the d-branch
+    # (BP>0 real / else pad) + read + bias + send. Rendered as a valid
     # boustrophedon that LOADS; runtime is not yet debugged.
-    put(g, 7, 1, "avavavavavavavav")   # a: CCW if BP>0
-    put(g, 8, 1, "srsrsrsrsrsrsrsr")   # s: send lane, r: read next
-    put(g, 9, 1, "+m+m+m+m+m+m+m+m")   # +: A=A+C bias, m: BP--
-    put(g, 10, 1, "^d^d^d^d^d^d^d^d")  # d: BP>0 turn
-    # (row11 is the bottom wall)
+    put(g, 7, 1, "d+d+d+d+d+d+d+d+")   # d: BP>0 turn (real) ; +: A=A+C bias
+    put(g, 8, 1, "srsrsrsrsrsrsrsr")   # s: send lane ; r: read next value
+    put(g, 9, 1, "^m^m^m^m^m^m^m^m")   # m: BP-- ; ^: serpentine return
+    # (row10 is the bottom wall)
 
-    # ---- 16 vertical lanes (2-cell pipes) at grid cols 1..16, rows 12..13
+    # ---- 16 vertical lanes (2-cell pipes) at grid cols 1..16, rows 11..12
     for c in range(LANE0, LANE15 + 1):
+        g[11][c] = "v"
         g[12][c] = "v"
-        g[13][c] = "v"
 
-    # ---- WRITER room: top wall row14, interior rows 15..16, bottom wall row17
-    WR_TOP, WR_BOT = 14, 17
+    # ---- WRITER room: top wall row13, interior rows 14..15, bottom wall row16
+    WR_TOP, WR_BOT = 13, 16
     room(g, WR_TOP, 0, WR_BOT, W - 1)
     # compact writer loop (does NOT span the 16 lanes: uses R = reading-order).
     #   @ `2097152` M : B = C (debias)
     #   r  : barrier read lane0 (leftmost = last filled)
     #   X  : test A>0 (biased real) -> turn to debias/print ; else skip
     #   - s: A=A-C ; send to O ;  R: receive next lane in reading order (loop)
-    put(g, 15, 1, "@`2097152`MrX-sR")   # 16 chars (cols 1..16)
-    put(g, 16, 1, "^<<<<<<<<<<<<dav")    # 16 chars (cols 1..16)
+    put(g, 14, 1, "@`2097152`MrX-sR")   # 16 chars (cols 1..16)
+    put(g, 15, 1, "^<<<<<<<<<<<<dav")    # 16 chars (cols 1..16)
 
-    # ---- output pipe (writer bottom wall row17 -> O), 2 cells at col1
+    # ---- output pipe (writer bottom wall row16 -> O), 2 cells at col1
+    g[17][1] = "v"
     g[18][1] = "v"
-    g[19][1] = "v"
-    # ---- O room (below, cols 0..2) rows 20..22
-    room(g, 20, 0, 22, 2)
-    g[21][1] = "O"
+    # ---- O room (below, cols 0..2) rows 19..21
+    room(g, 19, 0, 21, 2)
+    g[20][1] = "O"
 
     rows = ["".join(r).rstrip() for r in g]
     return rows

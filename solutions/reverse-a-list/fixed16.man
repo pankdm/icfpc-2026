@@ -5,10 +5,9 @@
  v
 +----------------+
 |>rb`2097152`M@  |
-|avavavavavavavav|
+|d+d+d+d+d+d+d+d+|
 |srsrsrsrsrsrsrsr|
-|+m+m+m+m+m+m+m+m|
-|^d^d^d^d^d^d^d^d|
+|^m^m^m^m^m^m^m^m|
 +----------------+
  vvvvvvvvvvvvvvvv
  vvvvvvvvvvvvvvvv

@@ -23,6 +23,8 @@ if WORKERS < 1 or WORKERS > 256 or WORKERS & (WORKERS - 1):
 PARTITION_BITS = int(math.log2(WORKERS))
 PREFIX_MODE = os.environ.get("SS_PREFIX") == "1"
 COMPACT_WORKER = os.environ.get("SS_COMPACT_WORKER") == "1"
+COMPACT_TAIL_SHIFT = int(os.environ.get("SS_COMPACT_TAIL_SHIFT", "14"))
+COMPACT_WIDTH_DELTA = int(os.environ.get("SS_COMPACT_WIDTH_DELTA", "0"))
 WORKER_IDS = list(range(WORKERS - 1, -1, -1)) if PREFIX_MODE else list(range(WORKERS))
 WORKER_GAP = 45
 WORKER_X0 = 50
@@ -98,7 +100,7 @@ def build_compact_prefix_worker(builder, base_x, worker_id, worker_y, collector_
     extra_bits = PARTITION_BITS - 6
     if extra_bits < 0:
         raise ValueError("compact prefix worker requires at least 64 workers")
-    width_delta = 0
+    width_delta = COMPACT_WIDTH_DELTA
     room_width = 25 + width_delta
     interior_width = room_width - 2
     main_left = base_x + 4
@@ -108,6 +110,7 @@ def build_compact_prefix_worker(builder, base_x, worker_id, worker_y, collector_
 
     shift_thresholds = {
         0: 11,
+        1: 22,
         2: 4,
         3: 5,
         9: 17,
@@ -549,7 +552,7 @@ def build_collector(builder, right, candidate_columns, collector_y=COLLECTOR_Y):
 
     def C(x, y, char):
         if compact_tail and y >= 45:
-            y -= 8
+            y -= COMPACT_TAIL_SHIFT
         C0(ox + x, oy + y, char)
 
     builder.room(ox + 10, oy, right - 10, 80)
@@ -585,7 +588,7 @@ def build_collector(builder, right, candidate_columns, collector_y=COLLECTOR_Y):
         C(7, 34, "<")
         C(3, 34, "^")
 
-    stream_x = right - 6
+    stream_x = right - 10 if PREFIX_MODE and COMPACT_WORKER else right - 6
 
     builder.man(ox + 12, oy + 2)
     C(13, 2, ">")

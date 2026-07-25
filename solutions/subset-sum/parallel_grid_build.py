@@ -17,9 +17,12 @@ if WORKERS < 1 or WORKERS > 256 or WORKERS & (WORKERS - 1):
     raise ValueError("SS_WORKERS must be a power of two between 1 and 256")
 if ROWS < 1 or ROWS > 16 or ROWS > WORKERS:
     raise ValueError("SS_ROWS must be between 1 and min(16, SS_WORKERS)")
+COLUMNS = int(os.environ.get("SS_COLUMNS", math.ceil(WORKERS / ROWS)))
+if COLUMNS < 1 or COLUMNS * ROWS < WORKERS:
+    raise ValueError("SS_COLUMNS must provide capacity for all workers")
 
 WORKER_X0 = 10 if base.PREFIX_MODE and base.COMPACT_WORKER else 8
-COMPACT_WIDTH_DELTA = 0
+COMPACT_WIDTH_DELTA = base.COMPACT_WIDTH_DELTA
 WORKER_GAP = (
     30 + COMPACT_WIDTH_DELTA
     if base.PREFIX_MODE and base.COMPACT_WORKER
@@ -193,7 +196,7 @@ def build():
     builder = base.Builder()
     p = builder.program
     worker_ids = list(range(WORKERS - 1, -1, -1)) if base.PREFIX_MODE else list(range(WORKERS))
-    columns = math.ceil(WORKERS / ROWS)
+    columns = COLUMNS
     worker_bases = [WORKER_X0 + index * WORKER_GAP for index in range(columns)]
     candidate_offset = (
         30 + COMPACT_WIDTH_DELTA
@@ -242,7 +245,7 @@ def build():
             if row_index and not (base.PREFIX_MODE and base.COMPACT_WORKER):
                 candidate_columns.insert(0, FINAL_PRIOR_COLUMN)
             final_room_right = (
-                room_right - 4
+                candidate_columns[-1] + 12
                 if base.PREFIX_MODE and base.COMPACT_WORKER
                 else room_right
             )
@@ -349,7 +352,18 @@ if __name__ == "__main__":
     suffix = "-prefix" if base.PREFIX_MODE else ""
     if base.COMPACT_WORKER:
         suffix += "-compact"
-    destination = HERE / f"parallel{WORKERS}{suffix}-r{ROWS}.man"
-    program.save(str(destination))
-    print(program.render())
-    print("footprint", program.footprint())
+    column_suffix = f"-c{COLUMNS}" if "SS_COLUMNS" in os.environ else ""
+    destination = HERE / f"parallel{WORKERS}{suffix}-r{ROWS}{column_suffix}.man"
+    rendered = program.render()
+    if base.PREFIX_MODE and base.COMPACT_WORKER:
+        from compact_man import compact_text, dimensions
+
+        rendered = compact_text(rendered)
+        destination.write_text(rendered + "\n", encoding="ascii")
+        width, height = dimensions(rendered)
+        footprint = (width, height, max(width, height) ** 2)
+    else:
+        program.save(str(destination))
+        footprint = program.footprint()
+    print(rendered)
+    print("footprint", footprint)

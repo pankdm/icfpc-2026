@@ -63,10 +63,19 @@ PREFIX64_R6_ACTUAL = (
 )
 
 COMPACT_PREFIX_ACTUAL = {
-    64: (6, 351, 318, (10_714, 10_392, 39_744, 10_304, 11_762, 10_392)),
-    128: (10, 411, 478, (12_427, 12_105, 21_920, 12_017, 13_715, 12_105)),
-    256: (14, 591, 638, (17_035, 16_713, 21_133, 16_625, 19_043, 16_713)),
+    64: (7, 304, 348, (5_390, 5_063, 39_405, 4_975, 10_892, 5_063)),
+    128: (9, 454, 428, (8_624, 8_297, 21_627, 8_209, 9_292, 8_297)),
+    256: (14, 574, 628, (9_969, 9_642, 16_372, 9_554, 11_059, 9_642)),
 }
+
+# Uneven fold: 13 rows x 21 columns, leaving only four workers in the final row.
+COMPACT_256_C21_ACTUAL = (
+    13,
+    21,
+    634,
+    588,
+    (9_632, 9_305, 16_035, 9_217, 10_722, 9_305),
+)
 
 
 def horizontal_metrics(workers):
@@ -117,6 +126,22 @@ def main():
                 )
             )
         )
+    rows, columns, width, height, public_ticks = COMPACT_256_C21_ACTUAL
+    footprint = max(width, height) ** 2
+    average_ticks = sum(public_ticks) // len(public_ticks)
+    print(
+        " | ".join(
+            (
+                "256-c21",
+                number(rows),
+                number(width),
+                number(height),
+                number(footprint),
+                ", ".join(map(number, public_ticks)),
+                number(footprint * average_ticks),
+            )
+        )
+    )
     print()
 
     width, height, public_ticks = PREFIX64_R6_ACTUAL

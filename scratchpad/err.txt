@@ -1,0 +1,1 @@
+PIPE COLLISION (12, -14): existing '-' vs pipe '|'

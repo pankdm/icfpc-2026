@@ -122,7 +122,7 @@ def compact_cells(b, cbot):
         nb.C(x, rowshift[y], c)
     return nb, rowshift[cbot]
 
-def hang4(b, af, ar, feed_body, ret_body, top, bot, RL, RY, ef, er, side=-1):
+def hang4(b, af, ar, feed_body, ret_body, top, bot, RL, RY, ef, er, rrcol=None):
     """Hang one ring BESIDE the CTRL.  Bodies serpentine at rows top..bot (rows>=1, beside
     the CTRL — add NO height).  Relay far to the side at (RL,RY) with feed & return on its
     RIGHT wall (rows RY+1, RY+2).  The feed->relay and relay->return leads run BELOW the
@@ -132,19 +132,18 @@ def hang4(b, af, ar, feed_body, ret_body, top, bot, RL, RY, ef, er, side=-1):
       side  = -1 for a LEFT hang (bodies at cols<0), +1 for RIGHT (cols>W)."""
     C=b.C
     LRf=bot+1; LRr=bot+2          # separate lead rows for feed/return, just below the bodies
-    # ---- relay: man does R (recv feed on RIGHT wall RY+1) then s (send return on BOTTOM wall)
-    b.p.room(RL,RY,6,4)
-    C(RL+1,RY+1,'@'); C(RL+2,RY+1,'>'); C(RL+3,RY+1,'R'); C(RL+4,RY+1,'v')
-    C(RL+4,RY+2,'<'); C(RL+3,RY+2,'s'); C(RL+2,RY+2,'^')
-    RR=RL+6                        # column just right of the relay (touch-col RL+5)
-    # ---- FEED : attach -> escape band -> body (ends at BOT) -> lead(LRf) -> relay RIGHT wall
+    # ---- opt2-style relay (feed enters TOP wall RL+4 heading S, return exits BOTTOM wall RL+2)
+    _relay(b, RL, RY)
+    RR=RL+6 if rrcol is None else rrcol   # clear column for the feed riser (left-hang: right of relay)
+    feed_in=RL+4
+    # ---- FEED : attach -> escape band -> body(ends BOT) -> lead(LRf) -> up beside CTRL -> relay top
     fp=[(af,-1),(af,ef),(feed_body[0],ef)]
     sp,lvl=_vser(feed_body, top, bot)   # must end 'bot' (odd count) so we can lead from BOT
     fp+=sp
     fx=feed_body[-1]
-    fp+=[(fx,LRf),(RR,LRf),(RR,RY+1)]   # down to lead row, across to right of relay, up to RY+1
+    fp+=[(fx,LRf),(RR,LRf),(RR,RY-2),(feed_in,RY-2),(feed_in,RY-1)]  # riser up beside CTRL, over, down into top wall
     b.pipeC(fp)
-    # ---- RETURN : relay BOTTOM wall -> lead(LRr) -> body (enters at BOT) -> escape band -> attach
+    # ---- RETURN : relay BOTTOM wall -> lead(LRr) -> body(enters BOT) -> escape band -> attach
     rp=[(RL+2,RY+4),(RL+2,LRr),(ret_body[0],LRr)]
     sp2,lvl2=_vser_up(ret_body, top, bot)   # enters at BOT, ends at TOP (odd count)
     rp+=sp2
@@ -213,9 +212,9 @@ def place_sasb(b, cbot, sa_mode, sb_mode):
               RL=-16, RY=20, ef=-7, er=-12)
     if sb_mode=="up":
         folded_on(b, [11,10,9,8,7], [15,14,13,12], -35, -3, -39)
-    elif sb_mode=="hang":   # SB hung on the RIGHT (escapes cross the center above SC at -14/-15)
-        hang_ring(b, 11, 12, [50,51,52,53], [42,41], top, bot,
-                  RL=44, RT=-12, ef=-14, er=-15)
+    elif sb_mode=="hang":   # SB hung on the RIGHT (escapes cross the center BELOW SC at -14/-15)
+        hang4(b, 11, 12, [41,42,43], [55,56,57], top, bot,
+              RL=48, RY=20, ef=-14, er=-15, rrcol=47)
 
 def build(stage="drainA", W=31, H=42, sa_mode="up", sb_mode="up"):
     if stage in ("run","full"):

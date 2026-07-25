@@ -77,11 +77,14 @@ def build_controller(L):
 def build():
     L = Layout()
     build_controller(L)
-    # ---- I/O rooms (left) ----
-    L.input_room(-5, 2)       # I at (-4,3) ; right border col-3
-    place_pipe(L, [(-2, 3), (-1, 3)], DIRS['E'])       # I -> ctrl (0,3)
-    L.output_room(-5, 5)      # O at (-4,6) (clear of INPUT rows2..4)
-    place_pipe(L, [(-1, 6), (-2, 6)], DIRS['W'])       # ctrl (0,6) -> O
+    # ---- I/O rooms tucked off the LEFT to kill the width extension ----
+    # INPUT: room top-right (ring's free upper area); mouth on right wall (16,2).
+    #        LOAD reads at col3 still pick INPUT (nearer than RET even from the left).
+    L.input_room(19, 1)       # I at (20,2) ; left border col19
+    place_pipe(L, [(18, 2), (17, 2)], DIRS['W'])        # I -> ctrl right wall (16,2)
+    # OUTPUT: room below; mouth on bottom wall (4,20).  EMIT sends at (4,18).
+    L.output_room(3, 23)      # O at (4,24) ; top border row23
+    L.pipe([(4, 21), (4, 22)])                          # ctrl bottom (4,20) -> O top(4,23)
     # ---- ring: relay bottom-right ; FEED top(col19), RET top(col21) ; gap col20 ----
     L.room(18, 16, 6, 4)      # relay room cols18..23 rows16..19
     relay_man(L, 19, 17)

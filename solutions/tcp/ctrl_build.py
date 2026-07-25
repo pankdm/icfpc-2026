@@ -143,7 +143,8 @@ def build():
                 L.put(xx, yy, t); xx += 1
         y = yy + 4   # gap before next block
     # wire pending gotos/branches, each on its own highway column near the east
-    hw = 66
+    HWCOL = 54
+    hw = HWCOL
     def goto_route(fx, fy, ty, col):
         # jog E on the SOURCE row to a unique highway col, straight vertical to just
         # above the head, W to col1 (merges with other edges to same target: all '<'),
@@ -152,12 +153,12 @@ def build():
     for kind, frm, tgt in pending:
         if kind == 'goto':
             fx, fy = frm
-            goto_route(fx, fy, head[tgt], hw); hw -= 2
+            goto_route(fx, fy, head[tgt], hw); hw -= 1
         else:  # br2: a at (xX,yX) heading S: BP>0->CCW(E)=cw, else straight(S)=straight
             cw, straight = tgt
             xX, yX = frm
-            goto_route(xX + 1, yX, head[cw], hw); hw -= 2        # CCW -> E exit (BP>0)
-            goto_route(xX, yX + 1, head[straight], hw); hw -= 2  # straight -> S exit
+            goto_route(xX + 1, yX, head[cw], hw); hw -= 1        # CCW -> E exit (BP>0)
+            goto_route(xX, yX + 1, head[straight], hw); hw -= 1  # straight -> S exit
     return L
 
 if __name__ == '__main__':

@@ -56,6 +56,10 @@ When a man executes `Y`, he disappears and two copies are born immediately:
 A wall birth is fatal. A birth on another little man kills both without an error. The live-runner
 limit is **65,536**; a split that exceeds it is fatal.
 
+The limit is nowhere near binding in practice: a 4-tick fork loop feeding a long serpentine track
+sustained **102 simultaneous men** for 3000 ticks with no error and no refusal to split
+(`sim/arb3.js`). Population is a free resource; what costs you is giving every man a planned fate.
+
 ---
 
 ## 4. Collisions
@@ -96,6 +100,26 @@ length L** — giving tick-exact control for timing experiments.
   the wall → fatal). Men move only by walking; only data/backpack values travel pipes.
 - **Inter-man processing order** is creation order. On `Y`, the right copy keeps the splitter's place
   and the left copy becomes newest.
+- **Pipe contention follows that same creation order (CONFIRMED).** When several men contend for one
+  pipe on the same tick, the **oldest wins**, one per tick; the losers stay blocked and retry. Holds
+  for both directions:
+  - `s` (send): three men reaching `s` on the same tick emitted in creation order, **not** reading
+    order (`sim/arb.js` — the four candidate laws predicted four distinct outputs, and only
+    ascending id matched).
+  - `r` (receive): three men parked on one incoming pipe took values in creation order
+    (`sim/arb2.js`).
+
+  Consequence for design: **a crowd of men is a FIFO, not a stack.** Arbitration cannot reverse a
+  stream, and position/reading order does not enter into it — you cannot buy an ordering by laying
+  men out differently. Reversal has to come from somewhere else (different distance travelled per
+  man, or a packed-register LIFO).
+- **Parking is free and indefinite (CONFIRMED).** A man blocked on a starved `r` sits ACTIVE for
+  unbounded ticks with no error and wakes on the exact tick a value lands, while other men halt and
+  are reaped around him (`sim/arb2.js`). Blocked men are cheap storage — but they cannot execute
+  `q`, so a parked crowd cannot hear a broadcast; only a spinning crowd can.
+- **`q` is a broadcast (CONFIRMED).** Every man in a room can `q` the same pipe on the same tick,
+  all get the same depth, and the pipe is **not** consumed (`sim/arb2.js`). One token in a signal
+  pipe re-steers an entire crowd through `d`/`a`/`x` — the only channel men in one room have.
 
 ---
 
@@ -152,6 +176,9 @@ Runners are listed in ascending id order. Reaped (halted) runners disappear from
 | Man steps on `Y` | Original disappears; right and left copies are born beside `Y`, inherit A/B/BP, and wait until next tick |
 | Split birth on occupied cell | New copy and occupant both die; non-fatal |
 | Two men → same cell or swap cells | Every involved man dies; non-fatal |
+| Several men contend for one pipe | **Oldest wins**, one per tick (both `s` and `r`); losers stay blocked. Men are a FIFO, never a stack |
+| Man blocked on a starved `r` | Parks indefinitely, stays ACTIVE, wakes on the exact tick a value lands; costs nothing |
+| Many men execute `q` on one tick | All get the same depth — `q` is a **broadcast** and does **not** consume the pipe |
 | Man halts (`H` or collision) | Removed from the world next tick (reaped); not an obstacle |
 | Man moves onto a wall | **Fatal** error, whole program ends |
 | Men in different rooms | No physical contact; interact only via pipes/displays/IO + lockstep clock |

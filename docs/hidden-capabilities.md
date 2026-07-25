@@ -9,10 +9,10 @@ inferred from the binary and marked. Companion to `multi-man-interactions.md`.
   standings `casesTotal` reveals the real totals (~2–3× the public count: e.g. triangle
   6 public / 19 total, reverse 8/20, brackets 9/26). You must **generalize**, and you
   need ≥1 private pass to score.
-- **`Y` (fork) may be rejected by the grader.** There's an admin flag `split_released`
-  ("the grader starts/stops accepting Y"); `/split/docs` 404s until released. `Y` runs
-  in the local oracle but **test-submit before relying on it** (likely the post-lightning
-  language update).
+- **`Y` (fork) is RELEASED — the gate is open.** `/split` and `/split/docs` both return 200
+  (checked), and the organizers have published the official *"Y, precisely"* clarification,
+  which is now the authority on split semantics — see `multi-man-interactions.md`. The old
+  `split_released` caveat no longer applies; `Y` can be relied on.
 - **Three run-end caps, not one:** `step-cap`, `op-cap`, `time-cap` (docs mention only step).
 
 ## Scoring & ranking
@@ -59,6 +59,11 @@ same-cell collision = free clean `done` halt; a wall/bad-op is a **fatal** whole
   a pipe directly above the `U` cell → man turns south; a pipe off to the side → he turns
   sideways. Align the pipe directly over the `U` cell to drive him straight in.
 - `q` counts ALL in-flight values in the nearest pipe (not just the ready one), never blocks.
+  It is also a **broadcast**: every man in a room can `q` the same pipe on the same tick, all get
+  the same depth, and the pipe is not consumed — one token in a signal pipe re-steers a whole crowd
+  via `d`/`a`/`x` with no per-man channel (men in one room have no other way to communicate).
+- **Pipe contention between men is resolved by ascending entity id**, one winner per tick, for both
+  `s` and `r` — see `multi-man-interactions.md` §4b. A crowd of men is a FIFO, never a stack.
 - Self-loop pipes = load error. Two-way and parallel duplicate pipes are legal. Men can't
   travel pipes (only values).
 
@@ -73,7 +78,7 @@ same-cell collision = free clean `done` halt; a wall/bad-op is a **fatal** whole
 - **Undocumented public GETs:** `/standings` (all teams' points), `/standings/problems/:id`
   (every team's raw score + pass counts + rank — the exact target to beat; **UUID only**,
   slug returns empty), `/public/queue` (grader load/latency), `/public/contest-clock`
-  (freeze/deadline windows), `/split/docs` (404 until released), `/health`.
+  (freeze/deadline windows), `/split` + `/split/docs` (the split clarification; now live), `/health`.
 - Only 4 of ~20 endpoints are documented. `/submissions` uses Bearer key; `dashboard/*` +
   `admin/*` use cookie session (admin correctly 401s — no bypass). 429 = max 5 pending.
 - The interpreter is scriptable as `globalThis.littlemanWasm` (this is our oracle):

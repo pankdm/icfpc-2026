@@ -37,8 +37,9 @@ footprint-scored problems). **Lower score is better.**
   pass to score).
 - **Score = `max(width,height)² × avg ticks`.** Make layouts square, not long/thin;
   keep pipes short; fewer ticks. A few problems are footprint-only.
-- **`Y` (fork) may be rejected by the grader** right now (the `split_released` flag) —
-  it runs locally but test-submit before relying on it.
+- **`Y` (fork) is released and safe to use** — the organizers' *"Y, precisely"* clarification
+  is live. Note a crowd of men is a **FIFO** (pipe contention is won by the oldest man), so
+  forking buys you storage and parallelism, not a stack. See `docs/multi-man-interactions.md`.
 - Best-per-problem is just "lowest score that passes all cases" — pick the winner from
   `grade.js` ranking and submit it. Submitting never lowers your score (best counts).
 

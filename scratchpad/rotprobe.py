@@ -1,7 +1,8 @@
 """Probe: load n values onto the compact belt, then do K bare rotations (r;s), halt.
 Measures ticks/rotation on the oracle. K passed as literal via BP countdown."""
+import os as _os; _REPO = _os.path.abspath(__file__).split('/scratchpad/')[0]
 import sys
-sys.path.insert(0, '/Users/visenbaev/icfpc26/tools')
+sys.path.insert(0, _REPO + '/tools')
 import littleman as lm
 
 def build(K):
@@ -52,5 +53,5 @@ def build(K):
 if __name__ == '__main__':
     K = int(sys.argv[1]) if len(sys.argv) > 1 else 100000
     p = build(K)
-    p.save('/Users/visenbaev/icfpc26/scratchpad/rotprobe.man')
+    p.save(_REPO + '/scratchpad/rotprobe.man')
     print('footprint', p.footprint())

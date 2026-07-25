@@ -4,6 +4,7 @@ Each compute man (row/col/box): bit = 9*idx + (v-1); idx = r/c/box.
   lane2 = 1<<(bit-64)     (shl returns 0 if bit-64 not in 0..63 -> nonzero iff 64<=bit<=127)
 Each (idx,v) lands in exactly ONE lane. 6 check men (kind x lane) hold masks; dup = lane & mask.
 """
+import os as _os; _REPO = _os.path.abspath(__file__).split('/solutions/')[0]
 M64 = (1 << 64) - 1
 def w64(x):
     x &= M64
@@ -107,7 +108,7 @@ if __name__ == '__main__':
             if mism <= 3: print('MISMATCH', cells[:6], sim_pipeline(cells), ref_valid(cells))
     print('pipeline mismatches:', mism, 'of 3000 random')
 
-    d = json.load(open('/Users/visenbaev/icfpc26/tests/sudoku-validity.json'))
+    d = json.load(open(_REPO + '/tests/sudoku-validity.json'))
     for tc in d['publicTestData']:
         cells = [tuple(int(x) for x in rnd['in']) for rnd in tc['rounds']]
         first_dup = sim_pipeline(cells)

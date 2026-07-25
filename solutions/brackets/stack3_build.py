@@ -1,5 +1,6 @@
-import sys; sys.path.insert(0,'/Users/visenbaev/icfpc26/tools'); import littleman as lm
-sys.path.insert(0,'/Users/visenbaev/icfpc26/solutions/brackets')
+import os as _os; _REPO = _os.path.abspath(__file__).split('/solutions/')[0]
+import sys; sys.path.insert(0,_REPO + '/tools'); import littleman as lm
+sys.path.insert(0,_REPO + '/solutions/brackets')
 from dsl import route as RT_
 def T(p,ox,oy,x,y,s): p.text(ox+x,oy+y,s)
 def P(p,ox,oy,x,y,c): p.put(ox+x,oy+y,c)

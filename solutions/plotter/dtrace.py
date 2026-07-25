@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
+import os as _os; _REPO = _os.path.abspath(__file__).split('/solutions/')[0]
 # dtrace.py file.man "input" steps [focus_id] [--pix]
 # Display-aware tracer built on the fast Rust `lm`. Shows man state, display
 # cursor/frame count, lit (non-zero) pixels of the NEXT buffer, output, end.
 import sys, subprocess, json
-LM = "/Users/visenbaev/icfpc26/interp/target/release/lm"
+LM = _REPO + "/interp/target/release/lm"
 f = sys.argv[1]; inp = sys.argv[2]; steps = sys.argv[3] if len(sys.argv) > 3 else "2000"
 focus = None; showpix = False
 for a in sys.argv[4:]:

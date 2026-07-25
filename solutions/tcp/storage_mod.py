@@ -4,8 +4,9 @@ Protocol: controller sends [0] to READ (man replies with B); sends [1,val] to WR
 IN pipe = controller->man (west wall, row sy). OUT pipe = man->controller (east wall).
 build_storage(L, cx, sy) stamps it; returns (in_pt, out_pt) border cells to wire.
 """
+import os as _os; _REPO = _os.path.abspath(__file__).split('/solutions/')[0]
 import sys
-sys.path.insert(0, '/Users/visenbaev/icfpc26/tools')
+sys.path.insert(0, _REPO + '/tools')
 from layout import Layout
 
 

@@ -12,8 +12,9 @@ Registers: A scratch ; B = bias(LOAD)/min(SCAN) ; BP = count(LOAD).
 Mouths:  LEFT wall  INPUT(in,row3)  OUTPUT(out,row6)
          RIGHT wall RET(in,row7)     FEED(out,row9)
 """
+import os as _os; _REPO = _os.path.abspath(__file__).split('/solutions/')[0]
 import sys
-sys.path.insert(0, '/Users/visenbaev/icfpc26/tools')
+sys.path.insert(0, _REPO + '/tools')
 from layout import Layout, place_pipe, relay_man, DIRS
 
 OUT = 'solutions/sort-numbers/select-v3.man'

@@ -13,15 +13,16 @@ Topology (controller + I-room + relay identical to multi.man, on the south wall)
      MEN (6x 2-row men, vertical stack) --6 east pipes-->
         MERGER (tall room) --south pipe--> O
 """
+import os as _os; _REPO = _os.path.abspath(__file__).split('/solutions/')[0]
 import sys, importlib.util
-sys.path.insert(0, '/Users/visenbaev/icfpc26/tools')
+sys.path.insert(0, _REPO + '/tools')
 from layout import Layout, DIRS
 
 def load(path, name):
     spec = importlib.util.spec_from_file_location(name, path); m = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(m); return m
-ctrl = load('/Users/visenbaev/icfpc26/solutions/sudoku-validity/ctrl_onering.py', 'ctrl')
-mb   = load('/Users/visenbaev/icfpc26/solutions/sudoku-validity/multi_build.py', 'mb')
+ctrl = load(_REPO + '/solutions/sudoku-validity/ctrl_onering.py', 'ctrl')
+mb   = load(_REPO + '/solutions/sudoku-validity/multi_build.py', 'mb')
 
 place_controller = mb.place_controller
 relay = mb.relay
@@ -391,7 +392,7 @@ def build_full2():
 
     print(L.render())
     print('FOOT', L.footprint())
-    L.save('/Users/visenbaev/icfpc26/solutions/sudoku-validity/multi3.man')
+    L.save(_REPO + '/solutions/sudoku-validity/multi3.man')
     return L
 
 

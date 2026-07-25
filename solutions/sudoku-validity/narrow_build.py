@@ -10,9 +10,10 @@ Design = ringfree2's proven shift-OOB algorithm (3 dual-lane compute men), but f
 
 Op-sequence identical -> generalizes to private cases; box shrinks 70x34 -> ~46x41.
 """
+import os as _os; _REPO = _os.path.abspath(__file__).split('/solutions/')[0]
 import sys
-sys.path.insert(0, '/Users/visenbaev/icfpc26/tools')
-sys.path.insert(0, '/Users/visenbaev/icfpc26/solutions/sudoku-validity')
+sys.path.insert(0, _REPO + '/tools')
+sys.path.insert(0, _REPO + '/solutions/sudoku-validity')
 from littleman import Program
 import ringfree2_build as R
 
@@ -107,7 +108,7 @@ def build_full(path, P=14):
     DXO = 5                                  # distributor west wall col (I room in cols0-2)
     Wtot = Sx[-1] + 14                       # merger/dist east wall == band2 east wall col
     import importlib.util as ilu
-    spec = ilu.spec_from_file_location('rf1', '/Users/visenbaev/icfpc26/solutions/sudoku-validity/ringfree_build.py')
+    spec = ilu.spec_from_file_location('rf1', _REPO + '/solutions/sudoku-validity/ringfree_build.py')
     rf1 = ilu.module_from_spec(spec); spec.loader.exec_module(rf1)
     dist_south = rf1.distributor(prog, DXO, 0, Wtot - DXO)   # top, cols DXO..Wtot-1
     # compute men
@@ -156,4 +157,4 @@ def build_full(path, P=14):
 
 if __name__ == '__main__':
     P = int(sys.argv[1]) if len(sys.argv) > 1 else 15
-    build_full('/private/tmp/claude-501/-Users-visenbaev-icfpc26/45d36e33-5a95-458c-9599-9b3faeeb9c09/scratchpad/narrow_full.man', P)
+    build_full(_REPO + '/scratchpad/narrow_full.man', P)

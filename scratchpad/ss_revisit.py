@@ -1,5 +1,6 @@
+import os as _os; _REPO = _os.path.abspath(__file__).split('/scratchpad/')[0]
 import sys
-sys.path.insert(0, '/Users/visenbaev/icfpc26/tools')
+sys.path.insert(0, _REPO + '/tools')
 import littleman as lm
 
 # Revisit test: 1 storage cell holding v. Head reads it 5 times (looping) and
@@ -48,4 +49,4 @@ def build():
     return p,placed
 
 if __name__=='__main__':
-    p,_=build(); print(p.render()); p.save('/Users/visenbaev/icfpc26/scratchpad/ss_revisit.man')
+    p,_=build(); print(p.render()); p.save(_REPO + '/scratchpad/ss_revisit.man')

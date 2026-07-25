@@ -2,6 +2,7 @@
 Rings: MASK (6 packed registers: rowLo,rowHi,colLo,colHi,boxLo,boxHi),
 CTX (per-cell context), T1, T2 (scratch). Validates op-stream vs the reference.
 """
+import os as _os; _REPO = _os.path.abspath(__file__).split('/solutions/')[0]
 import json, collections, random
 
 MASK64=(1<<64)-1
@@ -154,7 +155,7 @@ def flat_inputs(rounds):
 
 def test():
     prog=finalize(build())
-    J=json.load(open('/Users/visenbaev/icfpc26/tests/sudoku-validity.json'))
+    J=json.load(open(_REPO + '/tests/sudoku-validity.json'))
     maskinit=[0,0,0,0,0,0]
     npass=0; ntot=0
     for case in J['publicTestData']:

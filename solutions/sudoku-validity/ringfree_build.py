@@ -13,8 +13,9 @@ Each compute man computes its bit with only A,B,BP:
         base=1<<shift; branch on BP: Hi outputs base iff rk==1 else 0, Lo iff rk==0.
 Per-man math validated 729/729 in scratchpad/computeman.py.
 """
+import os as _os; _REPO = _os.path.abspath(__file__).split('/solutions/')[0]
 import sys
-sys.path.insert(0, '/Users/visenbaev/icfpc26/tools')
+sys.path.insert(0, _REPO + '/tools')
 from littleman import Program
 
 # ---- op glyph streams (linear part, before the branch) ----
@@ -242,13 +243,13 @@ if __name__ == '__main__':
     testpts = [(0, 0, 1), (4, 5, 4), (8, 8, 9), (5, 3, 7), (2, 6, 4), (7, 1, 9), (3, 3, 3)]
     allok = True
     for kind, hilo in kinds:
-        path = f'/private/tmp/claude-501/-Users-visenbaev-icfpc26/45d36e33-5a95-458c-9599-9b3faeeb9c09/scratchpad/cm_{kind}_{hilo}.man'
+        path = f'{_REPO}/scratchpad/cm_{kind}_{hilo}.man'
         build_single(kind, hilo, path)
         # one round per test point; expected = bit repeated twice (two sends)
         inp = ' / '.join(f'{r} {c} {v}' for (r, c, v) in testpts)
         exp = ' / '.join(f'{ref_bit(kind,hilo,r,c,v)} {ref_bit(kind,hilo,r,c,v)}' for (r, c, v) in testpts)
         out = subprocess.run(['interp/target/release/lm', '--grade', path, f'--input={inp}', f'--expected={exp}', '--cap=200000'],
-                             cwd='/Users/visenbaev/icfpc26', capture_output=True, text=True)
+                             cwd=_REPO, capture_output=True, text=True)
         status = out.stdout.strip()
         ok = '"status":"pass"' in status
         allok = allok and ok
@@ -378,4 +379,4 @@ def build_folded(path):
     return L
 
 if __name__ == '__main__' and len(sys.argv) > 1 and sys.argv[1] == 'folded':
-    build_folded('/private/tmp/claude-501/-Users-visenbaev-icfpc26/45d36e33-5a95-458c-9599-9b3faeeb9c09/scratchpad/ringfree_folded.man')
+    build_folded(_REPO + '/scratchpad/ringfree_folded.man')

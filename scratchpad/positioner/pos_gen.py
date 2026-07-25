@@ -33,8 +33,9 @@ Two weight modes:
     Uses per-level swings g[i]=E[i]+F[i] whose subset sums are 16 distinct values;
     minimal span search gives width ~ 2^b+2 (still > 2^b, floor g_i>=2).
 """
+import os as _os; _REPO = _os.path.abspath(__file__).split('/scratchpad/')[0]
 import argparse, os, sys
-sys.path.insert(0, '/Users/visenbaev/icfpc26/tools')
+sys.path.insert(0, _REPO + '/tools')
 from littleman import Program
 
 
@@ -127,7 +128,7 @@ def main():
     ap.add_argument('-o', '--out', default=None)
     args = ap.parse_args()
     p, leaf_col, weights, C0 = build(args.b, args.mode)
-    out = args.out or f'/Users/visenbaev/icfpc26/scratchpad/positioner/pos{args.b}_{args.mode}.man'
+    out = args.out or f'{_REPO}/scratchpad/positioner/pos{args.b}_{args.mode}.man'
     p.save(out)
     w, h, box = p.footprint()
     cols = [leaf_col[k] for k in range(1 << args.b)]

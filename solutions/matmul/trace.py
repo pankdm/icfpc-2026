@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
+import os as _os; _REPO = _os.path.abspath(__file__).split('/solutions/')[0]
 # tr.py file.man "input" steps [focus_id]  -> per-step: man positions + glyph under each + regs + output changes
 import sys, subprocess, json
-LM="/Users/visenbaev/icfpc26/interp/target/release/lm"
+LM=_REPO + "/interp/target/release/lm"
 f=sys.argv[1]; inp=sys.argv[2]; steps=sys.argv[3] if len(sys.argv)>3 else "200"
 focus=sys.argv[4] if len(sys.argv)>4 else None
 rows=open(f).read().split("\n")

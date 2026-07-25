@@ -12,14 +12,15 @@ cD dispatch-out). With every pipe on one wall, "nearest pipe" is column-only: an
 placed exactly at its pipe's column is nearest that pipe at any row. The controller
 op-stream is laid as a boustrophedon serpentine gliding each pipe-op to its column.
 """
+import os as _os; _REPO = _os.path.abspath(__file__).split('/solutions/')[0]
 import sys, importlib.util
-sys.path.insert(0, '/Users/visenbaev/icfpc26/tools')
+sys.path.insert(0, _REPO + '/tools')
 from layout import Layout, auto_pipe, place_pipe, DIRS
 
 def load(path, name):
     spec = importlib.util.spec_from_file_location(name, path); m = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(m); return m
-ctrl = load('/Users/visenbaev/icfpc26/solutions/sudoku-validity/ctrl_onering.py','ctrl')
+ctrl = load(_REPO + '/solutions/sudoku-validity/ctrl_onering.py','ctrl')
 
 def glyph_of(op):
     k = op if isinstance(op, str) else op[0]
@@ -145,7 +146,7 @@ def stage1():
     vpipe(L, cols['D'], sw, owall)
     print(L.render())
     print('FOOT', L.footprint())
-    L.save('/private/tmp/claude-501/-Users-visenbaev-icfpc26/45d36e33-5a95-458c-9599-9b3faeeb9c09/scratchpad/stage1.man')
+    L.save(_REPO + '/scratchpad/stage1.man')
 
 def build_dispatcher(L, x0, y0, W, mcols):
     """Scratch-free dispatcher: R (read value) then s s (send twice) per man column.
@@ -228,7 +229,7 @@ def build_full(W=16):
     L.output_room(ocol-1, OY); vpipe(L, ocol, msw, OY)
     print(L.render())
     print('FOOT', L.footprint())
-    L.save('/Users/visenbaev/icfpc26/solutions/sudoku-validity/multi.man')
+    L.save(_REPO + '/solutions/sudoku-validity/multi.man')
     return L
 
 if __name__ == '__main__':

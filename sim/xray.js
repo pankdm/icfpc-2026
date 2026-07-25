@@ -9,8 +9,8 @@
 //   node sim/xray.js <slug> <file.man> [caseIdx]      deep single-case x-ray (default case = dominant)
 //   node sim/xray.js <slug> <file.man> --all          per-case settle ticks + dominant case + score
 //   flags: --cap=N (per-cell step cap, default 120000) --heat (also print heatmaps)
-const { boot } = require('/Users/visenbaev/icfpc26/sim/harness.js');
-const lib = require('/Users/visenbaev/icfpc26/tools/lib.js');
+const { boot } = require(__dirname + '/harness.js');
+const lib = require(__dirname + '/../tools/lib.js');
 const fs = require('fs'), path = require('path');
 
 const TURN = new Set(['<', '>', '^', 'v', 'V']);
@@ -22,7 +22,7 @@ const pctS = (k, tot) => (100 * k / (tot || 1)).toFixed(1) + '%';
 const fmt = n => n == null ? '?' : (n >= 1e9 ? (n / 1e9).toFixed(2) + 'B' : n >= 1e6 ? (n / 1e6).toFixed(2) + 'M' : n >= 1e3 ? (n / 1e3).toFixed(1) + 'k' : String(Math.round(n)));
 
 function loadProblem(slug) {
-  return JSON.parse(fs.readFileSync(path.join('/Users/visenbaev/icfpc26/tests', slug + '.json'), 'utf8'));
+  return JSON.parse(fs.readFileSync(path.join(__dirname + '/../tests', slug + '.json'), 'utf8'));
 }
 function caseDims(tc) { const r = tc.rounds ? tc.rounds[0] : tc; return (r.in || []).slice(0, 3).join('x') || '?'; }
 

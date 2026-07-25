@@ -4,8 +4,9 @@ Controller: tall room; 6 pipes on TOP wall (column discipline):
 Blocks laid as E-rows; each pipe op ends its row; branches via v+X; gotos routed
 on col1 risers / a west return column.
 """
+import os as _os; _REPO = _os.path.abspath(__file__).split('/solutions/')[0]
 import sys
-sys.path.insert(0, '/Users/visenbaev/icfpc26/tools')
+sys.path.insert(0, _REPO + '/tools')
 from layout import Layout, route
 from driver_mod import build_driver
 from storage_mod import build_storage
@@ -163,5 +164,5 @@ def build():
 
 if __name__ == '__main__':
     L = build()
-    L.save('/Users/visenbaev/icfpc26/scratchpad/tcp_ram.man')
+    L.save(_REPO + '/scratchpad/tcp_ram.man')
     print('saved. foot', L.footprint())

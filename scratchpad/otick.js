@@ -1,6 +1,6 @@
 // Run a .man; report the tick at which output first reaches `wantN` tokens.
 // usage: node otick.js <file.man> "<input ints>" <wantN> [cap]
-const { boot } = require('/Users/visenbaev/icfpc26/sim/harness.js');
+const { boot } = require((__dirname + '/../sim/harness.js'));
 const fs = require('fs');
 (async () => {
   const [file, inp, wantRaw, capRaw] = process.argv.slice(2);

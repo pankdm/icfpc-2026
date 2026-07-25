@@ -5,8 +5,9 @@ One decoder, courier carries A=val, B=mode(1=write/0=read), BP=addr. Leaf sends
   read : r(dummy) W s W    -> send stored B to collector -> O   (B preserved)
 Collector R-merges the 16 OUT pipes -> O. Proves random-access read+write.
 """
+import os as _os; _REPO = _os.path.abspath(__file__).split('/solutions/')[0]
 import sys
-sys.path.insert(0, '/Users/visenbaev/icfpc26/tools')
+sys.path.insert(0, _REPO + '/tools')
 from layout import Layout
 
 NBITS = 2
@@ -103,4 +104,4 @@ if __name__ == '__main__':
     print(L.render())
     print('FOOT', L.footprint())
     print('slot->leafrow', {s: leaf_row(s) for s in range(NCELL)})
-    L.save('/Users/visenbaev/icfpc26/scratchpad/cellbank_rw.man')
+    L.save(_REPO + '/scratchpad/cellbank_rw.man')

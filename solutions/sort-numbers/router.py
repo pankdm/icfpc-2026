@@ -1,5 +1,6 @@
+import os as _os; _REPO = _os.path.abspath(__file__).split('/solutions/')[0]
 import sys, heapq
-sys.path.insert(0,'/Users/visenbaev/icfpc26/tools')
+sys.path.insert(0,_REPO + '/tools')
 import littleman as lm
 
 DIRV={'E':(1,0),'W':(-1,0),'N':(0,-1),'S':(0,1)}

@@ -6,8 +6,9 @@ Pipes on CTRL bottom wall (attach row ar). Cols: I@2(in) FEED@8(out) RETURN@14(i
 Fold prefix is 13 wide (cols4..16). Vertical channels:
   col3 = round-loop up (reserved clear) ; col17 = fold dip ; col18 = close channel ; col19 = pack loop-back up.
 """
+import os as _os; _REPO = _os.path.abspath(__file__).split('/solutions/')[0]
 import sys
-sys.path.insert(0, "/Users/visenbaev/icfpc26/tools")
+sys.path.insert(0, _REPO + "/tools")
 import littleman as lm
 
 K = 2097152; OFF = 1048576

@@ -11,8 +11,9 @@ Leaf sends [mode,val] E to cell[addr]. Cell (@>rXrWsWv racetrack) branches on mo
   read : r W s W -> echo stored B to collector -> O   (B preserved)
 Courier loops back via top return rail to re-read the next op.
 """
+import os as _os; _REPO = _os.path.abspath(__file__).split('/solutions/')[0]
 import sys
-sys.path.insert(0, '/Users/visenbaev/icfpc26/tools')
+sys.path.insert(0, _REPO + '/tools')
 from layout import Layout
 
 NBITS = int(sys.argv[1]) if len(sys.argv) > 1 else 2
@@ -114,4 +115,4 @@ if __name__ == '__main__':
     print(L.render())
     print('FOOT', L.footprint())
     print('leafrows', {s: leaf_row(s) for s in cells})
-    L.save('/Users/visenbaev/icfpc26/scratchpad/ram_lin.man')
+    L.save(_REPO + '/scratchpad/ram_lin.man')

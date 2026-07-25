@@ -1,4 +1,5 @@
-import sys; sys.path.insert(0,'/Users/visenbaev/icfpc26/tools'); sys.path.insert(0,'/Users/visenbaev/icfpc26/solutions/tcp')
+import os as _os; _REPO = _os.path.abspath(__file__).split('/solutions/')[0]
+import sys; sys.path.insert(0,_REPO + '/tools'); sys.path.insert(0,_REPO + '/solutions/tcp')
 from rb import B, Man
 b=B(); p=b.p; C=b.C; mpath=b.mpath
 
@@ -85,5 +86,5 @@ up_right(md.x,DB+12,DL,RCH)                                        # loop to DL 
 C(cFF,DL+1,'s')                                                   # write F (A=fmask), man glides E
 mpath([(cFF+1,DL+1),(RCH2,DL+1),(RCH2,AY-1),(1,AY-1),(1,AY)])     # up to phase A via RCH2
 
-open('/Users/visenbaev/icfpc26/solutions/tcp/tcp-ring.man','w').write(p.render()+"\n")
+open(_REPO + '/solutions/tcp/tcp-ring.man','w').write(p.render()+"\n")
 print("footprint", p.footprint())

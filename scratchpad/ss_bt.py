@@ -1,5 +1,6 @@
+import os as _os; _REPO = _os.path.abspath(__file__).split('/scratchpad/')[0]
 import sys
-sys.path.insert(0, '/Users/visenbaev/icfpc26/tools')
+sys.path.insert(0, _REPO + '/tools')
 import littleman as lm
 
 # BIDIRECTIONAL HEAD (descend + backtrack geometry) + 2-mode KEEPER + STACK-MAN.
@@ -99,4 +100,4 @@ def build(target_lit="300"):
     return p, dict(cols=cols,sent=sent,sp=sp)
 
 if __name__=='__main__':
-    p,_=build(); p.save('/Users/visenbaev/icfpc26/scratchpad/ss_bt.man'); print(p.render()[:1600])
+    p,_=build(); p.save(_REPO + '/scratchpad/ss_bt.man'); print(p.render()[:1600])

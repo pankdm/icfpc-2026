@@ -16,9 +16,10 @@ column moves (col3 -> col10) to match the West-first entry.
 Box-man cycle: 90 cells -> 70 cells (43 op / 17 turn / 10 glide). Room 12->10 tall.
 Row/col men + all cold structure identical to ringfree3.
 """
+import os as _os; _REPO = _os.path.abspath(__file__).split('/solutions/')[0]
 import sys
-sys.path.insert(0, '/Users/visenbaev/icfpc26/tools')
-sys.path.insert(0, '/Users/visenbaev/icfpc26/solutions/sudoku-validity')
+sys.path.insert(0, _REPO + '/tools')
+sys.path.insert(0, _REPO + '/solutions/sudoku-validity')
 from littleman import Program
 import narrow_build as NB
 
@@ -112,7 +113,7 @@ def build_full(path, P=14):
     DXO = 5
     Wtot = Sx[-1] + 14
     import importlib.util as ilu
-    spec = ilu.spec_from_file_location('rf1', '/Users/visenbaev/icfpc26/solutions/sudoku-validity/ringfree_build.py')
+    spec = ilu.spec_from_file_location('rf1', _REPO + '/solutions/sudoku-validity/ringfree_build.py')
     rf1 = ilu.module_from_spec(spec); spec.loader.exec_module(rf1)
     dist_south = rf1.distributor(prog, DXO, 0, Wtot - DXO)
     for i, lay in enumerate(lays):
@@ -152,5 +153,5 @@ def build_full(path, P=14):
 
 
 if __name__ == '__main__':
-    out = sys.argv[1] if len(sys.argv) > 1 else '/Users/visenbaev/icfpc26/solutions/sudoku-validity/ringfree4.man'
+    out = sys.argv[1] if len(sys.argv) > 1 else _REPO + '/solutions/sudoku-validity/ringfree4.man'
     build_full(out)

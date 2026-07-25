@@ -1,5 +1,6 @@
+import os as _os; _REPO = _os.path.abspath(__file__).split('/scratchpad/')[0]
 import sys
-sys.path.insert(0, '/Users/visenbaev/icfpc26/tools')
+sys.path.insert(0, _REPO + '/tools')
 import littleman as lm
 
 # Serpentine reader depositing each value into its OWN adjacent (1-col) lane pipe.
@@ -45,5 +46,5 @@ def build(ncol=16):
 if __name__=='__main__':
     ncol=int(sys.argv[1]) if len(sys.argv)>1 else 16
     p,_=build(ncol)
-    p.save('/Users/visenbaev/icfpc26/scratchpad/snake2.man')
+    p.save(_REPO + '/scratchpad/snake2.man')
     print(p.render())

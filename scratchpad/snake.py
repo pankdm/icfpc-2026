@@ -1,5 +1,6 @@
+import os as _os; _REPO = _os.path.abspath(__file__).split('/scratchpad/')[0]
 import sys
-sys.path.insert(0, '/Users/visenbaev/icfpc26/tools')
+sys.path.insert(0, _REPO + '/tools')
 import littleman as lm
 
 # Serpentine snake reader. Man weaves down/up columns reading 1 value per column;
@@ -38,5 +39,5 @@ def build(ncol=4):
 if __name__=='__main__':
     ncol=int(sys.argv[1]) if len(sys.argv)>1 else 4
     p,_=build(ncol)
-    p.save('/Users/visenbaev/icfpc26/scratchpad/snake.man')
+    p.save(_REPO + '/scratchpad/snake.man')
     print(p.render())

@@ -1,5 +1,6 @@
+import os as _os; _REPO = _os.path.abspath(__file__).split('/solutions/')[0]
 import sys
-sys.path.insert(0,'/Users/visenbaev/icfpc26/tools')
+sys.path.insert(0,_REPO + '/tools')
 import littleman as lm
 
 # stack6: pure LAYOUT fold of stack5. Op-streams BYTE-IDENTICAL to tight{M,R,C};
@@ -80,4 +81,4 @@ def build(save):
     p.save(save)
     return p
 
-build(sys.argv[1] if len(sys.argv)>1 else '/Users/visenbaev/icfpc26/solutions/brackets/stack6.man')
+build(sys.argv[1] if len(sys.argv)>1 else _REPO + '/solutions/brackets/stack6.man')

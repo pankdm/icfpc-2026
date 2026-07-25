@@ -1,8 +1,9 @@
 """Standalone 2-stage steer test. Stage1 (heading EAST) uses low K1 bits -> vertical
 band. Turn SOUTH. Stage2 (heading SOUTH) uses next K2 bits -> horizontal column.
 Each leaf ends in 'H' at a distinct cell. Verify all 2^(K1+K2) addrs -> distinct H."""
+import os as _os; _REPO = _os.path.abspath(__file__).split('/scratchpad/')[0]
 import sys
-sys.path.insert(0, '/Users/visenbaev/icfpc26/tools')
+sys.path.insert(0, _REPO + '/tools')
 from layout import Layout
 
 K1 = int(sys.argv[1]) if len(sys.argv) > 1 else 2
@@ -90,4 +91,4 @@ if __name__ == '__main__':
     fps = {a: final_pos(a) for a in range(1 << (K1 + K2))}
     print('final_pos', fps)
     print('distinct', len(set(fps.values())) == len(fps))
-    L.save('/Users/visenbaev/icfpc26/scratchpad/steer2d.man')
+    L.save(_REPO + '/scratchpad/steer2d.man')

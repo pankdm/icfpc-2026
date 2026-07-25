@@ -5,11 +5,11 @@ import math
 
 
 MASKS = 1 << 20
-HEIGHT = 163
+HEIGHT = 145
 WORKER_PITCH = 45
-FIXED_WIDTH = 77
-GRID_FIXED_WIDTH = 53
-ROW_STRIDE = 71
+FIXED_WIDTH = 84
+GRID_FIXED_WIDTH = 28
+ROW_STRIDE = 68
 ROW_TICKS = 90
 
 # Calibrated with isolated no-match n=20 runs:
@@ -47,11 +47,11 @@ FOLDED32_ACTUAL = {
 
 # Selected compact folds. Public ticks are the first six public cases; the final
 # n=20 public case is omitted because the local Python interpreter is very slow.
-# Tuple: rows, width, height, public ticks.
+# Tuple: rows, width, height, public ticks, projected worst ticks.
 LARGE_FOLDED_ACTUAL = {
-    64: (6, 548, 518, (8249, 7768, 88393, 7670, 22965, 7721)),
-    128: (9, 728, 731, (6862, 6459, 47216, 6363, 14218, 6453)),
-    256: (13, 953, 1015, (6716, 6361, 26926, 6267, 10354, 6357)),
+    64: (6, 523, 485, (14789, 14471, 92945, 14383, 27623, 14471), 6990784),
+    128: (9, 703, 689, (19017, 18699, 57066, 18611, 24294, 18699), 3542208),
+    256: (13, 928, 961, (27956, 27609, 47710, 27515, 31610, 27605), 1830750),
 }
 
 
@@ -109,10 +109,9 @@ def main():
         "workers | rows | columns | width | height | footprint | public ticks (first six) "
         "| projected worst ticks | projected footprint*ticks"
     )
-    for workers, (rows, width, height, public_ticks) in LARGE_FOLDED_ACTUAL.items():
+    for workers, (rows, width, height, public_ticks, ticks) in LARGE_FOLDED_ACTUAL.items():
         columns = math.ceil(workers / rows)
         footprint = max(width, height) ** 2
-        ticks = folded_metrics(workers, rows)[4]
         score = footprint * ticks
         print(
             " | ".join(

@@ -24,8 +24,8 @@ PARTITION_BITS = int(math.log2(WORKERS))
 WORKER_IDS = list(range(WORKERS))
 WORKER_GAP = 45
 WORKER_X0 = 50
-WORKER_Y = 7
-COLLECTOR_Y = 64
+WORKER_Y = 6
+COLLECTOR_Y = 60
 
 
 class Builder:
@@ -61,33 +61,33 @@ class Builder:
 def build_broadcaster(builder, width, output_columns):
     p = builder.program
     C = builder.cell
-    builder.room(0, 0, width, 5)
-    p.input_room(3, -5)
-    p.pipe([(4, -2), (4, -1)])
-    builder.man(3, 2)
-    C(4, 2, "r")
-    C(5, 2, "b")
-    C(6, 2, "S")
-    C(7, 2, "M")
-    C(8, 2, "1")
-    C(9, 2, "{")
-    C(10, 2, "M")
-    C(11, 2, str(PARTITION_BITS))
-    C(12, 2, "W")
-    C(13, 2, "}")
-    C(14, 2, "S")
-    C(15, 2, "1")
-    C(16, 2, "N")
-    C(17, 2, "S")
-    C(18, 2, ">")
-    C(19, 2, "r")
-    C(20, 2, "S")
-    C(21, 2, "v")
-    C(21, 3, "<")
-    C(18, 3, "^")
+    builder.room(0, 0, width, 4)
+    p.input_room(-5, 0)
+    p.pipe([(-2, 1), (-1, 1)])
+    builder.man(3, 1)
+    C(4, 1, "r")
+    C(5, 1, "b")
+    C(6, 1, "S")
+    C(7, 1, "M")
+    C(8, 1, "1")
+    C(9, 1, "{")
+    C(10, 1, "M")
+    C(11, 1, str(PARTITION_BITS))
+    C(12, 1, "W")
+    C(13, 1, "}")
+    C(14, 1, "S")
+    C(15, 1, "1")
+    C(16, 1, "N")
+    C(17, 1, "S")
+    C(18, 1, ">")
+    C(19, 1, "r")
+    C(20, 1, "S")
+    C(21, 1, "v")
+    C(21, 2, "<")
+    C(18, 2, "^")
 
     for column, end_y in output_columns:
-        p.pipe([(column, 5), (column, end_y)])
+        p.pipe([(column, 4), (column, end_y)])
 
 
 def build_worker(
@@ -273,67 +273,75 @@ def build_collector(builder, right, candidate_columns, collector_y=COLLECTOR_Y):
     C0 = builder.cell
     ox, oy = 0, collector_y
 
+    compact_tail = False
+
     def C(x, y, char):
+        if compact_tail and y >= 45:
+            y -= 8
         C0(ox + x, oy + y, char)
 
-    builder.room(10, oy, right - 10, 89)
-    builder.room(2, oy + 40, 7, 5)
+    builder.room(10, oy, right - 10, 80)
+    builder.room(2, oy + 32, 7, 5)
     p.pipe(
-        [(9, oy + 85), (1, oy + 85), (1, oy + 46), (5, oy + 46), (5, oy + 45)]
+        [(9, oy + 77), (1, oy + 77), (1, oy + 38), (5, oy + 38), (5, oy + 37)]
     )
-    p.pipe([(4, oy + 39), (4, oy + 20), (9, oy + 20)])
-    C(3, 41, ">")
-    builder.man(4, oy + 41)
-    C(5, 41, "R")
-    C(6, 41, "s")
-    C(7, 41, "v")
-    C(7, 42, "<")
-    C(3, 42, "^")
+    p.pipe([(4, oy + 31), (4, oy + 20), (9, oy + 20)])
+    C(3, 33, ">")
+    builder.man(4, oy + 33)
+    C(5, 33, "R")
+    C(6, 33, "s")
+    C(7, 33, "v")
+    C(7, 34, "<")
+    C(3, 34, "^")
+
+    stream_x = right - 6
 
     builder.man(12, oy + 2)
     C(13, 2, ">")
-    C(34, 2, "r")
-    C(35, 2, "b")
-    C(36, 2, "r")
-    C(37, 2, "r")
-    C(38, 2, "v")
-    C(38, 3, "<")
+    C(stream_x, 2, "r")
+    C(stream_x + 1, 2, "b")
+    C(stream_x + 2, 2, "r")
+    C(stream_x + 3, 2, "r")
+    C(stream_x + 4, 2, "v")
+    C(stream_x + 4, 3, "<")
     C(15, 3, "s")
     C(12, 3, "v")
     C(12, 6, ">")
 
-    C(34, 6, "r")
-    C(35, 6, "v")
-    C(35, 7, "<")
+    C(stream_x, 6, "r")
+    C(stream_x + 1, 6, "^")
+    C(stream_x + 1, 5, "<")
+    C(15, 5, "v")
     C(15, 7, "s")
-    C(14, 7, "v")
+    C(15, 8, "<")
     C(14, 8, "v")
-    C(14, 9, "r")
-    C(14, 10, "s")
-    C(14, 11, "X")
-    C(13, 11, "^")
-    C(13, 8, ">")
-    C(15, 11, "v")
-    C(15, 12, "m")
-    C(15, 13, "d")
-    C(14, 13, "<")
-    C(12, 13, "^")
+    C(14, 11, "v")
+    C(14, 12, "r")
+    C(14, 13, "s")
+    C(14, 14, "X")
+    C(13, 14, "^")
+    C(13, 11, ">")
+    C(15, 14, "v")
+    C(15, 15, "m")
+    C(15, 16, "d")
+    C(14, 16, "<")
+    C(12, 16, "^")
 
-    C(15, 15, ">")
-    C(34, 15, "r")
-    C(35, 15, "v")
-    C(35, 16, "<")
-    C(15, 16, "s")
-    C(14, 16, "v")
-    C(14, 19, "r")
-    C(14, 20, "s")
-    C(14, 21, "X")
-    C(13, 21, "^")
-    C(13, 18, ">")
-    C(14, 18, "v")
-    C(15, 21, "0")
-    C(16, 21, "M")
-    C(17, 21, "^")
+    C(15, 18, ">")
+    C(stream_x, 18, "r")
+    C(stream_x + 1, 18, "v")
+    C(stream_x + 1, 19, "<")
+    C(15, 19, "s")
+    C(14, 19, "v")
+    C(14, 22, "r")
+    C(14, 23, "s")
+    C(14, 24, "X")
+    C(13, 24, "^")
+    C(13, 21, ">")
+    C(14, 21, "v")
+    C(15, 24, "0")
+    C(16, 24, "M")
+    C(17, 24, "^")
     C(17, 8, ">")
 
     for column in candidate_columns:
@@ -354,24 +362,25 @@ def build_collector(builder, right, candidate_columns, collector_y=COLLECTOR_Y):
     C(end_x + 1, 8, "v")
     C(end_x + 1, 14, "<")
     C(16, 14, "v")
-    C(16, 33, "X")
+    C(16, 26, "X")
 
-    C(15, 33, "<")
-    C(14, 33, "s")
-    C(13, 33, "v")
-    C(14, 34, "v")
-    C(14, 35, "r")
-    C(14, 36, "s")
-    C(14, 37, "X")
-    C(13, 37, "^")
-    C(13, 34, ">")
-    C(15, 37, "v")
+    C(15, 26, "<")
+    C(14, 26, "s")
+    C(13, 26, "v")
+    C(14, 27, "v")
+    C(14, 28, "r")
+    C(14, 29, "s")
+    C(14, 30, "X")
+    C(13, 30, "^")
+    C(13, 27, ">")
+    C(15, 30, "v")
+    compact_tail = True
     C(15, 45, "<")
     C(14, 45, "v")
 
-    C(16, 34, "v")
-    C(16, 39, ">")
-    C(60, 39, "v")
+    C(16, 27, "v")
+    C(16, 31, ">")
+    C(60, 31, "v")
     C(60, 70, "<")
     C(45, 70, "s")
     C(44, 70, "H")
@@ -450,8 +459,8 @@ def build_collector(builder, right, candidate_columns, collector_y=COLLECTOR_Y):
     C(46, 86, "^")
     C(46, 73, "<")
 
-    p.output_room(44, oy + 91)
-    p.pipe([(45, oy + 89), (45, oy + 90)])
+    p.output_room(44, oy + 82)
+    p.pipe([(45, oy + 80), (45, oy + 81)])
 
 
 def build():
@@ -459,10 +468,18 @@ def build():
     worker_bases = [WORKER_X0 + index * WORKER_GAP for index in range(len(WORKER_IDS))]
     candidate_columns = [base + 48 for base in worker_bases]
     collector_right = candidate_columns[-1] + 24
-    broadcast_outputs = [(34, COLLECTOR_Y - 1)] + [
+    broadcast_outputs = [
         (base + 33, WORKER_Y - 1) for base in worker_bases
     ]
     build_broadcaster(builder, collector_right, broadcast_outputs)
+    builder.program.pipe(
+        [
+            (collector_right, 2),
+            (collector_right + 1, 2),
+            (collector_right + 1, COLLECTOR_Y + 6),
+            (collector_right, COLLECTOR_Y + 6),
+        ]
+    )
     built_candidates = [
         build_worker(builder, base, worker_id)
         for worker_id, base in zip(WORKER_IDS, worker_bases)

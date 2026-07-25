@@ -32,8 +32,8 @@ def program():
     P = {}
     P['INIT'] = ['r', ('goto','MAIN')]
     P['MAIN'] = (['r','M'] + LOADW() + ['W','-',            # A=off, B=waiting
-                 'M',('lit',15),'W','-',                    # A=off-15
-                 ('br','HALT','CONT','CONT')])              # off-15>0 => off>=16 => HALT
+                 'M',('lit',15),'W','-','b',                # A=off-15 ; BP=A
+                 ('br2','HALT','CONT')])            # BP>0 => off>=16 => HALT              # off-15>0 => off>=16 => HALT
     P['HALT'] = ['c1','N','M','c1','sCMD','c0','sCMD','W','sCMD',   # CMD_WRITE(0,-1)
                  'c0','sCMD','c0','sCMD','c0','sCMD','H']            # CMD_READ(0)
     P['CONT'] = (['M',('lit',15),'+','M'] + LOADW() + ['+',        # A=seq = (off-15)+15+waiting
@@ -41,8 +41,8 @@ def program():
                  'c1','sCMD','W','sCMD','M','r','sCMD',            # CMD_WRITE(slot,val)
                  'W','M','c1','{','M'] + LOADF() + ['|'] + STOREF()# fmask|=1<<slot
                  + [('goto','DRAIN')])
-    P['DRAIN'] = (LOADW() + ['M',('lit',15),'W','&','M','c1','{','M'] + LOADF() + ['&',
-                  ('br','BODY','MAIN','BODY')])
+    P['DRAIN'] = (LOADW() + ['M',('lit',15),'W','&','M','c1','{','M'] + LOADF() + ['&','b',
+                  ('br2','BODY','MAIN')])
     P['BODY'] = (LOADW() + ['M',('lit',15),'W','&','M',           # A=w15,B=w15
                  'c0','sCMD','W','sCMD','c0','sCMD']               # CMD_READ(w15)
                  + LOADW() + ['M',('lit',15),'W','&','M','c1','{','M'] + LOADF() + ['~'] + STOREF()
@@ -94,12 +94,15 @@ def run_rounds(rounds):
             if k == 'br':
                 gt, eq, lt = tok[1], tok[2], tok[3]
                 label = gt if A > 0 else (eq if A == 0 else lt); idx = 0; continue
+            if k == 'br2':
+                label = tok[1] if BP > 0 else tok[2]; idx = 0; continue
         else:
             if tok.startswith('c') and tok[1:].isdigit():
                 A = int(tok[1:]); continue
             if tok == 'r':
                 if ip >= len(flat): halted = True; break   # no more input -> stop
                 A = w64(flat[ip]); ip += 1; continue
+            if tok == 'b': BP = A; continue
             if tok == 'M': B = A; continue
             if tok == 'W': A, B = B, A; continue
             if tok == '&': A = w64(A & B); continue

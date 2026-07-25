@@ -23,7 +23,7 @@ cIN, cCMD, cWF, cWR, cFF, cFR, cLF, cLR = 4, 10, 16, 22, 28, 34, 40, 46
 PIPECOL = {'r': cIN, 'sCMD': cCMD, 'sWF': cWF, 'rWR': cWR, 'sFF': cFF, 'rFR': cFR, 'sLF': cLF, 'rLR': cLR}
 PIPECH = {'r': 'r', 'sCMD': 's', 'sWF': 's', 'rWR': 'r', 'sFF': 's', 'rFR': 'r', 'sLF': 's', 'rLR': 'r'}
 Ctop = 30
-CWID = 62
+CWID = 68
 
 def build_const15(L, cx, sy):
     """Self-serving const-15 man: loop r `15` s (its backtick is isolated here).
@@ -36,11 +36,11 @@ def build_const15(L, cx, sy):
 
 def build():
     L = Layout()
-    cmd_pt, o_attach, _ = build_driver(L, 4, 70, Ctop + 4)
+    cmd_pt, o_attach, _ = build_driver(L, 4, 80, Ctop + 4)
     Cbot = Ctop + 160
     L.room(0, Ctop, CWID + 1, Cbot - Ctop + 1)
     # input room above cIN
-    L.input_room(cIN - 1, Ctop - 4)
+    L.input_room(cIN - 1, Ctop - 5)
     L.pipe([(cIN, Ctop - 2), (cIN, Ctop - 1)])
     # cmd pipe top wall cCMD -> up above storage men -> down a lane 5 cols off the
     # driver wall -> short east stub into the driver (avoid wall-adjacency spurious attach)
@@ -105,7 +105,8 @@ def build():
         cur_y = y
         def newrow(cur_y, endx):
             ny = cur_y + 2
-            route(L, [(endx, cur_y), (endx, cur_y + 1), (2, cur_y + 1), (2, ny)])
+            # down, west to col1, south onto the '>' head (arrive heading E into ops)
+            rte(L, [(endx, cur_y), (endx, cur_y + 1), (1, cur_y + 1), (1, ny)])
             L.put(1, ny, '>')
             return ny, 2
         i = 0
@@ -120,10 +121,10 @@ def build():
             elif isinstance(t, tuple) and t[0] == 'goto':
                 pending.append(('goto', (xx, yy), t[1]))
                 break
-            elif isinstance(t, tuple) and t[0] == 'br':
-                # v + X at (xx,yy),(xx,yy+1); route 3 exits
-                L.put(xx, yy, 'v'); L.put(xx, yy + 1, 'X')
-                pending.append(('br', (xx, yy + 1), (t[1], t[2], t[3])))
+            elif isinstance(t, tuple) and t[0] == 'br2':
+                # v + d at (xx,yy),(xx,yy+1); d: BP>0->CW(W), else straight(S). 2 exits.
+                L.put(xx, yy, 'v'); L.put(xx, yy + 1, 'd')
+                pending.append(('br2', (xx, yy + 1), (t[1], t[2])))
                 break
             elif t == 'H':
                 L.put(xx, yy, 'H'); break
@@ -141,20 +142,20 @@ def build():
                 L.put(xx, yy, t); xx += 1
         y = yy + 4   # gap before next block
     # wire pending gotos/branches, each on its own highway column near the east
-    hw = CWID - 2
+    hw = 66
     def goto_route(fx, fy, ty, col):
-        # from (fx,fy): down 1, east to col, vertical to ty, west to head '>'
-        rte(L, [(fx, fy), (fx, fy + 1), (col, fy + 1), (col, ty), (1, ty)])
+        # from (fx,fy): down 1, east to highway col, vertical to just ABOVE the head,
+        # west to col1, then SOUTH onto the head '>' (never traverse the op row).
+        rte(L, [(fx, fy), (fx, fy + 1), (col, fy + 1), (col, ty - 1), (1, ty - 1), (1, ty)])
     for kind, frm, tgt in pending:
         if kind == 'goto':
             fx, fy = frm
             goto_route(fx, fy, head[tgt], hw); hw -= 2
-        else:  # br from X at (xX,yX) heading S: CW(>0)=W, straight(==0)=S, CCW(<0)=E
-            gt, eq, lt = tgt
+        else:  # br2: d at (xX,yX) heading S: BP>0->CW(W)=cw, else straight(S)=straight
+            cw, straight = tgt
             xX, yX = frm
-            goto_route(xX - 1, yX, head[gt], hw); hw -= 2       # gt: CW->W exit
-            goto_route(xX, yX + 1, head[eq], hw); hw -= 2       # eq: straight S exit
-            goto_route(xX + 1, yX, head[lt], hw); hw -= 2       # lt: CCW->E exit
+            goto_route(xX - 1, yX, head[cw], hw); hw -= 2        # CW -> W exit
+            goto_route(xX, yX + 1, head[straight], hw); hw -= 2  # straight -> S exit
     return L
 
 if __name__ == '__main__':

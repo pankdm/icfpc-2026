@@ -67,28 +67,44 @@ VERIFIED SO FAR (oracle-checked, committed):
     (r v top / s->H2K / down / r cmd bottom / X: cmd<0 continue-East up-channel->next
     dip, cmd>0 solution), keeper loops deciding & driving via K2H. Verified include
     ([120,180,50]->8) AND exclude ([400,300,50]->8, excl 400 then incl 300->rem0).
+  * STACK-MAN decstack: scratchpad/ss_stack.py. Bit-stack in one register:
+    push=bit+2*stack (A=bit,B=stack -> '+' '+'); pop=stack/2 via '/' (q=newstack,
+    rem=popped bit). [1 0 1 -1 -1 -1]->[1,0,1]; [1 -1 0 1 -1 -1]->[1,1,0]. LIFO OK.
+  * BIDIRECTIONAL HEAD: scratchpad/ss_bt.py. Two travel rows RE(descend/East) &
+    RW(backtrack/West) drop into shared per-column SHAFTs; directional come-ups
+    (go-right->RE col+1, go-left->RW col-1); sentinel/leaf column loaded with 0.
+    Descend verified through the bidirectional dips ([120,180,50] t300 -> 8). cmd
+    encoding: -1 go-right(E), +1 go-left(W), 0 done.
   PIPE GOTCHAS (cost real debugging): (a) two opposite-flow pipes in ADJACENT columns
   break the parser -> separate them by >=1 blank col; (b) a pipe START cell must be
   OUTSIDE the source room wall (not ON it); (c) H2K/K2H must attach at head-bottom
   columns that are NOT dip channels (dip c uses cols c..c+3); (d) a looping man's last
   op must leave a row to TURN before the far wall (loopback W then `>` then up-channel).
-STILL TO BUILD (integration of proven primitives; no unsolved crux):
-  1. LEAF/sentinel: loader writes a sentinel after v_{n-1}; head reading it (or reaching
-     past the last dip) triggers a keeper solution-check-then-backtrack. (Descend today
-     crashes the head into the right wall past the last dip -> needs this.)
-  2. BACKTRACK: head reverses (heading W = backtrack mode); dips become BI-DIRECTIONAL
-     (2-in/2-out): entered-from-right pops decstack via keeper; include->flip exclude,
-     remaining+=v, go right(descend from d+1); exclude->keep going left. Biggest new
-     geometry piece.
-  3. STACK-MAN decstack coprocessor (keeper pushes bit on descend via K2S, pops on
-     backtrack via K2S/S2K). Bit-stack push/pop pattern: solutions/brackets/stack2.man.
-  4. can't-reach prune (todoTotal maintained on the HEAD, sent to keeper) — needed to
-     keep case-6 nodes at 224k (=> tick budget). Without it case-6 ~2x nodes.
-  5. LOADER: dynamic n (BP counter), sentinel, and TARGET routing to keeper. Target
-     is currently a `literal` in ss_desc2; real target must be read from input. Routing
-     loader->keeper must go AROUND the tall head room (a pipe can't cross a room).
-  6. OUTPUT: count (popcount of includes) then selected v_i in ASCENDING index order
-     (decstack pops give descending -> reverse; cf. ss.man Pass RE).
+STILL TO BUILD (only INTEGRATION remains; leaf+geometry+stack primitives all proven):
+  A. 2-MODE KEEPER + stack wiring — THE piece that closes the DFS loop. Replace ss_bt.py's
+     descend-only keeper with two loop bodies (DESCEND/BACKTRACK) + transition, wired to the
+     STACK-MAN via K2S(out: push bit / -1 pop-cmd) + S2K(in: popped bit). Algorithm verified
+     correct for [200,180,120] t300 (1 backtrack -> [180,120]): push 1,0,0 ; sentinel
+     (rem=100!=0)->cmd+1 backtrack ; pop 0,0,1 ; at d0 bit=1 -> rem+=200=300, push0, cmd-1
+     descend ; push 1,1 ; sentinel rem==0 -> solution. REGISTER FLOW (worked out):
+       DESCEND(A=rem): M(B:=rem); r(A=v); W; X rem==0?->SOLUTION; else W; X v==0(sentinel)?
+         ->W(A=rem),cmd+1->K2H,jump BACKTRACK ; else '-'; X v<=rem? incl:N(A=rem-v),push1->K2S,
+         cmd-1->K2H ; excl:W(A=rem),push0->K2S,cmd-1->K2H ; loop.
+       BACKTRACK(A=rem): M(B:=rem); POP FIRST (before recv v): 1,N(A=-1),s->K2S,r(A=bit) [B=rem];
+         X bit>0? incl: r(A=v),'+'(A=v+rem),push0->K2S,cmd-1->K2H,jump DESCEND ; excl: r(A=v;
+         CONSUME to avoid stale H2K),W(A=rem),cmd+1->K2H,loop.
+     KEY subtlety: pop BEFORE recv v (backtrack needs rem+v+bit but pop clobbers A; rem safe in
+     B, then include recv's v and '+' in one shot). Consume v in BOTH branches. Keeper has 3
+     outgoing (K2H top / K2S left / O right) -> each `s` nearest its pipe; opposite-flow pipes
+     >=1 col apart; a pipe start must be OUTSIDE the room wall (gotchas from ss_desc2).
+  B. d==0 backtrack (leftmost, nothing to flip) -> emit 0 (no solution).
+  C. can't-reach prune (todoTotal on the HEAD, sent to keeper) — keeps case-6 at 224k nodes
+     for the 15M budget (without it ~1.7x -> ~380k steps, risky).
+  D. LOADER: dynamic n (BP counter) + sentinel + TARGET read from input & routed to keeper
+     AROUND the tall head room (target is a `literal` today).
+  E. OUTPUT: count (popcount) then selected v_i ASCENDING (decstack pops give descending ->
+     reverse via 2nd stack or left-walk collect; cf. ss.man Pass RE).
+  Estimated case-6: ~30-50 ticks/node x 224k ~= 7-11M < 15M cap.
 
 WHY 3 REGISTERS SUFFICE (the crux prior agents hit):
   A man has A,B,BP. Every read writes A; BP cannot be shifted-into or read back

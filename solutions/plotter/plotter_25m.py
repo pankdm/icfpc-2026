@@ -91,7 +91,7 @@ def build_setup2(ring0):
     c.binop('e2', 'err', '-'); c.writeA('dx')      # dx = |Dx|-|Dy|  (temp)
     c.readA('dx'); c.sign(); c.writeA('err')        # err = sign(|Dx|-|Dy|)  (temp)
     c.binop('dx', 'err', '&'); c.writeA('dx')       # dx = (|Dx|-|Dy|)&sign
-    c.binop('e2', 'dx', '-'); c.e('b')              # BP = max(|Dx|,|Dy|)
+    c.binop('e2', 'dx', '-'); c.inc(); c.e('b')     # BP = max(|Dx|,|Dy|) + 1  (loop runs BP times)
     # finalize: dx = |Dx| (from e2) ; err = err_bres = dx+dy ; e2 = 0
     c.readA('e2'); c.writeA('dx')                   # dx = |Dx|
     c.binop('dx', 'dy', '+'); c.writeA('err')       # err = |Dx| + (-|Dy|)
@@ -191,7 +191,7 @@ def simulate(rounds, count_ops=False):
     for (x0, y0, x1, y1) in rounds:
         inp.extend([x0, y0, x1, y1]); buf[:] = [0]*768; st['cur'] = 0
         ex(SETUP)
-        for _ in range(st['BP'] + 1):
+        for _ in range(st['BP']):        # BP already = n+1 (loop runs BP times, matches grid)
             body()
         frames.append(list(buf))
     return (frames, st['opc']) if count_ops else frames
@@ -291,56 +291,53 @@ def build(band_right=48):
 
     seg = _body_segments()
 
+    ELANE = BR                                 # east descent lane (skip); serpentine uses BL..BR-2
     def lay_serpentine_ops(ops_chars, y0, xstart):
-        """Lay a run of single-char ops as an EAST-first boustrophedon within
-        [BL..BR], starting at (xstart, y0) heading east. Returns (exit_x, exit_y,
-        exit_dir). Pure ops (no cmd/ri)."""
+        """Lay ops as an EAST-first boustrophedon within [BL..BR-2] (leaving BR-1,BR
+        clear for the skip lane), starting at (xstart,y0) heading east. Returns exit."""
         x = xstart; y = y0; d = 1
         for ch in ops_chars:
-            if d == 1 and x > BR - 1:
-                put(p, BR, y, "v"); put(p, BR, y + 1, "<"); y += 1; x = BR - 1; d = -1
+            if d == 1 and x > BR - 3:
+                put(p, BR - 2, y, "v"); put(p, BR - 2, y + 1, "<"); y += 1; x = BR - 3; d = -1
             elif d == -1 and x < BL + 1:
                 put(p, BL, y, "v"); put(p, BL, y + 1, ">"); y += 1; x = BL + 1; d = 1
             put(p, x, y, ch); x += d
         return x, y, d
 
     def branch(pre_toks, step_ops, skip_ops):
-        """Emit linear prefix (with cmd) then an X-diamond. Leaves the Turtle on a
-        fresh EAST row for the next segment. step_ops/skip_ops are despined char lists."""
-        t.emit(pre_toks)                       # test value ends up in A
-        yb = t.force_newline()                 # man heading east at BL, row yb, A preserved
-        # turn south into X at column BL
+        """Emit linear prefix (with cmd) then an X-diamond. Skip descends the east
+        lane (col BR); step uses the band + junction rail; both merge on the rail
+        below everything. Only one arm runs, and both leave the belt in the same
+        order, so the merge is state-consistent. Leaves the Turtle on a fresh row."""
+        rail = BL - 1
+        t.emit(pre_toks)                       # test value in A
+        yb = t.force_newline()                 # '>' at (rail,yb); man east at BL
         put(p, BL, yb, "v")                    # man (east) -> south
-        put(p, BL, yb + 1, "X")                # branch: A>0 CW=west(step); A<0 CCW=east(skip)
-        # ---- SKIP arm (east) on row yb+1 ----
-        sx, sy, sd = lay_serpentine_ops(skip_ops, yb + 1, BL + 1)
-        # route skip exit down then west to the rail, then to merge row
-        # (sd may be +/-1; normalize by turning south)
-        put(p, sx, sy, "v")                    # south one
-        # step arm lives below; skip must reach the common merge. Route skip west
-        # along row sy+1 to the rail col BL-1, then down.
-        put(p, sx, sy + 1, "<")
-        railcol = BL - 1
-        # glide west to railcol handled by blank cells; place turn at railcol
-        # STEP arm: descend rail from yb+1 to step_start, then serpentine
-        step_start = sy + 3
-        put(p, railcol, yb + 1, "v")           # step enters rail going south
-        # rail from yb+1 down to step_start (blanks glide); enter band at step_start
-        put(p, railcol, step_start, ">")       # east into band
-        ex, ey, ed = lay_serpentine_ops(step_ops, step_start, BL + 1)
-        # route step exit to merge: south then west to rail
-        put(p, ex, ey, "v")
-        put(p, ex, ey + 1, "<")
-        merge_row = ey + 3
-        # both arms now head west toward railcol on their rows (sy+1 and ey+1);
-        # bring both down the rail to merge_row then resume a fresh east row.
-        put(p, railcol, sy + 1, "v")           # skip: arrives rail (west), turn south
-        put(p, railcol, ey + 1, "v")           # step: arrives rail, turn south
-        # rail down to merge_row, then junction east
-        t._start_row(merge_row)                # fresh east row at BL (places '>' at BL-1)
-        # ensure rail continues into the junction row
-        for yy in range(min(sy + 1, ey + 1), merge_row):
-            hput(p, railcol, yy, "v")
+        put(p, BL, yb + 1, "X")                # A>0 CW=west(step); A<0 CCW=east(skip)
+        # ---- SKIP arm (east), row yb+1, cols BL+1.. ; then east lane down ----
+        x = BL + 1
+        for ch in skip_ops:
+            put(p, x, yb + 1, ch); x += 1      # man heading east at (x, yb+1)
+        put(p, ELANE, yb + 1, "v")             # reach east lane (glide east), turn south
+        # ---- STEP arm (west): rail down to yb+3, east into band, serpentine ----
+        put(p, rail, yb + 1, "v")              # X-west -> rail south
+        put(p, rail, yb + 2, "v")
+        put(p, rail, yb + 3, ">")              # east into band
+        ex, ey, ed = lay_serpentine_ops(step_ops, yb + 3, BL)
+        put(p, ex, ey, "v")                    # south
+        put(p, ex, ey + 1, "<")               # west; glide to rail
+        hput(p, rail, ey + 1, "v")             # catch at rail -> south
+        # ---- merge on the rail, below both arms ----
+        mrow = ey + 2
+        # skip: east lane down to mrow, then west to rail
+        for yy in range(yb + 2, mrow):
+            hput(p, ELANE, yy, "v")
+        put(p, ELANE, mrow, "<")              # west along mrow -> glide to rail
+        hput(p, rail, mrow, "v")              # both: at rail, heading south
+        # step: rail from ey+1 down to mrow
+        for yy in range(ey + 1, mrow):
+            hput(p, rail, yy, "v")
+        t._start_row(mrow + 1)                 # '>' at (rail,mrow+1); man east at BL
 
     # ---- BODY: prefix+branch1 ; mid+branch2 ; corrective ----
     branch(_toks(seg['pre1']), _despine(seg['a1s']), _despine(seg['a1k']))

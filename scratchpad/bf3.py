@@ -1,0 +1,87 @@
+import sys; sys.path.insert(0,'/Users/visenbaev/icfpc26/tools'); sys.path.insert(0,'/Users/visenbaev/icfpc26/scratchpad')
+from rb import B, Man
+b=B(); p=b.p; C=b.C; mpath=b.mpath
+
+WIDTH=40; HEIGHT=74; RCH=WIDTH-3
+p.room(0,0,WIDTH,HEIGHT)
+cOUT=1; cIN=4
+cDR,cDF=7,8; cWR,cWF=14,15; cFR,cFF=21,22; cSR,cSF=28,29
+p.input_room(cIN-1,-5); p.pipe([(cIN,-2),(cIN,-1)])
+p.output_room(cOUT-1,-5); p.pipe([(cOUT,-1),(cOUT,-2)])
+def relay(rc,fc,RY):
+    rx=min(rc,fc)-1; p.room(rx,RY,6,4)
+    C(rx+1,RY+1,'@'); C(rx+2,RY+1,'>'); C(rx+3,RY+1,'R'); C(rx+4,RY+1,'v')
+    C(rx+2,RY+2,'^'); C(rx+3,RY+2,'s'); C(rx+4,RY+2,'<')
+    p.pipe([(fc,-1),(fc,RY+4)]); p.pipe([(rc,RY+4),(rc,-1)])
+relay(cDR,cDF,-12); relay(cWR,cWF,-8); relay(cFR,cFF,-8); relay(cSR,cSF,-8)
+
+def line(y, ops=()):
+    C(1,y,'>'); mm=Man(b,2,y)
+    for col,ch in ops: mm.at(col,ch)
+    return mm
+def down(fromx,fromy,ty):
+    mpath([(fromx,fromy),(fromx,ty-1),(1,ty-1),(1,ty)])
+def up_right(fromx,fromy,ty):
+    mpath([(fromx,fromy),(fromx,fromy+1),(RCH,fromy+1),(RCH,ty-1),(1,ty-1),(1,ty)])
+def rotloop(LY, exit_row):
+    C(1,LY,'>'); C(2,LY,'d'); C(2,LY+1,'>')
+    mb=Man(b,3,LY+1); mb.at(cDR,'r').at(cDF,'s').op('m')
+    mpath([(mb.x,LY+1),(mb.x,LY+2),(1,LY+2),(1,LY)])
+    mpath([(3,LY),(4,LY),(4,exit_row-1),(1,exit_row-1),(1,exit_row)])
+    C(1,exit_row,'>'); return Man(b,2,exit_row)
+
+# PREAMBLE
+C(1,1,'@'); m=Man(b,2,1)
+m.at(cIN,'r'); m.at(9,'`').op('1').op('6').op('`').op('b')
+mpath([(m.x,1),(m.x,2),(1,2),(1,3)])
+C(1,3,'>'); ms=Man(b,2,3)
+ms.at(5,'0').at(cDF,'s').at(10,'m').at(11,'d')
+mpath([(11,4),(1,4),(1,3)])
+mx=Man(b,12,3); mx.at(cWF,'s').at(cFF,'s')
+down(mx.x,3,6)
+
+# PHASE A
+AY=6
+m=line(AY,[(cIN,'r')]); m.op('M'); down(m.x,AY,8)
+m=line(8,[(cWR,'r'),(cWF,'s')]); m.op('-').op('N'); m.at(cSF,'s'); down(m.x,8,10)
+m=line(10); m.op('M').op('4').op('W').op('}')
+bx,by=m.x,m.y; C(bx,by,'v'); C(bx,by+1,'X')
+ABY=14
+mpath([(bx-1,by+1),(1,by+1),(1,ABY-1),(1,ABY)]); C(1,ABY,'>')
+mab=Man(b,2,ABY); mab.at(5,'1').op('N')
+mpath([(mab.x,ABY),(mab.x,ABY+1),(2,ABY+1)]); C(2,ABY+1,'s'); C(1,ABY+1,'H')
+BY=18
+mpath([(bx,by+2),(bx,BY-1),(1,BY-1),(1,BY)]); C(1,BY,'>')
+
+# PHASE B  [SCR=off]
+m=Man(b,2,BY); m.at(cSR,'r').at(cSF,'s'); down(m.x,BY,20)
+m=line(20); m.op('M').op('1').op('{').op('M'); m.at(cFR,'r').op('|'); down(m.x,20,22)
+m=line(22,[(cFF,'s')]); down(m.x,22,24)
+m=line(24,[(cIN,'r'),(cSF,'s')]); down(m.x,24,26)
+m=line(26,[(cSR,'r'),(cSF,'s')]); m.op('b'); down(m.x,26,28)
+m=line(28,[(cSR,'r')]); m.op('M'); down(m.x,28,30)
+mr=rotloop(30,34)
+mr.at(cDR,'r').op('W'); down(mr.x,34,36)
+m=line(36,[(cDF,'s')]); down(m.x,36,38)
+m=line(38,[(cSR,'r')]); m.op('M').op('`').op('1').op('5').op('`').op('~').op('b'); down(m.x,38,40)
+mc=rotloop(40,44)
+mc.at(cFR,'r'); down(mc.x,44,48)
+
+# PHASE C: drain
+DL=48
+C(1,DL,'>'); C(2,DL,'b'); C(3,DL,'x')
+mpath([(3,DL-1),(3,DL-2),(RCH,DL-2)])
+C(3,DL+1,'>'); md=Man(b,4,DL+1); md.at(cSF,'s'); down(md.x,DL+1,51)
+md=line(51,[(cDR,'r')]); down(md.x,51,53)
+md=line(53,[(cOUT+1,'s')]); down(md.x,53,55)
+md=line(55); md.op('0').at(cDF,'s'); down(md.x,55,57)
+md=line(57,[(cWR,'r')]); down(md.x,57,59)
+md=line(59); md.op('M').op('1').op('+').at(cWF,'s'); down(md.x,59,61)
+md=line(61,[(cSR,'r')]); md.op('M').op('1').op('W').op('}')
+up_right(md.x,61,DL)
+STOP=66
+mpath([(RCH,DL-2),(RCH,STOP-1),(1,STOP-1),(1,STOP)]); C(1,STOP,'>')
+msf=Man(b,2,STOP); msf.at(cFF,'s'); up_right(msf.x,STOP,AY)
+
+open('/Users/visenbaev/icfpc26/solutions/tcp/tcp-ring.man','w').write(p.render()+"\n")
+print("footprint", p.footprint())

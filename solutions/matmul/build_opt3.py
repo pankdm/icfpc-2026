@@ -208,13 +208,13 @@ def place_sasb(b, cbot, sa_mode, sb_mode):
         folded_on(b, [5,0,-1,-2,-3,-4,-5,-6,-7], [6], -29, -3, -34,
                   relay_left=1, feed_in=3, ret_out=4)
     elif sa_mode=="hang":   # SA hung on the LEFT beside the CTRL
-        hang4(b, 5, 6, [-7,-8,-9], [-19,-20,-21], top, bot,
-              RL=-16, RY=20, ef=-7, er=-12)
+        hang4(b, 5, 6, [-2,-3,-4], [-12,-13,-14], top, bot,
+              RL=-11, RY=20, ef=-7, er=-12, rrcol=-5)
     if sb_mode=="up":
         folded_on(b, [11,10,9,8,7], [15,14,13,12], -35, -3, -39)
-    elif sb_mode=="hang":   # SB hung on the RIGHT (escapes cross the center BELOW SC at -14/-15)
-        hang4(b, 11, 12, [41,42,43], [55,56,57], top, bot,
-              RL=48, RY=20, ef=-14, er=-15, rrcol=47)
+    elif sb_mode=="hang":   # SB hung on the RIGHT: feed body FAR, return body NEAR, ef<er
+        hang4(b, 11, 12, [52,53,54], [43,42,41], top, bot,
+              RL=45, RY=20, ef=-15, er=-14, rrcol=51)
 
 def build(stage="drainA", W=31, H=42, sa_mode="up", sb_mode="up"):
     if stage in ("run","full"):

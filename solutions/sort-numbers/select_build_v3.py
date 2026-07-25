@@ -83,8 +83,9 @@ def build():
     L.input_room(19, 1)       # I at (20,2) ; left border col19
     place_pipe(L, [(18, 2), (17, 2)], DIRS['W'])        # I -> ctrl right wall (16,2)
     # OUTPUT: room below; mouth on bottom wall (4,20).  EMIT sends at (4,18).
-    L.output_room(3, 23)      # O at (4,24) ; top border row23
-    L.pipe([(4, 21), (4, 22)])                          # ctrl bottom (4,20) -> O top(4,23)
+    # OUTPUT room bottom (rows21..23 -> height 24); L-pipe from ctrl bottom (4,20).
+    L.output_room(9, 21)      # O at (10,22) ; left border col9
+    place_pipe(L, [(4, 21), (4, 22), (5, 22), (6, 22), (7, 22), (8, 22)], DIRS['E'])  # ->O(9,22)
     # ---- ring: relay bottom-right ; FEED top(col19), RET top(col21) ; gap col20 ----
     L.room(18, 16, 6, 4)      # relay room cols18..23 rows16..19
     relay_man(L, 19, 17)

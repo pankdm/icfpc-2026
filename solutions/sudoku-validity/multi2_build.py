@@ -45,33 +45,30 @@ def vman(L, mx, my):
 
 # ---------------------------------------------------------------------------
 def dispatcher_v(L, dx, rows):
-    """Vertical serpentine dispatcher. Room cols dx..dx+8 (9 wide), rows 0..(rows[-1]+3).
-    Interior cols: SP=dx+1, P=dx+2, o1=dx+3, o2=dx+4, o3=dx+5, Q=dx+6, RIS=dx+7.
-    Header row 1: @ spawns E into P='v' -> down col P into r0 entry.
+    """Vertical serpentine dispatcher. Room cols dx..dx+7 (8 wide), rows 0..(rows[-1]+3).
+    Interior cols: SP=dx+1 (spawn + return riser), P=dx+2, o1=dx+3, o2=dx+4, o3=dx+5, Q=dx+6.
+    Header row 1: @ spawns E into P='v' -> down col P into r0 entry '>'.
     Per man row rk: R (recv dispatch, recv_any) then s s (send twice EAST to man k);
     the two sends sit on row rk so 'send nearest' resolves by ROW to man k's east pipe.
-    E-rows enter P='>' exit Q='v'; W-rows enter Q='<' exit P='v'. Return riser (RIS)
-    loops the man from the bottom back to the header for the next round.
+    E-rows enter P='>' exit Q='v'; W-rows enter Q='<' exit P='v'. The return riser reuses
+    the (otherwise-free) spawn column SP to loop the man from the bottom back to r0.
     dispatch pipe attaches the WEST wall (dx) — set by caller. Returns east_wall col."""
-    SP, P, o1, o2, o3, Q, RIS = dx+1, dx+2, dx+3, dx+4, dx+5, dx+6, dx+7
+    SP, P, o1, o2, o3, Q = dx+1, dx+2, dx+3, dx+4, dx+5, dx+6
     top, bot = 0, rows[-1] + 3
-    L.room(dx, top, 9, bot-top+1)
-    # header
-    L.put(SP, 1, '@'); L.put(P, 1, 'v')
-    L.put(RIS, 1, '<')                       # riser return lands, glides W to P
-    # body
+    L.room(dx, top, 8, bot-top+1)
+    r0 = rows[0]
+    # header + riser re-entry both converge on r0 entry (P,r0)='>'
+    L.put(SP, 1, '@'); L.put(P, 1, 'v')      # @ -> E -> v -> S down P into (P,r0)
+    L.put(SP, r0, '>')                        # riser arrives up SP, turns E into (P,r0)
     for i, rk in enumerate(rows):
-        if i % 2 == 0:                       # E-row
+        if i % 2 == 0:                        # E-row
             L.put(P, rk, '>'); L.put(o1, rk, 'R'); L.put(o2, rk, 's'); L.put(o3, rk, 's'); L.put(Q, rk, 'v')
-        else:                                # W-row
+        else:                                 # W-row
             L.put(Q, rk, '<'); L.put(o3, rk, 'R'); L.put(o2, rk, 's'); L.put(o1, rk, 's'); L.put(P, rk, 'v')
-    # connectors are blank glides down cols P and Q (left as spaces)
-    # loop-back from the last row (rows[-1], a W-row since len==6): P='v' -> down to bot-... build hook
+    # loop-back from last row (W-row): P='v' -> gap row -> west to SP -> up SP to (SP,r0)='>'
     last = rows[-1]
-    L.put(P, last, 'v')                      # (already) go south
-    L.put(P, last+1, '>')                    # turn east on the gap row
-    L.put(RIS, last+1, '^')                  # up the riser column
-    return dx+8                              # east wall col
+    L.put(P, last+1, '<'); L.put(SP, last+1, '^')
+    return dx+7                               # east wall col
 
 
 # ---------------------------------------------------------------------------

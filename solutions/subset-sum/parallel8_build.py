@@ -22,10 +22,10 @@ if WORKERS < 1 or WORKERS > 256 or WORKERS & (WORKERS - 1):
     raise ValueError("SS_WORKERS must be a power of two between 1 and 256")
 PARTITION_BITS = int(math.log2(WORKERS))
 WORKER_IDS = list(range(WORKERS))
-WORKER_GAP = 46
+WORKER_GAP = 45
 WORKER_X0 = 50
 WORKER_Y = 7
-COLLECTOR_Y = 71
+COLLECTOR_Y = 64
 
 
 class Builder:
@@ -66,11 +66,25 @@ def build_broadcaster(builder, width, output_columns):
     p.pipe([(4, -2), (4, -1)])
     builder.man(3, 2)
     C(4, 2, "r")
-    C(5, 2, "S")
-    C(6, 2, "v")
-    C(6, 3, "<")
-    C(2, 3, "^")
-    C(2, 2, ">")
+    C(5, 2, "b")
+    C(6, 2, "S")
+    C(7, 2, "M")
+    C(8, 2, "1")
+    C(9, 2, "{")
+    C(10, 2, "M")
+    C(11, 2, str(PARTITION_BITS))
+    C(12, 2, "W")
+    C(13, 2, "}")
+    C(14, 2, "S")
+    C(15, 2, "1")
+    C(16, 2, "N")
+    C(17, 2, "S")
+    C(18, 2, ">")
+    C(19, 2, "r")
+    C(20, 2, "S")
+    C(21, 2, "v")
+    C(21, 3, "<")
+    C(18, 3, "^")
 
     for column, end_y in output_columns:
         p.pipe([(column, 5), (column, end_y)])
@@ -87,37 +101,41 @@ def build_worker(
     C0 = builder.cell
     ox, oy = base_x, worker_y
 
+    compact_main = False
+
     def C(x, y, char):
+        if compact_main:
+            x -= 1
+            if 6 <= y <= 13:
+                y -= 2
+            elif 15 <= y <= 16:
+                y -= 3
+            elif y >= 18:
+                y -= 4
         C0(ox + x, oy + y, char)
 
-    builder.room(ox + 10, oy, 38, 61)
-    builder.room(ox + 2, oy + 40, 7, 4)
-    p.pipe([(ox + 9, oy + 30), (ox + 5, oy + 30), (ox + 5, oy + 39)])
-    p.pipe([(ox + 4, oy + 39), (ox + 4, oy + 20), (ox + 9, oy + 20)])
-    C(3, 41, ">")
-    builder.man(ox + 4, oy + 41)
-    C(5, 41, "R")
-    C(6, 41, "s")
-    C(7, 41, "v")
-    C(7, 42, "<")
-    C(3, 42, "^")
+    builder.room(ox + 10, oy, 37, 54)
+    builder.room(ox + 2, oy + 36, 7, 4)
+    p.pipe([(ox + 9, oy + 26), (ox + 5, oy + 26), (ox + 5, oy + 35)])
+    p.pipe([(ox + 4, oy + 35), (ox + 4, oy + 16), (ox + 9, oy + 16)])
+    C(3, 37, ">")
+    builder.man(ox + 4, oy + 37)
+    C(5, 37, "R")
+    C(6, 37, "s")
+    C(7, 37, "v")
+    C(7, 38, "<")
+    C(3, 38, "^")
 
-    builder.man(ox + 12, oy + 2)
+    compact_main = True
+    builder.man(ox + 11, oy + 2)
     C(13, 2, ">")
     C(34, 2, "r")
     C(35, 2, "b")
-    C(36, 2, "M")
-    C(37, 2, "1")
-    C(38, 2, "{")
-    C(39, 2, "M")
-    C(40, 2, str(PARTITION_BITS))
-    C(41, 2, "W")
-    C(42, 2, "}")
-    C(43, 2, "M")
-    C(44, 2, "1")
-    C(45, 2, "N")
-    C(46, 2, "v")
-    C(46, 3, "<")
+    C(36, 2, "r")
+    C(37, 2, "M")
+    C(38, 2, "r")
+    C(39, 2, "v")
+    C(39, 3, "<")
     C(15, 3, "s")
     C(12, 3, "v")
     C(12, 6, ">")
@@ -215,35 +233,35 @@ def build_worker(
 
     C(17, 52, ">")
     C(18, 52, "v")
-    C(18, 56, ">")
-    C(20, 56, "r")
-    C(21, 56, "M")
-    C(22, 56, str(PARTITION_BITS))
-    C(23, 56, "W")
-    C(24, 56, "{")
-    C(25, 56, "M")
-    C(26, 56, "`")
-    C(27, 56, digits[0])
-    C(28, 56, digits[1])
-    C(29, 56, digits[2])
-    C(30, 56, "`")
-    C(31, 56, "W")
-    C(32, 56, "|")
-    C(33, 56, "v")
-    C(33, 59, ">")
+    C(18, 55, ">")
+    C(20, 55, "r")
+    C(21, 55, "M")
+    C(22, 55, str(PARTITION_BITS))
+    C(23, 55, "W")
+    C(24, 55, "{")
+    C(25, 55, "M")
+    C(26, 55, "`")
+    C(27, 55, digits[0])
+    C(28, 55, digits[1])
+    C(29, 55, digits[2])
+    C(30, 55, "`")
+    C(31, 55, "W")
+    C(32, 55, "|")
+    C(33, 55, "v")
+    C(33, 56, ">")
 
     C(16, 26, "0")
     C(17, 26, ">")
     C(35, 26, "v")
-    C(35, 59, ">")
-    C(45, 59, "s")
-    C(46, 59, "H")
+    C(35, 56, ">")
+    C(45, 56, "s")
+    C(46, 56, "H")
 
-    candidate_x = ox + 49
+    candidate_x = ox + 48
     p.pipe(
         [
-            (ox + 48, oy + 59),
-            (candidate_x, oy + 59),
+            (ox + 47, oy + 52),
+            (candidate_x, oy + 52),
             (candidate_x, collector_y - 1),
         ]
     )
@@ -276,8 +294,8 @@ def build_collector(builder, right, candidate_columns, collector_y=COLLECTOR_Y):
     C(13, 2, ">")
     C(34, 2, "r")
     C(35, 2, "b")
-    C(36, 2, "1")
-    C(37, 2, "N")
+    C(36, 2, "r")
+    C(37, 2, "r")
     C(38, 2, "v")
     C(38, 3, "<")
     C(15, 3, "s")
@@ -439,10 +457,10 @@ def build_collector(builder, right, candidate_columns, collector_y=COLLECTOR_Y):
 def build():
     builder = Builder()
     worker_bases = [WORKER_X0 + index * WORKER_GAP for index in range(len(WORKER_IDS))]
-    candidate_columns = [base + 49 for base in worker_bases]
+    candidate_columns = [base + 48 for base in worker_bases]
     collector_right = candidate_columns[-1] + 24
     broadcast_outputs = [(34, COLLECTOR_Y - 1)] + [
-        (base + 34, WORKER_Y - 1) for base in worker_bases
+        (base + 33, WORKER_Y - 1) for base in worker_bases
     ]
     build_broadcaster(builder, collector_right, broadcast_outputs)
     built_candidates = [

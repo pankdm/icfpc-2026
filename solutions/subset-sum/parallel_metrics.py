@@ -5,12 +5,12 @@ import math
 
 
 MASKS = 1 << 20
-HEIGHT = 170
-WORKER_PITCH = 46
+HEIGHT = 163
+WORKER_PITCH = 45
 FIXED_WIDTH = 77
 GRID_FIXED_WIDTH = 53
-ROW_STRIDE = 88
-ROW_TICKS = 100
+ROW_STRIDE = 71
+ROW_TICKS = 90
 
 # Calibrated with isolated no-match n=20 runs:
 #   N=64:  6,982,947 ticks for 16,384 masks
@@ -49,9 +49,9 @@ FOLDED32_ACTUAL = {
 # n=20 public case is omitted because the local Python interpreter is very slow.
 # Tuple: rows, width, height, public ticks.
 LARGE_FOLDED_ACTUAL = {
-    64: (6, 559, 610, (8346, 7864, 88490, 7766, 23062, 7816)),
-    128: (8, 789, 786, (6962, 6560, 47322, 6464, 14320, 6555)),
-    256: (12, 1065, 1138, (6962, 6610, 27178, 6516, 10604, 6606)),
+    64: (6, 548, 518, (8249, 7768, 88393, 7670, 22965, 7721)),
+    128: (9, 728, 731, (6862, 6459, 47216, 6363, 14218, 6453)),
+    256: (13, 953, 1015, (6716, 6361, 26926, 6267, 10354, 6357)),
 }
 
 

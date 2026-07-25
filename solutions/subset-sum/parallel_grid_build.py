@@ -19,10 +19,10 @@ if ROWS < 1 or ROWS > 16 or ROWS > WORKERS:
     raise ValueError("SS_ROWS must be between 1 and min(16, SS_WORKERS)")
 
 WORKER_X0 = 5
-ROW_STRIDE = 88
+ROW_STRIDE = 71
 BROADCAST_Y = 0
 WORKER_Y = 7
-COLLECTOR_Y = 71
+COLLECTOR_Y = 64
 
 
 def compare_station(builder, x, y):
@@ -39,37 +39,59 @@ def compare_station(builder, x, y):
     C(x + 7, y, ">")
 
 
-def build_row_broadcaster(builder, y, room_right, worker_bases, worker_y):
+def build_row_broadcaster(builder, y, room_right, worker_bases, worker_y, preprocess):
     p = builder.program
     C = builder.cell
     builder.room(10, y, room_right - 10, 5)
     builder.man(12, y + 2)
-    C(13, y + 2, "r")
-    C(14, y + 2, "S")
-    C(15, y + 2, "v")
-    C(15, y + 3, "<")
-    C(11, y + 3, "^")
-    C(11, y + 2, ">")
+    if preprocess:
+        C(13, y + 2, "r")
+        C(14, y + 2, "b")
+        C(15, y + 2, "S")
+        C(16, y + 2, "M")
+        C(17, y + 2, "1")
+        C(18, y + 2, "{")
+        C(19, y + 2, "M")
+        C(20, y + 2, str(base.PARTITION_BITS))
+        C(21, y + 2, "W")
+        C(22, y + 2, "}")
+        C(23, y + 2, "S")
+        C(24, y + 2, "1")
+        C(25, y + 2, "N")
+        C(26, y + 2, "S")
+        C(27, y + 2, ">")
+        C(28, y + 2, "r")
+        C(29, y + 2, "S")
+        C(30, y + 2, "v")
+        C(30, y + 3, "<")
+        C(27, y + 3, "^")
+    else:
+        C(13, y + 2, "r")
+        C(14, y + 2, "S")
+        C(15, y + 2, "v")
+        C(15, y + 3, "<")
+        C(11, y + 3, "^")
+        C(11, y + 2, ">")
     for worker_base in worker_bases:
-        p.pipe([(worker_base + 34, y + 5), (worker_base + 34, worker_y - 1)])
+        p.pipe([(worker_base + 33, y + 5), (worker_base + 33, worker_y - 1)])
 
 
 def build_local_collector(builder, y, room_right, candidate_columns):
     p = builder.program
     C = builder.cell
-    builder.room(10, y, room_right - 10, 15)
-    builder.man(12, y + 8)
-    C(13, y + 8, "0")
-    C(14, y + 8, "M")
+    builder.room(10, y, room_right - 10, 7)
+    builder.man(12, y + 2)
+    C(13, y + 2, "0")
+    C(14, y + 2, "M")
     for column in candidate_columns:
-        compare_station(builder, column, y + 8)
+        compare_station(builder, column, y + 2)
     end_x = candidate_columns[-1] + 12
-    C(end_x, y + 8, "W")
-    C(end_x + 1, y + 8, "v")
-    C(end_x + 1, y + 12, ">")
-    C(room_right - 5, y + 12, "s")
-    C(room_right - 4, y + 12, "H")
-    return (room_right, y + 12)
+    C(end_x, y + 2, "W")
+    C(end_x + 1, y + 2, "v")
+    C(end_x + 1, y + 5, ">")
+    C(room_right - 5, y + 5, "s")
+    C(room_right - 4, y + 5, "H")
+    return (room_right, y + 5)
 
 
 def build():
@@ -78,7 +100,7 @@ def build():
     worker_ids = list(range(WORKERS))
     columns = math.ceil(WORKERS / ROWS)
     worker_bases = [WORKER_X0 + index * base.WORKER_GAP for index in range(columns)]
-    last_candidate = worker_bases[-1] + 49
+    last_candidate = worker_bases[-1] + 48
     prior_column = last_candidate + 20
     room_right = prior_column + 24
 
@@ -92,7 +114,9 @@ def build():
         worker_y = row_y + WORKER_Y
         collector_y = row_y + COLLECTOR_Y
         bases = worker_bases[: len(ids)]
-        build_row_broadcaster(builder, broadcaster_y, room_right, bases, worker_y)
+        build_row_broadcaster(
+            builder, broadcaster_y, room_right, bases, worker_y, row_index == 0
+        )
         candidate_columns = [
             base.build_worker(builder, worker_base, worker_id, worker_y, collector_y)
             for worker_base, worker_id in zip(bases, ids)

@@ -18,13 +18,29 @@ if WORKERS < 1 or WORKERS > 256 or WORKERS & (WORKERS - 1):
 if ROWS < 1 or ROWS > 16 or ROWS > WORKERS:
     raise ValueError("SS_ROWS must be between 1 and min(16, SS_WORKERS)")
 
-WORKER_X0 = 8
-ROW_STRIDE = 66 if base.PREFIX_MODE else 68
+WORKER_X0 = 10 if base.PREFIX_MODE and base.COMPACT_WORKER else 8
+COMPACT_WIDTH_DELTA = 4 * (base.PARTITION_BITS - 6) if base.COMPACT_WORKER else 0
+WORKER_GAP = (
+    31 + COMPACT_WIDTH_DELTA
+    if base.PREFIX_MODE and base.COMPACT_WORKER
+    else base.WORKER_GAP
+)
+ROW_STRIDE = (
+    46
+    if base.PREFIX_MODE and base.COMPACT_WORKER
+    else (66 if base.PREFIX_MODE else 68)
+)
 BROADCAST_Y = 0
 WORKER_Y = 6
-COLLECTOR_Y = 60
-PRIOR_COLUMN = 30
-PRIOR_ATTACHMENT_X = 17
+COLLECTOR_Y = 40 if base.PREFIX_MODE and base.COMPACT_WORKER else 60
+PRIOR_COLUMN = 15 if base.PREFIX_MODE and base.COMPACT_WORKER else 30
+PRIOR_ATTACHMENT_X = (
+    15 if base.PREFIX_MODE and base.COMPACT_WORKER else 17
+)
+FINAL_PRIOR_COLUMN = 30
+FINAL_PRIOR_ATTACHMENT_X = (
+    29 if base.PREFIX_MODE and base.COMPACT_WORKER else 17
+)
 
 
 def compare_station(builder, x, y):
@@ -92,8 +108,18 @@ def build_row_broadcaster(builder, y, room_right, worker_bases, worker_y, prepro
         C(15, y + 2, "<")
         C(11, y + 2, "^")
         C(11, y + 1, ">")
+    input_offset = (
+        16 + COMPACT_WIDTH_DELTA
+        if base.PREFIX_MODE and base.COMPACT_WORKER
+        else 33
+    )
     for worker_base in worker_bases:
-        p.pipe([(worker_base + 33, y + 4), (worker_base + 33, worker_y - 1)])
+        p.pipe(
+            [
+                (worker_base + input_offset, y + 4),
+                (worker_base + input_offset, worker_y - 1),
+            ]
+        )
 
 
 def build_local_collector(builder, y, room_right, candidate_columns):
@@ -134,8 +160,13 @@ def build():
     p = builder.program
     worker_ids = list(range(WORKERS - 1, -1, -1)) if base.PREFIX_MODE else list(range(WORKERS))
     columns = math.ceil(WORKERS / ROWS)
-    worker_bases = [WORKER_X0 + index * base.WORKER_GAP for index in range(columns)]
-    last_candidate = worker_bases[-1] + 48
+    worker_bases = [WORKER_X0 + index * WORKER_GAP for index in range(columns)]
+    candidate_offset = (
+        30 + COMPACT_WIDTH_DELTA
+        if base.PREFIX_MODE and base.COMPACT_WORKER
+        else 48
+    )
+    last_candidate = worker_bases[-1] + candidate_offset
     room_right = last_candidate + 16
 
     row_ids = [worker_ids[index * columns : (index + 1) * columns] for index in range(ROWS)]
@@ -164,7 +195,7 @@ def build():
             )
         else:
             if row_index:
-                candidate_columns.insert(0, PRIOR_COLUMN)
+                candidate_columns.insert(0, FINAL_PRIOR_COLUMN)
             base.build_collector(builder, room_right, candidate_columns, collector_y)
 
     first_y = BROADCAST_Y
@@ -196,6 +227,11 @@ def build():
 
     for row_index, source in enumerate(collector_sources):
         next_collector_y = (row_index + 1) * ROW_STRIDE + COLLECTOR_Y
+        prior_attachment_x = (
+            FINAL_PRIOR_ATTACHMENT_X
+            if row_index + 1 == len(row_ids) - 1
+            else PRIOR_ATTACHMENT_X
+        )
         route = [source]
         if base.PREFIX_MODE:
             route.append((source[0], source[1] + 1))
@@ -205,8 +241,8 @@ def build():
         route.extend(
             [
                 (8, next_collector_y - 2),
-                (PRIOR_ATTACHMENT_X, next_collector_y - 2),
-                (PRIOR_ATTACHMENT_X, next_collector_y - 1),
+                (prior_attachment_x, next_collector_y - 2),
+                (prior_attachment_x, next_collector_y - 1),
             ]
         )
         p.pipe(route)
@@ -217,6 +253,8 @@ def build():
 if __name__ == "__main__":
     program = build()
     suffix = "-prefix" if base.PREFIX_MODE else ""
+    if base.COMPACT_WORKER:
+        suffix += "-compact"
     destination = HERE / f"parallel{WORKERS}{suffix}-r{ROWS}.man"
     program.save(str(destination))
     print(program.render())

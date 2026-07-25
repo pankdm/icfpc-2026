@@ -22,6 +22,7 @@ if WORKERS < 1 or WORKERS > 256 or WORKERS & (WORKERS - 1):
     raise ValueError("SS_WORKERS must be a power of two between 1 and 256")
 PARTITION_BITS = int(math.log2(WORKERS))
 PREFIX_MODE = os.environ.get("SS_PREFIX") == "1"
+COMPACT_WORKER = os.environ.get("SS_COMPACT_WORKER") == "1"
 WORKER_IDS = list(range(WORKERS - 1, -1, -1)) if PREFIX_MODE else list(range(WORKERS))
 WORKER_GAP = 45
 WORKER_X0 = 50
@@ -57,6 +58,148 @@ class Builder:
     def man(self, x, y):
         self.program.man(x, y)
         self.placed[(x, y)] = "@"
+
+
+COMPACT64_MAIN = (
+    "           @rM6W-b 0Mrv",
+    "vsN1M+rM+rM+rM+rM+rM+r<",
+    ">   rv                 ",
+    "  vs <                 ",
+    " >v                    ",
+    "  r                    ",
+    "  s                    ",
+    " ^Xv                   ",
+    "   m                   ",
+    "^ <d             >    v",
+    "   >        r-MrWXWMv  ",
+    " >v s*`360`MWsWsW<  `  ",
+    "  r                 0  ",
+    "  s                 6  ",
+    " ^XMv               3  ",
+    " v  <<              `  ",
+    " >rX  >               v",
+    "   +                *  ",
+    "   s                   ",
+    "vrb<                   ",
+    ">sMv                   ",
+    " >vr                   ",
+    ">]vs                   ",
+    " Wv<                   ",
+    " -r                   0",
+    " Ws >^                s",
+    " xXWX rMrr+         >sH",
+    "^<  >^                 ",
+)
+
+
+def build_compact_prefix_worker(builder, base_x, worker_id, worker_y, collector_y):
+    p = builder.program
+    C = builder.cell
+    extra_bits = PARTITION_BITS - 6
+    if extra_bits < 0:
+        raise ValueError("compact prefix worker requires at least 64 workers")
+    width_delta = 4 * extra_bits
+    room_width = 25 + width_delta
+    interior_width = room_width - 2
+    main_left = base_x + 4
+    main_top = worker_y
+    builder.room(main_left, main_top, room_width, 30)
+    builder.room(base_x, main_top + 21, 4, 6)
+
+    shift_thresholds = {
+        0: 11,
+        2: 4,
+        3: 5,
+        9: 17,
+        10: 12,
+        12: 20,
+        13: 20,
+        14: 20,
+        15: 20,
+        16: 22,
+        17: 20,
+        24: 22,
+        25: 22,
+        26: 20,
+    }
+    rows = []
+    for row_index, source in enumerate(COMPACT64_MAIN):
+        row = [" "] * interior_width
+        threshold = shift_thresholds.get(row_index)
+        for column_index, character in enumerate(source):
+            if character == " ":
+                continue
+            if row_index == 11 and 4 <= column_index <= 16:
+                target = column_index + min(width_delta, 4)
+            elif row_index == 11 and column_index in (17, 20):
+                target = column_index + width_delta
+            else:
+                target = (
+                    column_index + width_delta
+                    if threshold is not None and column_index >= threshold
+                    else column_index
+                )
+            row[target] = character
+        rows.append(row)
+
+    rows[1] = [" "] * interior_width
+    rows[1][0:4] = "vsN1"
+    rows[1][-1] = "<"
+    cursor = interior_width - 2
+    for index in range(PARTITION_BITS):
+        rows[1][cursor] = "r"
+        if worker_id >> (PARTITION_BITS - 1 - index) & 1:
+            rows[1][cursor - 1] = "+"
+            rows[1][cursor - 2] = "M"
+        cursor -= 3
+
+    digits = f"{worker_id:03d}"
+    rows[0][14 + width_delta] = str(PARTITION_BITS)
+    literal_delta = min(width_delta, 4)
+    rows[11][7 + literal_delta : 10 + literal_delta] = reversed(digits)
+    rows[12][20 + width_delta] = digits[0]
+    rows[13][20 + width_delta] = digits[1]
+    rows[14][20 + width_delta] = digits[2]
+
+    for row_index, row in enumerate(rows):
+        for column_index, character in enumerate(row):
+            if character != " ":
+                C(main_left + 1 + column_index, main_top + 1 + row_index, character)
+
+    builder.man(base_x + 1, main_top + 22)
+    C(base_x + 2, main_top + 22, "v")
+    C(base_x + 1, main_top + 23, ">")
+    C(base_x + 2, main_top + 23, "v")
+    C(base_x + 1, main_top + 24, "s")
+    C(base_x + 2, main_top + 24, "r")
+    C(base_x + 1, main_top + 25, "^")
+    C(base_x + 2, main_top + 25, "<")
+
+    p.pipe(
+        [
+            (main_left - 1, main_top + 8),
+            (base_x, main_top + 8),
+            (base_x, main_top + 20),
+        ]
+    )
+    p.pipe(
+        [
+            (base_x + 1, main_top + 20),
+            (base_x + 1, main_top + 9),
+            (main_left - 1, main_top + 9),
+        ]
+    )
+
+    main_right = main_left + room_width - 1
+    candidate_x = main_right + 2
+    p.pipe(
+        [
+            (main_right + 1, main_top + 28),
+            (candidate_x, main_top + 28),
+            (candidate_x, collector_y - 1),
+        ]
+    )
+    return candidate_x
 
 
 def build_broadcaster(builder, width, output_columns):
@@ -116,6 +259,11 @@ def build_worker(
     worker_y=WORKER_Y,
     collector_y=COLLECTOR_Y,
 ):
+    if PREFIX_MODE and COMPACT_WORKER:
+        return build_compact_prefix_worker(
+            builder, base_x, worker_id, worker_y, collector_y
+        )
+
     p = builder.program
     C0 = builder.cell
     ox, oy = base_x, worker_y

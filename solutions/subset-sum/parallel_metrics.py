@@ -62,6 +62,12 @@ PREFIX64_R6_ACTUAL = (
     (14_763, 14_445, 60_915, 14_357, 18_923, 14_445, 5_046_596),
 )
 
+COMPACT_PREFIX_ACTUAL = {
+    64: (6, 367, 355, (10_763, 10_445, 41_376, 10_357, 12_867, 10_445)),
+    128: (10, 481, 539, (13_740, 13_422, 26_671, 13_334, 15_292, 13_422)),
+    256: (14, 767, 723, (22_211, 21_893, 28_586, 21_805, 23_341, 21_893)),
+}
+
 
 def horizontal_metrics(workers):
     width = WORKER_PITCH * workers + FIXED_WIDTH
@@ -93,6 +99,26 @@ def number(value):
 
 
 def main():
+    print("Compact high-prefix folds")
+    print("workers | rows | width | height | footprint | public ticks (first six) | footprint*average ticks")
+    for workers, (rows, width, height, public_ticks) in COMPACT_PREFIX_ACTUAL.items():
+        footprint = max(width, height) ** 2
+        average_ticks = sum(public_ticks) // len(public_ticks)
+        print(
+            " | ".join(
+                (
+                    number(workers),
+                    number(rows),
+                    number(width),
+                    number(height),
+                    number(footprint),
+                    ", ".join(map(number, public_ticks)),
+                    number(footprint * average_ticks),
+                )
+            )
+        )
+    print()
+
     width, height, public_ticks = PREFIX64_R6_ACTUAL
     footprint = max(width, height) ** 2
     print("High-prefix 64-worker r6")

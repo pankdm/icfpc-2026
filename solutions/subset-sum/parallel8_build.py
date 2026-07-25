@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
-"""Build a correctness-first 64-worker subset-sum machine.
+"""Build a correctness-first parallel subset-sum machine.
 
-Worker j scans masks ((q - 1) << 6) | j for q descending from 2^(n-6) to 1.
-Together the workers cover every non-empty n-bit mask exactly once.  Each worker
-returns its largest matching mask; the collector takes the maximum mask and
-reuses the established belt-based reconstruction pass from ss.man.
+Worker j scans masks ((q - 1) << k) | j for q descending from 2^(n-k) to 1,
+where k = log2(worker count). Together the workers cover every non-empty n-bit
+mask exactly once. Each worker returns its largest matching mask; the collector
+takes the maximum mask and reuses the established belt-based reconstruction pass.
 """
 
 from pathlib import Path
+import math
+import os
 import sys
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -15,13 +17,15 @@ sys.path.insert(0, str(ROOT / "tools"))
 import littleman as lm
 
 
-WORKERS = 64
-PARTITION_BITS = 6
+WORKERS = int(os.environ.get("SS_WORKERS", "64"))
+if WORKERS < 1 or WORKERS > 256 or WORKERS & (WORKERS - 1):
+    raise ValueError("SS_WORKERS must be a power of two between 1 and 256")
+PARTITION_BITS = int(math.log2(WORKERS))
 WORKER_IDS = list(range(WORKERS))
-WORKER_GAP = 60
+WORKER_GAP = 46
 WORKER_X0 = 50
-WORKER_Y = 20
-COLLECTOR_Y = 90
+WORKER_Y = 7
+COLLECTOR_Y = 71
 
 
 class Builder:
@@ -57,7 +61,7 @@ class Builder:
 def build_broadcaster(builder, width, output_columns):
     p = builder.program
     C = builder.cell
-    builder.room(0, 0, width, 7)
+    builder.room(0, 0, width, 5)
     p.input_room(3, -5)
     p.pipe([(4, -2), (4, -1)])
     builder.man(3, 2)
@@ -69,19 +73,25 @@ def build_broadcaster(builder, width, output_columns):
     C(2, 2, ">")
 
     for column, end_y in output_columns:
-        p.pipe([(column, 7), (column, end_y)])
+        p.pipe([(column, 5), (column, end_y)])
 
 
-def build_worker(builder, base_x, worker_id):
+def build_worker(
+    builder,
+    base_x,
+    worker_id,
+    worker_y=WORKER_Y,
+    collector_y=COLLECTOR_Y,
+):
     p = builder.program
     C0 = builder.cell
-    ox, oy = base_x, WORKER_Y
+    ox, oy = base_x, worker_y
 
     def C(x, y, char):
         C0(ox + x, oy + y, char)
 
-    builder.room(ox + 10, oy, 42, 66)
-    builder.room(ox + 2, oy + 40, 7, 5)
+    builder.room(ox + 10, oy, 38, 61)
+    builder.room(ox + 2, oy + 40, 7, 4)
     p.pipe([(ox + 9, oy + 30), (ox + 5, oy + 30), (ox + 5, oy + 39)])
     p.pipe([(ox + 4, oy + 39), (ox + 4, oy + 20), (ox + 9, oy + 20)])
     C(3, 41, ">")
@@ -164,46 +174,47 @@ def build_worker(builder, base_x, worker_id):
     C(15, 31, "W")
     C(15, 32, "{")
     C(15, 33, "M")
-    digits = f"{worker_id:02d}"
+    digits = f"{worker_id:03d}"
     C(15, 34, "`")
     C(15, 35, digits[0])
     C(15, 36, digits[1])
-    C(15, 37, "`")
-    C(15, 38, "W")
-    C(15, 39, "|")
-    C(15, 40, "b")
-    C(15, 41, "r")
-    C(15, 42, "s")
-    C(15, 43, "M")
-    C(15, 44, "<")
-    C(14, 44, "v")
+    C(15, 37, digits[2])
+    C(15, 38, "`")
+    C(15, 39, "W")
+    C(15, 40, "|")
+    C(15, 41, "b")
+    C(15, 42, "r")
+    C(15, 43, "s")
+    C(15, 44, "M")
+    C(15, 45, "<")
     C(14, 45, "v")
     C(14, 46, "v")
+    C(14, 47, "v")
 
-    C(14, 49, "r")
-    C(14, 50, "s")
-    C(14, 51, "X")
-    C(13, 51, "x")
-    C(13, 50, "W")
-    C(13, 49, "-")
-    C(13, 48, "M")
-    C(13, 47, "]")
-    C(13, 46, ">")
-    C(13, 52, "]")
-    C(13, 53, "<")
-    C(12, 53, "^")
-    C(12, 45, ">")
+    C(14, 50, "r")
+    C(14, 51, "s")
+    C(14, 52, "X")
+    C(13, 52, "x")
+    C(13, 51, "W")
+    C(13, 50, "-")
+    C(13, 49, "M")
+    C(13, 48, "]")
+    C(13, 47, ">")
+    C(13, 53, "]")
+    C(13, 54, "<")
+    C(12, 54, "^")
+    C(12, 46, ">")
 
-    C(15, 51, "W")
-    C(16, 51, "X")
-    C(16, 52, ">")
-    C(24, 52, "^")
-    C(16, 50, ">")
-    C(24, 50, "^")
+    C(15, 52, "W")
+    C(16, 52, "X")
+    C(16, 53, ">")
+    C(24, 53, "^")
+    C(16, 51, ">")
+    C(24, 51, "^")
     C(24, 24, "<")
 
-    C(17, 51, ">")
-    C(18, 51, "v")
+    C(17, 52, ">")
+    C(18, 52, "v")
     C(18, 56, ">")
     C(20, 56, "r")
     C(21, 56, "M")
@@ -214,39 +225,40 @@ def build_worker(builder, base_x, worker_id):
     C(26, 56, "`")
     C(27, 56, digits[0])
     C(28, 56, digits[1])
-    C(29, 56, "`")
-    C(30, 56, "W")
-    C(31, 56, "|")
-    C(32, 56, "v")
-    C(32, 59, ">")
+    C(29, 56, digits[2])
+    C(30, 56, "`")
+    C(31, 56, "W")
+    C(32, 56, "|")
+    C(33, 56, "v")
+    C(33, 59, ">")
 
     C(16, 26, "0")
     C(17, 26, ">")
-    C(30, 26, "v")
-    C(30, 59, ">")
+    C(35, 26, "v")
+    C(35, 59, ">")
     C(45, 59, "s")
     C(46, 59, "H")
 
-    candidate_x = ox + 53
+    candidate_x = ox + 49
     p.pipe(
         [
-            (ox + 52, oy + 59),
+            (ox + 48, oy + 59),
             (candidate_x, oy + 59),
-            (candidate_x, COLLECTOR_Y - 1),
+            (candidate_x, collector_y - 1),
         ]
     )
     return candidate_x
 
 
-def build_collector(builder, right, candidate_columns):
+def build_collector(builder, right, candidate_columns, collector_y=COLLECTOR_Y):
     p = builder.program
     C0 = builder.cell
-    ox, oy = 0, COLLECTOR_Y
+    ox, oy = 0, collector_y
 
     def C(x, y, char):
         C0(ox + x, oy + y, char)
 
-    builder.room(10, oy, right - 10, 92)
+    builder.room(10, oy, right - 10, 89)
     builder.room(2, oy + 40, 7, 5)
     p.pipe(
         [(9, oy + 85), (1, oy + 85), (1, oy + 46), (5, oy + 46), (5, oy + 45)]
@@ -420,14 +432,14 @@ def build_collector(builder, right, candidate_columns):
     C(46, 86, "^")
     C(46, 73, "<")
 
-    p.output_room(44, oy + 94)
-    p.pipe([(45, oy + 92), (45, oy + 93)])
+    p.output_room(44, oy + 91)
+    p.pipe([(45, oy + 89), (45, oy + 90)])
 
 
 def build():
     builder = Builder()
     worker_bases = [WORKER_X0 + index * WORKER_GAP for index in range(len(WORKER_IDS))]
-    candidate_columns = [base + 53 for base in worker_bases]
+    candidate_columns = [base + 49 for base in worker_bases]
     collector_right = candidate_columns[-1] + 24
     broadcast_outputs = [(34, COLLECTOR_Y - 1)] + [
         (base + 34, WORKER_Y - 1) for base in worker_bases
@@ -443,7 +455,7 @@ def build():
 
 if __name__ == "__main__":
     program = build()
-    destination = Path(__file__).with_name("parallel64.man")
+    destination = Path(__file__).with_name(f"parallel{WORKERS}.man")
     program.save(str(destination))
     print(program.render())
     print("footprint", program.footprint())

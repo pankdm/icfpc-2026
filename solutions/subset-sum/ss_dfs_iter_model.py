@@ -61,7 +61,7 @@ def solve_iter(values, target):
 
 def main():
     here=os.path.dirname(os.path.abspath(__file__))
-    cases=load_cases(os.path.join(here,"ss_problem.json"))
+    cases=load_cases(os.path.join(here,"..","..","scratchpad","ss_problem.json"))
     allok=True
     for name,vals,tgt,exp in cases:
         chosen,st=solve_iter(vals,tgt)

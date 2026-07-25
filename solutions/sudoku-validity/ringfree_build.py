@@ -346,10 +346,9 @@ def build_folded(path):
     mg_south, o_col = merger_flat(L, 0, MG, Wtot)
     # ---- distributor (full width, top) ----
     distributor(L, 0, DIST_Y, Wtot)
-    # ---- I room -> distributor west wall ----
-    inr = DIST_Y + 2
-    L.input_room(-5, inr - 1)
-    L.pipe([(-2, inr), (-1, inr)])
+    # ---- I room: tucked in the left margin below the distributor (adds no width) ----
+    L.input_room(0, DY_t)                       # cols 0-2, rows DY_t..DY_t+2
+    place_pipe(L, [(1, DY_t - 1), (1, dist_south + 1)], (0, -1))  # up into dist south wall (incoming)
     # ============ PIPES ============
     for c in range(3):
         icol = Sx[c] + 3                        # compute local IN col (north)

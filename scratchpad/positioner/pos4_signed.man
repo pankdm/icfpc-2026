@@ -1,0 +1,8 @@
++-+  +---------------------------------+
+|I|>>|             @rbv                |
++-+  |        v      ]x]      v        |
+     |    v  ]x]  v       v  ]x]  v    |
+     |  v]x]v   v]x]v   v]x]v   v]x]v  |
+     | vxv vxv vxv vxv vxv vxv vxv vxv |
+     | H H H H H H H H H H H H H H H H |
+     +---------------------------------+

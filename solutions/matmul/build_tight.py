@@ -1,17 +1,21 @@
 """Matmul littleman builder — COUNTER-DRIVEN tight-MAC machine (from scratch).  [WIP]
 
-STATUS (handoff): algorithm PROVEN (model_tight.py 202/202).  This builder emits the full
-machine (header+SeedA/B/C+FETCHA/KLOOP/POSTK/OUTLOOP) but does NOT yet load on the oracle.
-Remaining blockers, in order:
-  1) VERTICAL-BACKTICK-LITERAL clash: the oracle scans a '`' vertically until a non-space;
-     any instruction sharing a literal's backtick COLUMN (even rows away, through blanks)
-     errors "expected a digit or a space between backticks".  My multi-cell literals
-     (`500`,`30000`,`1000000`) put backticks on ring-mouth columns (11,12,17,18,23,24,...)
-     which carry r/s ops elsewhere -> clash.  FIX: reserve 2 vertically-clear columns per
-     literal (backticks there), or keep whole backtick columns blank in the man region.
-  2) then: verify tiny 2x2x2 RUNS (register/route bugs likely remain in KLOOP/POSTK/OUTLOOP).
-  3) then: scale ring caps (DA/DB) for the 16^3 case (needs SA cap~273, SB~256).
-  4) then: FOLD SA/SB serpentines (reuse build_opt5 folded_on) + CLUSTER hot mouths for ticks.
+STATUS: PASSES 7/7 on the wasm oracle (stage 'big').  avgTicks 55718 (~= opt5's 49864).
+  box 128164 (56x358) because SA/SB are DEEP straight rings -> score 7.14B (worse than opt5
+  ONLY due to the unfolded box; per-tick speed already ties opt5).
+Two remaining levers to BEAT opt5 (185M local / 230M server), both understood:
+  A) COMPACT-FOLD SA/SB beside/into the CTRL so height stops driving the box.  Deep straight
+     rings (DA=-292, DB=-272) give the 358 height.  A beside-hang serpentine (opt5 hang_ring,
+     no added height; SA cap>=NM+1<=257, SB cap>=MK<=256; GAP col between legs -> no
+     short-circuit; H1 MUST stay shallow -re-read every MAC) -> box ~4300.  folded_on()/pipeC
+     helpers are already ported below.
+  B) TIGHTEN KLOOP: it is a single eastbound row (mouths spread cols 33-46) + a ~16-cell
+     return corridor = ~32 cells/MAC (glide 48% per xray).  Cluster H1/SB/SC mouths adjacent
+     + 2-row rectangle -> ~16 cells/MAC -> avgTicks ~30k.  A+B together: ~4300 x 30k ~= 130M.
+Fixed to get here (all real oracle bugs): seed-phase man-flow connections; literals ->
+  shift-computed constants (build_offset/build_sasent, no backticks); H1 dummy seed; HK reenq
+  in BLOCK; BLOCK->KLOOP glide intercept; SENT-lane west-then-east self-crossings; Mrem drain
+  on row-boundary; H1 shallow (deep H1 stalled 68t/MAC).
 FALLBACK: solutions/matmul/matmul-opt5.man (185M local / 230M server, RANK 2) stays best.
 
 Algorithm validated in model_tight.py.  Key vs opt5:
@@ -58,6 +62,53 @@ class Prog:
     def lit(s,x,y,val,west=False):
         st='`'+(str(val)[::-1] if west else str(val))+'`'
         for i,c in enumerate(st): s.C(x+i,y,c)
+    def get(s,x,y): return s.placed.get((x,y),' ')
+    def pipeC(s,points):
+        cells=[]
+        for i in range(len(points)-1):
+            (x0,y0),(x1,y1)=points[i],points[i+1]
+            dx=(x1>x0)-(x1<x0); dy=(y1>y0)-(y1<y0)
+            for k in range(abs(x1-x0)+abs(y1-y0)): cells.append((x0+dx*k,y0+dy*k,dx,dy))
+        lx,ly=points[-1]; cells.append((lx,ly,cells[-1][2],cells[-1][3]))
+        for idx,(x,y,dx,dy) in enumerate(cells):
+            bend=idx>0 and (cells[idx-1][2],cells[idx-1][3])!=(dx,dy)
+            ch=lm.VEC2ARROW[(dx,dy)] if (idx==0 or idx==len(cells)-1 or bend) else ('-' if dx!=0 else '|')
+            cur=s.get(x,y)
+            if cur!=' ' and cur!=ch: raise SystemExit(f"PIPE COLLISION {(x,y)}: {cur!r} vs {ch!r}")
+            s.C(x,y,ch)
+
+# ---- serpentine fold helpers (from build_opt5, proven) ----
+def _serp_up(cols, ytop, bot):
+    pts=[(cols[0],-1),(cols[0],ytop)]; at_top=True
+    for c in cols[1:]:
+        pts.append((c, ytop if at_top else bot))
+        if at_top: pts.append((c,bot)); at_top=False
+        else:      pts.append((c,ytop)); at_top=True
+    return pts, cols[-1], at_top
+def _serp_down(cols, ytop, bot, start_row, end=-1):
+    if len(cols)==1: return [(cols[0],start_row),(cols[0],end)]
+    pts=[(cols[0],start_row),(cols[0],bot)]; at_bot=True
+    for c in cols[1:]:
+        pts.append((c, bot if at_bot else ytop)); last=(c==cols[-1])
+        if at_bot: pts.append((c, end if last else ytop)); at_bot=False
+        else:      pts.append((c, end if last else bot)); at_bot=True
+    return pts
+def _relay(P, RL, RT):
+    P.p.room(RL,RT,6,4)
+    P.C(RL+1,RT+1,'@'); P.C(RL+2,RT+1,'>'); P.C(RL+3,RT+1,'R'); P.C(RL+4,RT+1,'v')
+    P.C(RL+2,RT+2,'^'); P.C(RL+3,RT+2,'s'); P.C(RL+4,RT+2,'<')
+def folded_on(P, feed_cols, ret_cols, ytop, bot, RT, relay_left=None, feed_in=None, ret_out=None, ret_top=None):
+    RB=RT+3
+    if relay_left is None: relay_left=ret_cols[0]-2
+    if feed_in is None:    feed_in=relay_left+4
+    if ret_out is None:    ret_out=ret_cols[0]
+    if ret_top is None:    ret_top=RB+3
+    _relay(P, relay_left, RT)
+    fpts,fx,ftop=_serp_up(feed_cols, ytop, bot)
+    P.pipeC(fpts + [(fx, RT-2),(feed_in, RT-2),(feed_in, RT-1)])
+    rpts=_serp_down(ret_cols, ret_top, bot, RB+1)
+    if ret_out!=ret_cols[0]: rpts=[(ret_out,RB+1)]+rpts
+    P.pipeC(rpts)
 
 class Cur:
     def __init__(s,P,x,y,d): s.P=P; s.x=x; s.y=y; s.d=d

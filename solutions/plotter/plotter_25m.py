@@ -247,7 +247,7 @@ def _body_segments():
         c.readA('addr'); c.e('M', ('#',1), '+', 'CMD')      # PA: send addr+1
         c.e(('#',15), 'CMD')                                # color 15 send (despined)
         c.readA('err'); c.e('M', '+'); c.writeA('e2')       # e2 = 2*err
-        c.readA('dy'); c.e('M'); c.readA('e2'); c.e('-'); c.e('M', ('#',1), '+', 'M', ('#',1), '+')  # test1=2*(e2-dy)+1
+        c.readA('dy'); c.e('M'); c.readA('e2'); c.e('-'); c.e('M', '+', 'M', ('#',1), '+')  # test1 = 2*(e2-dy)+1 (dbl=M,+ ; +1=M,#1,+)
     c = C(r); pre1(c); pre1_ops = c.ops; r1 = c.ring
     def a1s(c):
         c.readA('dy'); c.e('M'); c.readA('err'); c.e('+'); c.writeA('err')
@@ -258,7 +258,7 @@ def _body_segments():
     assert cs.ring == ck.ring
     r2 = cs.ring
     def midf(c):
-        c.readA('e2'); c.e('M'); c.readA('dx'); c.e('-'); c.e('M', ('#',1), '+', 'M', ('#',1), '+')  # test2
+        c.readA('e2'); c.e('M'); c.readA('dx'); c.e('-'); c.e('M', '+', 'M', ('#',1), '+')  # test2 = 2*(dx-e2)+1
     cm = C(r2); midf(cm); mid_ops = cm.ops; r3 = cm.ring
     def a2s(c):
         c.readA('dx'); c.e('M'); c.readA('err'); c.e('+'); c.writeA('err')

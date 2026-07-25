@@ -67,20 +67,23 @@ m=line(38,[(cSR,'r')]); m.op('M').op('`').op('1').op('5').op('`').op('~').op('b'
 mc=rotloop(40,44)
 mc.at(cFR,'r'); down(mc.x,44,48)
 
-# PHASE C: drain
+# PHASE C: drain.  Branch heads SOUTH into x so both exits go sideways.
 DL=48
-C(1,DL,'>'); C(2,DL,'b'); C(3,DL,'x')
-mpath([(3,DL-1),(3,DL-2),(RCH,DL-2)])
-C(3,DL+1,'>'); md=Man(b,4,DL+1); md.at(cSF,'s'); down(md.x,DL+1,51)
-md=line(51,[(cDR,'r')]); down(md.x,51,53)
-md=line(53,[(cOUT+1,'s')]); down(md.x,53,55)
-md=line(55); md.op('0').at(cDF,'s'); down(md.x,55,57)
-md=line(57,[(cWR,'r')]); down(md.x,57,59)
-md=line(59); md.op('M').op('1').op('+').at(cWF,'s'); down(md.x,59,61)
-md=line(61,[(cSR,'r')]); md.op('M').op('1').op('W').op('}')
-up_right(md.x,61,DL)
-STOP=66
-mpath([(RCH,DL-2),(RCH,STOP-1),(1,STOP-1),(1,STOP)]); C(1,STOP,'>')
+C(1,DL,'>'); C(2,DL,'b'); C(3,DL,'v'); C(3,DL+1,'x')  # BP=fmask ; S ; x
+# x heading S: low bit1 -> CW -> W (drain) ; bit0 -> CCW -> E (stop)
+# DRAIN (W at (2,DL+1)) -> body feeder
+mpath([(2,DL+1),(2,DL+2),(1,DL+2),(1,DL+3)]); DB=DL+3
+C(1,DB,'>'); md=Man(b,2,DB); md.at(cSF,'s'); down(md.x,DB,DB+2)   # park fmask
+md=line(DB+2,[(cDR,'r')]); down(md.x,DB+2,DB+4)                    # A=frontval
+md=line(DB+4,[(cOUT+1,'s')]); down(md.x,DB+4,DB+6)                 # output
+md=line(DB+6); md.op('0').at(cDF,'s'); down(md.x,DB+6,DB+8)        # placeholder
+md=line(DB+8,[(cWR,'r')]); down(md.x,DB+8,DB+10)                   # A=waiting
+md=line(DB+10); md.op('M').op('1').op('+').at(cWF,'s'); down(md.x,DB+10,DB+12)  # waiting++
+md=line(DB+12,[(cSR,'r')]); md.op('M').op('1').op('W').op('}')     # A=fmask>>1
+up_right(md.x,DB+12,DL)                                            # loop to DL feeder
+# STOP (E at (4,DL+1)) -> stop feeder : write F, loop to A
+STOP=DB+16
+mpath([(4,DL+1),(4,DL+2),(RCH,DL+2),(RCH,STOP-1),(1,STOP-1),(1,STOP)]); C(1,STOP,'>')
 msf=Man(b,2,STOP); msf.at(cFF,'s'); up_right(msf.x,STOP,AY)
 
 open('/Users/visenbaev/icfpc26/solutions/tcp/tcp-ring.man','w').write(p.render()+"\n")

@@ -27,8 +27,8 @@
 |            >                                    sv | | |                                |        |
 |                                          v*5M3   < | | | ^s   rs<                       |        |
 |                                          >      sv | | +--------------------------------+        |
-|                v+1M+1M-srsrsrsrsrsrMsrsWrM+Msr   < | |    v    v                                 |
-|      v         <                                   | |    |    |                                 |
+|                 v+1M+M-srsrsrsrsrsrMsrsWrM+Msr   < | |    v    v                                 |
+|      v          <                                  | |    |    |                                 |
 |      >v                                            | |    |    |                                 |
 |      vXrsrsrsrsrsrsrsrsrsrsrsrs               v    | |    |    v                                 |
 |      v                                        v    | |    |  +================================+  |
@@ -36,8 +36,8 @@
 |                      vsWrsrsrsrsrsrsrM+srsrM< v    | |    |  :                                :  |
 |      v               <                        v    | |    |  :                                :  |
 |      v                                        <    | |    |  :                                :  |
-|      >rsrsMrsrs-M1+M1+v                            | |    >->:                                :  |
-|      v                <                            | |       :                                :  |
+|      >rsrsMrsrs-M+M1+v                             | |    >->:                                :  |
+|      v               <                             | |       :                                :  |
 |      >v                                            | |       :                                :  |
 |      vXrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrs     v    | |       :                                :  |
 |      v                                        v    | |       :                                :  |

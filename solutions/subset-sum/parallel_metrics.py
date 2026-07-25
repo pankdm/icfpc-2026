@@ -54,6 +54,14 @@ LARGE_FOLDED_ACTUAL = {
     256: (13, 928, 961, (27956, 27609, 47710, 27515, 31610, 27605), 1830750),
 }
 
+# High-prefix workers with descending first-nonzero aggregation. These are all
+# seven public cases, including the measured n=20 case.
+PREFIX64_R6_ACTUAL = (
+    523,
+    485,
+    (14_765, 14_447, 60_911, 14_359, 18_919, 14_447, 5_046_592),
+)
+
 
 def horizontal_metrics(workers):
     width = WORKER_PITCH * workers + FIXED_WIDTH
@@ -85,6 +93,23 @@ def number(value):
 
 
 def main():
+    width, height, public_ticks = PREFIX64_R6_ACTUAL
+    footprint = max(width, height) ** 2
+    print("High-prefix 64-worker r6")
+    print("width | height | footprint | public ticks | average ticks | footprint*average ticks")
+    print(
+        " | ".join(
+            (
+                number(width),
+                number(height),
+                number(footprint),
+                ", ".join(map(number, public_ticks)),
+                number(sum(public_ticks) // len(public_ticks)),
+                number(footprint * sum(public_ticks) // len(public_ticks)),
+            )
+        )
+    )
+
     print("Horizontal variants")
     print("N | width | height | footprint | lex ticks | worst ticks | worst footprint*ticks")
     for workers in (8, 16, 32, 64, 128, 256):

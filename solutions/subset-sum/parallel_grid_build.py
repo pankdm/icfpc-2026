@@ -57,16 +57,35 @@ def build_row_broadcaster(builder, y, room_right, worker_bases, worker_y, prepro
         C(20, y + 1, str(base.PARTITION_BITS))
         C(21, y + 1, "W")
         C(22, y + 1, "}")
-        C(23, y + 1, "S")
-        C(24, y + 1, "1")
-        C(25, y + 1, "N")
-        C(26, y + 1, "S")
-        C(27, y + 1, ">")
-        C(28, y + 1, "r")
-        C(29, y + 1, "S")
-        C(30, y + 1, "v")
-        C(30, y + 2, "<")
-        C(27, y + 2, "^")
+        if base.PREFIX_MODE:
+            C(23, y + 1, "M")
+            C(24, y + 1, "S")
+            C(25, y + 1, "1")
+            C(26, y + 1, "N")
+            C(27, y + 1, "S")
+            C(28, y + 1, ">")
+            C(29, y + 1, "r")
+            C(30, y + 1, "S")
+            C(31, y + 1, "m")
+            C(32, y + 1, "d")
+            C(32, y + 2, "<")
+            C(28, y + 2, "^")
+            C(33, y + 1, "r")
+            C(34, y + 1, "S")
+            C(35, y + 1, "W")
+            C(36, y + 1, "S")
+            C(37, y + 1, "H")
+        else:
+            C(23, y + 1, "S")
+            C(24, y + 1, "1")
+            C(25, y + 1, "N")
+            C(26, y + 1, "S")
+            C(27, y + 1, ">")
+            C(28, y + 1, "r")
+            C(29, y + 1, "S")
+            C(30, y + 1, "v")
+            C(30, y + 2, "<")
+            C(27, y + 2, "^")
     else:
         C(13, y + 1, "r")
         C(14, y + 1, "S")
@@ -83,13 +102,23 @@ def build_local_collector(builder, y, room_right, candidate_columns):
     C = builder.cell
     builder.room(10, y, room_right - 10, 8)
     builder.man(12, y + 2)
-    C(13, y + 2, "0")
-    C(14, y + 2, "M")
-    for column in candidate_columns:
-        compare_station(builder, column, y + 2)
     end_x = candidate_columns[-1] + 12
-    C(end_x, y + 2, "W")
-    C(end_x + 1, y + 2, "v")
+    if base.PREFIX_MODE:
+        C(13, y + 2, ">")
+        for column in candidate_columns:
+            C(column, y + 2, "r")
+            C(column + 1, y + 2, "X")
+            C(column + 1, y + 3, ">")
+        C(end_x, y + 2, "0")
+        C(end_x + 1, y + 2, "v")
+        C(end_x + 1, y + 3, "v")
+    else:
+        C(13, y + 2, "0")
+        C(14, y + 2, "M")
+        for column in candidate_columns:
+            compare_station(builder, column, y + 2)
+        C(end_x, y + 2, "W")
+        C(end_x + 1, y + 2, "v")
     C(end_x + 1, y + 6, "<")
     C(14, y + 6, "s")
     C(13, y + 6, "H")
@@ -99,7 +128,7 @@ def build_local_collector(builder, y, room_right, candidate_columns):
 def build():
     builder = base.Builder()
     p = builder.program
-    worker_ids = list(range(WORKERS))
+    worker_ids = list(range(WORKERS - 1, -1, -1)) if base.PREFIX_MODE else list(range(WORKERS))
     columns = math.ceil(WORKERS / ROWS)
     worker_bases = [WORKER_X0 + index * base.WORKER_GAP for index in range(columns)]
     last_candidate = worker_bases[-1] + 48
@@ -178,7 +207,8 @@ def build():
 
 if __name__ == "__main__":
     program = build()
-    destination = HERE / f"parallel{WORKERS}-r{ROWS}.man"
+    suffix = "-prefix" if base.PREFIX_MODE else ""
+    destination = HERE / f"parallel{WORKERS}{suffix}-r{ROWS}.man"
     program.save(str(destination))
     print(program.render())
     print("footprint", program.footprint())

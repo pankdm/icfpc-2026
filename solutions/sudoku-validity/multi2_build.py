@@ -73,21 +73,21 @@ def dispatcher_v(L, dx, rows):
 
 # ---------------------------------------------------------------------------
 def merger_v(L, gx, rows, o_pipe_row):
-    """Tall merger room, cols gx..gx+6 (7 wide). Six dup pipes attach the WEST wall
+    """Tall merger room, cols gx..gx+5 (6 wide). Six dup pipes attach the WEST wall
     (col gx) at the man rows. Op-stream identical to multi.man's flat merger:
       R M (R|M)*4 R|  X   -> A==0: 1 s (loop) ;  A>0: 0 s H
     Laid as a down-column of the 16 OR-ops (R is recv_any -> position-free), then X, then
-    the two branches. One outgoing pipe -> O (send nearest resolves to it).
-    Interior cols: dcol=gx+1..gx+5. OR column = OC=gx+4; dup branch runs WEST from X;
-    ok branch runs SOUTH; riser at OC+1. Returns south-wall O attach col."""
-    OC = gx + 4                              # OR op column
-    RIS = gx + 5                             # loop riser
+    the two branches (dup branch bends SOUTH to stay narrow). One outgoing pipe -> O.
+    Interior cols gx+1..gx+4: dup s/H at gx+1, 0 & @ at gx+2, OR column OC=gx+3, riser gx+4.
+    Returns south-wall O attach col."""
+    OC = gx + 3                              # OR op column
+    RIS = gx + 4                             # loop riser
+    DB = gx + 1                              # dup-branch (s,H) column
     top = 0
     bot = max(rows[-1], 21) + 2
-    L.room(gx, top, 7, bot-top+1)
+    L.room(gx, top, 6, bot-top+1)
     ops = ['R', 'M'] + ['R', '|', 'M'] * 4 + ['R', '|']   # 16 ops
-    # entry: @ feeds v at (OC,1); down the OR column
-    L.put(OC-1, 1, '@'); L.put(OC, 1, 'v')
+    L.put(OC-1, 1, '@'); L.put(OC, 1, 'v')   # @ -> E -> v -> S down OR column
     L.put(RIS, 1, '<')                       # riser return -> W to (OC,1)
     y = 2
     for op in ops:
@@ -97,9 +97,8 @@ def merger_v(L, gx, rows, o_pipe_row):
     # ok branch (A==0, straight South): 1 s  then loop back up
     L.put(OC, xrow+1, '1'); L.put(OC, xrow+2, 's')
     L.put(OC, xrow+3, '>'); L.put(RIS, xrow+3, '^')      # east to riser, up to header '<'
-    # dup branch (A>0, CW from South = West): 0 s H
-    L.put(OC-1, xrow, '0'); L.put(OC-2, xrow, 's'); L.put(OC-3, xrow, 'H')
-    # output pipe attaches the SOUTH wall under OC (single outgoing -> both s reach it)
+    # dup branch (A>0, CW from South = West): 0, bend S, s, H
+    L.put(OC-1, xrow, '0'); L.put(DB, xrow, 'v'); L.put(DB, xrow+1, 's'); L.put(DB, xrow+2, 'H')
     return OC                                # O attach column on south wall
 
 
@@ -107,7 +106,7 @@ def merger_v(L, gx, rows, o_pipe_row):
 def build_full2():
     prog = ctrl.build_dispatch()
     L = Layout()
-    W = 16
+    W = 15                                    # 15-wide controller still lays out in 34 rows
     cols = dict(I=2, R=5, F=7, D=10)
     Hroom = place_controller(L, prog, cols, W)
     sw = Hroom - 1                           # controller south wall row (33)
@@ -123,8 +122,9 @@ def build_full2():
     MY = 1
     rows = [MY + 5*k + 1 for k in range(6)]  # man pipe rows: 2,7,12,17,22,27
 
-    DX = 19                                  # gap cols 16,17,18 between controller(0-15) and dispatcher
+    DX = 17                                  # gap cols 15,16 between controller(0-14) and dispatcher
     disp_east = dispatcher_v(L, DX, rows)    # east wall col
+    disp_south = rows[-1] + 3                 # dispatcher south wall row (matches dispatcher_v bot)
 
     MX = disp_east + 3                        # gap of 2 cols (disp_east+1, +2) -> pipe
     for k in range(6):
@@ -135,15 +135,14 @@ def build_full2():
     o_col = merger_v(L, GX, rows, None)
 
     # --- wiring ---
-    # dispatch pipe: controller south wall (D,sw) -> down, east, up to dispatcher WEST wall
+    # dispatch pipe: controller south wall (D,sw) -> east along row sw+1 (clear of relay at
+    # cols<=9) -> up into the dispatcher SOUTH wall from below. Enters at an interior col so
+    # no bend sits adjacent to the controller east wall (avoids the spurious-attach gotcha).
     D = cols['D']
-    disp_in_row = 14
-    # route: (D,sw+1) south to a lane, east under I/relay to col DX-1, up to disp_in_row, into west wall
-    lane = rwall + 5                          # a clear lane row below everything on the left
-    # Route up the MIDDLE of the 3-wide gap (col DX-2), >=2 cols off both walls, so the
-    # bend into the dispatcher does NOT spuriously attach to the controller east wall.
-    midcol = DX - 2                           # 17: 2 off controller wall(15) and 2 off dispatcher wall(19)
-    L.pipe([(D, sw+1), (D, lane), (midcol, lane), (midcol, disp_in_row), (DX-1, disp_in_row)])
+    entry_col = DX + 3                         # a dispatcher interior column
+    # leave the south wall heading SOUTH (so backward == wall), then east, then up into the
+    # dispatcher south wall from below.
+    L.pipe([(D, sw+1), (D, sw+2), (entry_col, sw+2), (entry_col, disp_south+1)])
 
     # bit pipes: dispatcher east wall (disp_east,rk) -> man west wall (MX,rk)
     for rk in rows:

@@ -155,8 +155,9 @@ def emit_checker(L, cx, cy):
     L.put(x(1), y(0), '>')                 # row0 E
     L.put(x(11), y(0), 'v')                # down to DP merge (11,1)
     L.room(cx, cy, 17, 11)            # rows cy..cy+10 ; interior y(0)..y(8) = cy+1..cy+9
-    # seq -> WEST wall; drain -> NORTH wall; output -> SOUTH wall (outside cy+10).
-    return {'seqW': (cx - 1, y(4)), 'drainN': (x(12), cy - 1), 'outS': (x(8), cy + 11)}
+    # seq -> WEST wall; drain -> NORTH or EAST wall; output -> SOUTH wall.
+    return {'seqW': (cx - 1, y(4)), 'drainN': (x(12), cy - 1),
+            'drainE': (x(17), y(2)), 'outS': (x(8), cy + 11)}
 
 
 def build_full():
@@ -241,3 +242,84 @@ if __name__ == '__main__':
         print('FOOT', L.footprint())
         L.save('/Users/visenbaev/icfpc26/solutions/tcp/tcp-sweep-test.man')
         print('saved')
+
+
+def build_full2():
+    """Lever 2: checker relocated WEST (beside the sweeper), reader ops moved into
+    the montree column band via an n-hook, freeing the west block. drain -> checker
+    EAST wall (short), seq wraps to checker WEST, output -> O south."""
+    L = Layout()
+    CB = 21                                        # lane band west end
+    ENTRY = CB + 15                                # 35
+    yr = 2
+    y0 = yr + 1
+    LEAFROW = y0 + 12                              # 15
+    RWX = 17                                       # reader room west wall
+    # ---- READER ----  (loop at row yr; n-hook at rows 0-1; return riser col 18)
+    # n-hook: @ r(n) then U-turn down to the loop entry (18,yr)
+    L.put(19, 0, '@'); L.put(20, 0, 'r')           # discard n
+    L.put(21, 0, 'v'); L.put(21, 1, '<')           # drop, west
+    L.put(18, 1, 'v')                              # (glide 20->18 row1) turn S
+    L.put(18, yr, '>')                             # loop entry (riser lands from S)
+    L.put(19, yr, 'r')                             # seq -> A
+    L.put(20, yr, 'M')                             # B = seq
+    L.put(21, yr, 's')                             # forward seq
+    L.put(ENTRY, yr, 'v')                          # glide E to ENTRY, into tree
+    leaves = emit_montree(L, ENTRY, y0, lambda *a: None)
+    for s in range(16):
+        c = leaves[s]
+        L.put(c, LEAFROW, 'r'); L.put(c, LEAFROW + 1, 's'); L.put(c, LEAFROW + 2, '<')
+    L.put(18, LEAFROW + 2, '^')                    # return riser col18 up to loop entry
+    RWALL = LEAFROW + 3
+    L.room(RWX, -1, (ENTRY + 2) - RWX + 1, RWALL - (-1) + 1)   # reader cols17..37, rows -1..18
+    L.input_room(19, -6); L.pipe([(20, -3), (20, -2)])        # input -> reader top col20
+
+    # ---- LANES ----
+    TW = RWALL + 4
+    for s in range(16):
+        c = leaves[s]
+        L.pipe([(c, RWALL + 1), (c, TW - 1)])
+    # ---- SWEEPER (mirror: lane i at ENTRY-i) ----
+    R0, R1, R2, R3, Rw = TW + 1, TW + 2, TW + 3, TW + 4, TW + 5
+    BW = TW + 6
+    for i in range(16):
+        c = CB + 15 - i
+        if i % 2 == 0:
+            L.put(c, R0, 'v'); L.put(c, R1, 'r'); L.put(c, R2, 's')
+            if i != 15: L.put(c, R3, '<')
+        else:
+            L.put(c, R3, '^'); L.put(c, R2, 'r'); L.put(c, R1, 's')
+            if i != 15: L.put(c, R0, '<')
+    L.put(CB, R0, '<')
+    wc = CB - 1; ec = CB + 16
+    L.put(wc, R0, 'v'); L.put(wc, Rw, '>')
+    L.put(ec, Rw, '^'); L.put(ec, R0, '<')
+    L.put(wc + 1, Rw, '@')
+    SWX = CB - 2                                    # sweeper room west wall (col 18)
+    L.room(SWX, TW, (CB + 17) - SWX + 1, BW - TW + 1)
+    sc = SWX                                        # drain leaves sweeper WEST wall
+
+    # ---- CHECKER ---- (west of the sweeper; drain attaches its EAST wall)
+    cx, cy = 0, TW                                 # top-left; rows align with sweeper
+    hints = emit_checker(L, cx, cy)
+
+    # ---- PIPES ----
+    # seq: reader s(seq)@(21,yr). Source (16,yr) backward (17,yr)=reader west wall.
+    #   wrap W then down to checker WEST wall.
+    seqW = hints['seqW']                           # (-1, cy+5)
+    L.pipe([(RWX - 1, yr), (-2, yr), (-2, seqW[1]), (seqW[0], seqW[1])])
+    # drain: sweeper west wall -> checker EAST wall (short).
+    drE = hints['drainE']                          # (17, cy+3) end ; forward (16,..)=checker east
+    L.pipe([(SWX - 1, drE[1]), (drE[0], drE[1])])
+    # output: checker south -> O
+    outS = hints['outS']
+    L.output_room(outS[0] - 1, outS[1] + 2)
+    L.pipe([(outS[0], outS[1]), (outS[0], outS[1] + 1)])
+    return L
+
+
+if __name__ == '__main__' and '--full2' in sys.argv:
+    L = build_full2()
+    print('FOOT', L.footprint())
+    L.save('/Users/visenbaev/icfpc26/solutions/tcp/tcp-sweep2.man')
+    print('saved tcp-sweep2.man')

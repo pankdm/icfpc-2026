@@ -11,6 +11,7 @@ import sys
 HERE = os.path.dirname(__file__)
 sys.path.insert(0, os.path.join(HERE, "..", "..", "tools"))
 import littleman as lm
+import flowgrid
 
 
 # Scalar addresses fit in one digit, allowing store() to preserve its payload in B.
@@ -21,37 +22,7 @@ CELL0 = 32
 RAM_N = 288
 
 
-def cseq(n):
-    """Load a small non-negative integer without backtick literals."""
-    assert 0 <= n < 2048
-    if n < 10:
-        return [str(n)]
-    bits = bin(n)[2:]
-    out = [bits[0]]
-    for bit in bits[1:]:
-        out += ["M", "+"]
-        if bit == "1":
-            out += ["M", "1", "+"]
-    return out
-
-
-class Flow:
-    def __init__(self):
-        self.blocks = {}
-        self.cur = None
-
-    def at(self, label):
-        assert label not in self.blocks
-        self.cur = []
-        self.blocks[label] = self.cur
-        return self
-
-    def e(self, *xs):
-        self.cur.extend(xs)
-        return self
-
-    def const(self, n):
-        return self.e(*cseq(n))
+class Flow(flowgrid.Flow):
 
     def load(self, addr):
         # RAM READ protocol [0,addr], then reply. B is preserved.
@@ -90,12 +61,6 @@ class Flow:
         if dst is not None:
             self.store(dst)
         return self
-
-    def go(self, label):
-        return self.e(("go", label))
-
-    def br(self, pos, zero, neg):
-        return self.e(("br", pos, zero, neg))
 
     def eq(self, addr, value, yes, no):
         self.subc(addr, value).br(no, yes, no)
@@ -324,90 +289,20 @@ CTRL_CODE = 300
 
 
 def lay_controller(p, flow, x0=0, y0=0):
-    """Crossing-safe CFG layout.
-
-    Code lives at CODE. Each label owns a vertical target lane on the left. Every
-    edge descends on a unique source highway, crosses on a unique row below all
-    code, then rises on the target lane. Thus blank crossings contain no turn glyph.
-    """
-    CODE = x0 + CTRL_CODE
-    cols = {"ri": CODE + 10, "sp": CODE + 20, "rp": CODE + 30,
-            "sc": CODE + 50, "rr": CODE + 74, "sd": CODE + 80, "ss": CODE + 140}
-    glyph = {"ri": "r", "rp": "r", "rr": "r", "sp": "s", "sc": "s", "sd": "s", "ss": "s"}
-    heads, pending = {}, []
-    y = y0 + 3
-
-    def put(x, yy, ch):
-        cur = p.get(x, yy)
-        assert cur in (" ", ch), (x, yy, cur, ch)
-        p.put(x, yy, ch)
-
-    for bi, (label, toks) in enumerate(flow.blocks.items()):
-        heads[label] = y
-        put(CODE, y, "@" if bi == 0 else ">")
-        x = CODE + 1
-        for tok in toks:
-            if isinstance(tok, tuple):
-                if tok[0] == "go":
-                    pending.append(("go", (x, y), tok[1:]))
-                    break
-                if tok[0] == "br":
-                    put(x, y, "v"); put(x, y + 1, "X")
-                    pending.append(("br", (x, y + 1), tok[1:]))
-                    y += 1
-                    break
-            elif tok in cols:
-                c = cols[tok]
-                if x > c:
-                    put(x, y, "v"); put(x, y + 1, "<"); put(CODE, y + 1, "v")
-                    y += 2; put(CODE, y, ">"); x = CODE + 1
-                put(c, y, glyph[tok]); x = c + 1
-                put(x, y, "v"); put(x, y + 1, "<"); put(CODE, y + 1, "v")
-                y += 2; put(CODE, y, ">"); x = CODE + 1
-            else:
-                put(x, y, tok); x += 1
-        # Leave two rows exclusively for incoming control-flow merges.
-        y += 6
-
-    target_col = {lab: x0 + 2 + i for i, lab in enumerate(flow.blocks)}
-    right_hw = CODE + 150
-    left_hw = CODE - 2
-    routes = []
-    for kind, (x, sy), tgts in pending:
-        if kind == "go":
-            edges = [((x, sy), "E", tgts[0])]
-        else:
-            pos, zero, neg = tgts
-            edges = [((x - 1, sy), "W", pos),
-                     ((x, sy + 1), "S", zero),
-                     ((x + 1, sy), "E", neg)]
-        for (sx, yy), sd, target in edges:
-            if sd == "W":
-                hw = left_hw; left_hw -= 1
-                put(sx, yy, "<")
-            elif sd == "E":
-                hw = right_hw; right_hw += 1
-                put(sx, yy, ">")
-            else:
-                hw = right_hw; right_hw += 1
-                put(sx, yy, "v")
-                yy += 1
-                put(sx, yy, ">")
-            put(hw, yy, "v")
-            routes.append((hw, target))
-
-    channel_y = y + 3
-    for hw, target in routes:
-        tc = target_col[target]
-        put(hw, channel_y, "<")
-        put(tc, channel_y, "^")
-        put(tc, heads[target], ">")
-        channel_y += 1
-    width = right_hw - x0 + 3
-    height = channel_y - y0 + 2
-    p.room(x0, y0, width, height)
-    return (CODE + 10, y0 + height), (CODE + 74, y0 + height), (CODE + 50, y0 + height), \
-           (CODE + 80, y0 + height), (CODE + 140, y0 + height)
+    spec = {
+        "ri": (10, "r"),
+        "sp": (20, "s"),
+        "rp": (30, "r"),
+        "sc": (50, "s"),
+        "rr": (74, "r"),
+        "sd": (80, "s"),
+        "ss": (140, "s"),
+    }
+    layout = flowgrid.lay_cfg_controller(
+        p, flow, spec, code_x=CTRL_CODE, x0=x0, y0=y0
+    )
+    ports = layout["ports"]
+    return ports["ri"], ports["rr"], ports["sc"], ports["sd"], ports["ss"]
 
 
 def build():

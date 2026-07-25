@@ -122,7 +122,7 @@ def build_full2():
     MY = 1
     rows = [MY + 5*k + 1 for k in range(6)]  # man pipe rows: 2,7,12,17,22,27
 
-    DX = 17                                  # gap cols 15,16 between controller(0-14) and dispatcher
+    DX = 16                                  # gap col 15 (dispatch pipe routes via the south, not this gap)
     disp_east = dispatcher_v(L, DX, rows)    # east wall col
     disp_south = rows[-1] + 3                 # dispatcher south wall row (matches dispatcher_v bot)
 

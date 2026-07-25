@@ -124,6 +124,128 @@ def lay_controller2(prog, cols, W=15, XR=12):
     return dict(cells=cells, maxrow=maxrow, W=W)
 
 
+def lay_controller3(prog, cols, W=14):
+    """DOUBLE-serpentine controller (kills the long loop-back riser). The op-stream is
+    split at the first sD: ops before it go DOWN the LEFT columns [1..6] (all sS land
+    inline there, F=7 nearest), ops from the first sD onward go UP the RIGHT columns
+    [7..12] (sD col 10 inline; sS glides to <=8). The two passes share the same rows, so
+    the man returns to the top via the up-pass itself + a short top hop -- no 20-cell
+    vertical riser. Column-disciplined ops: rIN (col<=3, start), sS (col<=8 => F), sD
+    (col 10 => D). Op sequence byte-identical."""
+    F = cols['F']; D = cols['D']; I = cols['I']
+    SMAX, IMAX = 8, 3
+    DXL, DXR = 1, 6                            # down-pass turn columns (left)
+    UXL, UXR = 7, 12                           # up-pass turn columns (right)
+    assert UXL <= D <= UXR
+    SPLIT = next(i for i, op in enumerate(prog) if (op if isinstance(op, str) else op[0]) == 'sD')
+
+    def mkput(cells):
+        def put(x, y, g):
+            if g == ' ':
+                cells.setdefault((x, y), ' '); return
+            if (x, y) in cells and cells[(x, y)] not in (' ', g):
+                raise SystemExit(f'ctrl3 collision {(x,y)} {cells[(x,y)]} vs {g}')
+            cells[(x, y)] = g
+        return put
+
+    def run(cells, ops, xl, xr, dyw, sx, sy, sd):
+        """Place a serpentine of ops in cols [xl..xr]; dyw=+1 rows increase (down), dyw=-1
+        rows decrease (man walks upward). Unified disciplined placement: rIN->col<=IMAX,
+        sD->col D, sS->col<=SMAX, else inline. Returns end state {x,y,d}."""
+        put = mkput(cells)
+        turn = 'v' if dyw > 0 else '^'
+        st = {'x': sx, 'y': sy, 'd': sd}
+        def adv():
+            st['x'] += 1 if st['d'] == 'E' else -1
+        def wrap():
+            x, y, d = st['x'], st['y'], st['d']
+            if d == 'E':
+                while x < xr: put(x, y, ' '); x += 1
+                put(xr, y, turn); y += dyw; put(xr, y, '<'); x = xr-1; d = 'W'
+            else:
+                while x > xl: put(x, y, ' '); x -= 1
+                put(xl, y, turn); y += dyw; put(xl, y, '>'); x = xl+1; d = 'E'
+            st['x'], st['y'], st['d'] = x, y, d
+        def can_place():
+            return (st['d'] == 'E' and st['x'] <= xr-1) or (st['d'] == 'W' and st['x'] >= xl+1)
+        def route_to(T):
+            g = 0
+            while st['x'] != T:
+                g += 1; assert g < 10000, 'route stuck'
+                x, d = st['x'], st['d']
+                if d == 'E':
+                    if x < T and T <= xr-1: put(x, st['y'], ' '); st['x'] += 1
+                    else: wrap()
+                else:
+                    if x > T and T >= xl+1: put(x, st['y'], ' '); st['x'] -= 1
+                    else: wrap()
+        def place_at(T, g):
+            route_to(T)
+            if not can_place():
+                wrap(); route_to(T)
+            put(st['x'], st['y'], g); adv()
+        for op in ops:
+            k = op if isinstance(op, str) else op[0]
+            g = mb.glyph_of(op)
+            if k == 'rIN':
+                if not can_place(): wrap()
+                if not (xl+1 <= st['x'] <= IMAX):
+                    place_at(min(IMAX, xr-1), g)
+                else:
+                    put(st['x'], st['y'], g); adv()
+            elif k == 'sD':
+                place_at(D, g)
+            elif k == 'sS':
+                if not can_place(): wrap()
+                if st['x'] > SMAX:
+                    place_at(SMAX, g)
+                else:
+                    put(st['x'], st['y'], g); adv()
+            else:
+                if not can_place(): wrap()
+                put(st['x'], st['y'], g); adv()
+        return st
+
+    cells = {}
+    put = mkput(cells)
+    put(DXL, 1, '@'); put(DXL+1, 1, 'v'); put(DXL+1, 2, '>')
+    # down pass (ops before the first sD)
+    dend = run(cells, prog[:SPLIT], DXL, DXR, +1, DXL+2, 2, 'E')
+    Ndmax = max(y for (_, y) in cells)
+    # measure the up pass height by trial-placing it as a DOWN serpentine in a scratch
+    scratch = {}
+    run(scratch, prog[SPLIT:], UXL, UXR, +1, UXL+1, 2, 'E')
+    Ru = max(y for (_, y) in scratch) - 2 + 1
+    botrow = max(Ndmax, 1 + Ru) + 1
+    # transition: down-pass end -> south to botrow -> east to UXL -> the man will head E
+    dx, dy = dend['x'], dend['y']
+    put(dx, dy, 'v')
+    for yy in range(dy+1, botrow): put(dx, yy, ' ')
+    put(dx, botrow, '>')
+    for xx in range(dx+1, UXL): put(xx, botrow, ' ')
+    # up pass starts at (UXL, botrow) heading E, walking upward (dyw=-1)
+    uend = run(cells, prog[SPLIT:], UXL, UXR, -1, UXL, botrow, 'E')
+    # loop-back: from up-pass end hop up to row 1 then WEST along the top to the entry
+    ex, ey = uend['x'], uend['y']
+    put(ex, ey, '^')
+    for yy in range(ey-1, 1, -1): put(ex, yy, ' ')
+    put(ex, 1, '<')
+    for xx in range(ex-1, DXL+1, -1): put(xx, 1, ' ')
+    maxrow = max(y for (_, y) in cells)
+    return dict(cells=cells, maxrow=maxrow, W=W)
+
+
+def place_controller3(L, prog, cols, W):
+    lay = lay_controller3(prog, cols, W)
+    Hroom = lay['maxrow'] + 2
+    L.room(0, 0, W, Hroom)
+    for (x, y), g in lay['cells'].items():
+        if g == ' ':
+            continue
+        L.put(x, y, g)
+    return Hroom
+
+
 def place_controller2(L, prog, cols, W):
     lay = lay_controller2(prog, cols, W)
     Hroom = lay['maxrow'] + 2
@@ -215,7 +337,7 @@ def build_full2():
     L = Layout()
     W = 15                                    # confined-send controller (cols 0-14)
     cols = dict(I=2, R=5, F=7, D=10)
-    Hroom = place_controller2(L, prog, cols, W)
+    Hroom = place_controller3(L, prog, cols, W)
     sw = Hroom - 1                           # controller south wall row
 
     # --- I-room + relay: identical to multi.man (below the controller) ---

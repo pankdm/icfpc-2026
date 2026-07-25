@@ -122,8 +122,9 @@ def build():
                 pending.append(('goto', (xx, yy), t[1]))
                 break
             elif isinstance(t, tuple) and t[0] == 'br2':
-                # v + d at (xx,yy),(xx,yy+1); d: BP>0->CW(W), else straight(S). 2 exits.
-                L.put(xx, yy, 'v'); L.put(xx, yy + 1, 'd')
+                # v + a at (xx,yy),(xx,yy+1); a: BP>0->CCW(E), else straight(S). 2 exits
+                # both have room (east/south). t[1]=BP>0 target (E), t[2]=else target (S).
+                L.put(xx, yy, 'v'); L.put(xx, yy + 1, 'a')
                 pending.append(('br2', (xx, yy + 1), (t[1], t[2])))
                 break
             elif t == 'H':
@@ -144,17 +145,18 @@ def build():
     # wire pending gotos/branches, each on its own highway column near the east
     hw = 66
     def goto_route(fx, fy, ty, col):
-        # from (fx,fy): down 1, east to highway col, vertical to just ABOVE the head,
-        # west to col1, then SOUTH onto the head '>' (never traverse the op row).
-        rte(L, [(fx, fy), (fx, fy + 1), (col, fy + 1), (col, ty - 1), (1, ty - 1), (1, ty)])
+        # jog E on the SOURCE row to a unique highway col, straight vertical to just
+        # above the head, W to col1 (merges with other edges to same target: all '<'),
+        # then S onto the head '>'. Source E-run on fy; target W-run on ty-1.
+        rte(L, [(fx, fy), (col, fy), (col, ty - 1), (1, ty - 1), (1, ty)])
     for kind, frm, tgt in pending:
         if kind == 'goto':
             fx, fy = frm
             goto_route(fx, fy, head[tgt], hw); hw -= 2
-        else:  # br2: d at (xX,yX) heading S: BP>0->CW(W)=cw, else straight(S)=straight
+        else:  # br2: a at (xX,yX) heading S: BP>0->CCW(E)=cw, else straight(S)=straight
             cw, straight = tgt
             xX, yX = frm
-            goto_route(xX - 1, yX, head[cw], hw); hw -= 2        # CW -> W exit
+            goto_route(xX + 1, yX, head[cw], hw); hw -= 2        # CCW -> E exit (BP>0)
             goto_route(xX, yX + 1, head[straight], hw); hw -= 2  # straight -> S exit
     return L
 

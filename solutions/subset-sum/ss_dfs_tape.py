@@ -56,14 +56,39 @@ Three cooperating men (separates ROAMING from STATE — the key to fitting 3 reg
 
 VERIFIED SO FAR (oracle-checked, committed):
   * Stage 1/2 tape: load + O(1) walk-read + revisit (this file; ss_proto/ss_revisit).
-  * KEEPER descend decision ALU (the 3-register crux): scratchpad/ss_keeper.py
-    passes all 5 cases (solution / can't-reach prune / include / exclude / v==rem
-    boundary) using only A,B (remaining persists in B across the v_d read; branch
-    via `X` sign-turn). This retires the register-pressure unknown prior agents hit.
-STILL TO BUILD (integration of known patterns, no unsolved crux):
-  backtrack keeper (mirror of descend + decstack pop), stack-man wiring, head
-  cursor + head<->keeper pipe protocol, dynamic counter-loader (+ sentinel &
-  target routing), output reverse-emit (count then selected v_i ascending).
+  * KEEPER descend decision ALU (3-register crux): scratchpad/ss_keeper.py, 5/5 cases.
+  * HEAD<->KEEPER round-trip + addressing: scratchpad/ss_rt, ss_rt2. A roaming head
+    CANNOT `r` a fixed remote pipe (per-column value pipes are always nearest) UNLESS
+    disambiguated by a TALL room: value pipes on the TOP border, keeper pipe on the
+    BOTTOM border, separated by >n rows. Head has ONE outgoing (H2K) so `s` is
+    unambiguous; reads pick value(top)/cmd(bottom) by row.
+  * KEEPER LOOP: scratchpad/ss_kloop.py, [300,120,180,50]->[180,0,9], ~20 ticks/value.
+  * INTEGRATED DESCEND: scratchpad/ss_desc2.py. Head walks column "dips"
+    (r v top / s->H2K / down / r cmd bottom / X: cmd<0 continue-East up-channel->next
+    dip, cmd>0 solution), keeper loops deciding & driving via K2H. Verified include
+    ([120,180,50]->8) AND exclude ([400,300,50]->8, excl 400 then incl 300->rem0).
+  PIPE GOTCHAS (cost real debugging): (a) two opposite-flow pipes in ADJACENT columns
+  break the parser -> separate them by >=1 blank col; (b) a pipe START cell must be
+  OUTSIDE the source room wall (not ON it); (c) H2K/K2H must attach at head-bottom
+  columns that are NOT dip channels (dip c uses cols c..c+3); (d) a looping man's last
+  op must leave a row to TURN before the far wall (loopback W then `>` then up-channel).
+STILL TO BUILD (integration of proven primitives; no unsolved crux):
+  1. LEAF/sentinel: loader writes a sentinel after v_{n-1}; head reading it (or reaching
+     past the last dip) triggers a keeper solution-check-then-backtrack. (Descend today
+     crashes the head into the right wall past the last dip -> needs this.)
+  2. BACKTRACK: head reverses (heading W = backtrack mode); dips become BI-DIRECTIONAL
+     (2-in/2-out): entered-from-right pops decstack via keeper; include->flip exclude,
+     remaining+=v, go right(descend from d+1); exclude->keep going left. Biggest new
+     geometry piece.
+  3. STACK-MAN decstack coprocessor (keeper pushes bit on descend via K2S, pops on
+     backtrack via K2S/S2K). Bit-stack push/pop pattern: solutions/brackets/stack2.man.
+  4. can't-reach prune (todoTotal maintained on the HEAD, sent to keeper) — needed to
+     keep case-6 nodes at 224k (=> tick budget). Without it case-6 ~2x nodes.
+  5. LOADER: dynamic n (BP counter), sentinel, and TARGET routing to keeper. Target
+     is currently a `literal` in ss_desc2; real target must be read from input. Routing
+     loader->keeper must go AROUND the tall head room (a pipe can't cross a room).
+  6. OUTPUT: count (popcount of includes) then selected v_i in ASCENDING index order
+     (decstack pops give descending -> reverse; cf. ss.man Pass RE).
 
 WHY 3 REGISTERS SUFFICE (the crux prior agents hit):
   A man has A,B,BP. Every read writes A; BP cannot be shifted-into or read back

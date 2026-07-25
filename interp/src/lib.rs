@@ -9,6 +9,8 @@ pub mod value;
 use value::*;
 use std::collections::{HashMap, HashSet};
 
+const MAX_LIVE_RUNNERS: usize = 65_536;
+
 pub type Pt = (i32, i32); // (x, y) = (col, row)
 
 #[inline]
@@ -960,20 +962,53 @@ impl World {
                 ']' => self.runners[i].bp = ashr1(self.runners[i].bp),
                 '0'..='9' => self.runners[i].a = (ch as i64) - ('0' as i64),
                 'Y' => {
-                    let ccw = rot_ccw(dir);
-                    let spawn_pos = (x + ccw.0, y + ccw.1);
-                    let (a, b, bp, room) = (self.runners[i].a, self.runners[i].b, self.runners[i].bp, self.runners[i].room);
-                    let clone = Runner {
-                        id: self.next_id, pos: spawn_pos, dir: ccw,
+                    let live_count = self.runners.iter().filter(|runner| !runner.halted).count();
+                    if live_count >= MAX_LIVE_RUNNERS {
+                        self.fatal("man-limit", (x, y));
+                        return;
+                    }
+
+                    let right_dir = rot_cw(dir);
+                    let left_dir = rot_ccw(dir);
+                    let right_pos = (x + right_dir.0, y + right_dir.1);
+                    let left_pos = (x + left_dir.0, y + left_dir.1);
+                    let (id, a, b, bp, room) = {
+                        let splitter = &self.runners[i];
+                        (splitter.id, splitter.a, splitter.b, splitter.bp, splitter.room)
+                    };
+
+                    self.runners[i] = Runner {
+                        id, pos: right_pos, dir: right_dir,
                         a, b, bp, halted: false, blocked: false, spawned_this_tick: true, room,
                     };
+                    let left_index = self.runners.len();
+                    self.runners.push(Runner {
+                        id: self.next_id, pos: left_pos, dir: left_dir,
+                        a, b, bp, halted: false, blocked: false, spawned_this_tick: true, room,
+                    });
                     self.next_id += 1;
-                    self.runners[i].dir = rot_cw(dir);
-                    self.runners.push(clone);
-                    // A clone placed on a wall faults immediately, aborting the rest of the
-                    // OpDispatch pass (later men do not execute this tick).
-                    if self.is_wall(spawn_pos.0, spawn_pos.1) {
-                        self.fatal("wall", spawn_pos);
+
+                    for birth_pos in [right_pos, left_pos] {
+                        if self.is_wall(birth_pos.0, birth_pos.1) {
+                            self.fatal("wall", birth_pos);
+                            return;
+                        }
+                    }
+
+                    for birth_index in [i, left_index] {
+                        let birth_pos = self.runners[birth_index].pos;
+                        let occupants: Vec<usize> = self.runners.iter().enumerate()
+                            .filter(|(_, runner)| !runner.halted && runner.pos == birth_pos)
+                            .map(|(index, _)| index)
+                            .collect();
+                        if occupants.len() > 1 {
+                            for occupant in occupants {
+                                self.runners[occupant].halted = true;
+                            }
+                        }
+                    }
+
+                    if self.end != EndReason::Running {
                         return;
                     }
                 }
@@ -1101,34 +1136,64 @@ impl World {
         let movers: Vec<usize> = (0..self.runners.len())
             .filter(|&i| !self.runners[i].halted && !self.runners[i].spawned_this_tick && !self.runners[i].blocked)
             .collect();
+        let mover_set: HashSet<usize> = movers.iter().copied().collect();
 
-        let mut targets: HashMap<Pt, u32> = HashMap::new();
+        let mut targets: HashMap<Pt, Vec<usize>> = HashMap::new();
         for &i in &movers {
             let r = &self.runners[i];
             let t = (r.pos.0 + r.dir.0, r.pos.1 + r.dir.1);
-            *targets.entry(t).or_insert(0) += 1;
+            targets.entry(t).or_default().push(i);
         }
-        // stationary occupants: halted-this-tick, spawned-this-tick, or blocked (parked)
-        let stationary: HashSet<Pt> = self.runners.iter()
-            .filter(|r| r.halted || r.spawned_this_tick || r.blocked)
-            .map(|r| r.pos)
-            .collect();
-        let mover_target: HashMap<Pt, Pt> = movers.iter()
-            .map(|&i| { let r = &self.runners[i]; (r.pos, (r.pos.0 + r.dir.0, r.pos.1 + r.dir.1)) })
-            .collect();
 
-        let mut to_halt: Vec<usize> = vec![];
-        let mut to_move: Vec<(usize, Pt)> = vec![];
+        let mut colliding: HashSet<usize> = HashSet::new();
+        for indices in targets.values() {
+            if indices.len() > 1 {
+                colliding.extend(indices.iter().copied());
+            }
+        }
+
+        let mut stationary: HashMap<Pt, Vec<usize>> = HashMap::new();
+        for (index, runner) in self.runners.iter().enumerate() {
+            if !runner.halted && !mover_set.contains(&index) {
+                stationary.entry(runner.pos).or_default().push(index);
+            }
+        }
         for &i in &movers {
             let r = &self.runners[i];
             let t = (r.pos.0 + r.dir.0, r.pos.1 + r.dir.1);
-            let conflict = targets.get(&t).copied().unwrap_or(0) > 1
-                || stationary.contains(&t)
-                || matches!(mover_target.get(&t), Some(&tt) if tt == r.pos);
-            if conflict { to_halt.push(i); } else { to_move.push((i, t)); }
+            if let Some(occupants) = stationary.get(&t) {
+                colliding.insert(i);
+                colliding.extend(occupants.iter().copied());
+            }
         }
-        for i in to_halt { self.runners[i].halted = true; }
-        for (i, t) in to_move { self.runners[i].pos = t; }
+
+        let origins: HashMap<Pt, usize> = movers.iter()
+            .map(|&i| (self.runners[i].pos, i))
+            .collect();
+        for &i in &movers {
+            let runner = &self.runners[i];
+            let target = (runner.pos.0 + runner.dir.0, runner.pos.1 + runner.dir.1);
+            if let Some(&other) = origins.get(&target) {
+                let other_runner = &self.runners[other];
+                let other_target = (
+                    other_runner.pos.0 + other_runner.dir.0,
+                    other_runner.pos.1 + other_runner.dir.1,
+                );
+                if other_target == runner.pos {
+                    colliding.insert(i);
+                    colliding.insert(other);
+                }
+            }
+        }
+
+        for &i in &movers {
+            if colliding.contains(&i) { continue; }
+            let runner = &mut self.runners[i];
+            runner.pos = (runner.pos.0 + runner.dir.0, runner.pos.1 + runner.dir.1);
+        }
+        for index in colliding {
+            self.runners[index].halted = true;
+        }
     }
 
     pub fn snapshot_runners(&self) -> Vec<&Runner> {

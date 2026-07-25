@@ -31,8 +31,11 @@ def _asr(a, b):
     if b > 63: return -1 if a < 0 else 0
     return a >> b
 
-# 7-slot belt, ordered addr-first (addr accessed every pixel for PA/updates)
-LAYOUT7 = ['addr', 'err', 'e2', 'dy', 'dx', 'sx', 'sy32']
+# 7-slot belt. Order chosen to MINIMISE laid body ops (belt-rotation search over
+# all permutations that keep both arms belt-synced + corrective order-preserving):
+# 214 laid ops vs 252 for the naive addr-first order -> shorter arms, shorter body,
+# shorter loop back-edge (the dominant glide cost).
+LAYOUT7 = ['addr', 'e2', 'dy', 'dx', 'err', 'sx', 'sy32']
 
 # ============================================================================
 # Op-stream assembler for the branchLESS parts (INIT, SETUP): mirrors planC C.
@@ -274,7 +277,7 @@ def _body_segments():
                 a2s=c2s.ops, a2k=c2k.ops, corr=corr_ops)
 
 
-def build(band_right=48):
+def build(band_right=31):                  # band_right=31 -> near-square 83x83 box optimum
     PC.set_geometry(band_right)
     BL, BR = PC.BL, PC.BR
     p = lm.Program()
@@ -285,9 +288,9 @@ def build(band_right=48):
 
     # ---- INIT + SETUP (branchless op-streams via the proven Turtle) ----
     t.emit(_toks(INIT))
-    t.force_newline()
+    setup_start = t.force_newline()        # ROUND_RAIL returns here (re-read inputs each round)
     t.emit(_toks(SETUP))
-    body_start = t.force_newline()
+    body_start = t.force_newline()         # BODY_RAIL returns here (inner pixel loop)
 
     seg = _body_segments()
 
@@ -305,38 +308,41 @@ def build(band_right=48):
         return x, y, d
 
     def branch(pre_toks, step_ops, skip_ops):
-        """Emit linear prefix (with cmd) then an X-diamond. Skip descends the east
-        lane (col BR); step uses the band + junction rail; both merge on the rail
-        below everything. Only one arm runs, and both leave the belt in the same
-        order, so the merge is state-consistent. Leaves the Turtle on a fresh row."""
+        """Emit linear prefix (with cmd) then an X-diamond. BOTH arms serpentine
+        within the band [BL..BR-2] (so a narrow band still fits long arms). SKIP
+        (east) serpentines from just below the X and descends the east lane (col
+        BR=ELANE); STEP (west) descends the junction rail (BL-1) to below the skip
+        arm, serpentines, then returns to the rail. Both merge on the rail below
+        everything. Only one arm runs; both leave the belt in the same order."""
         rail = BL - 1
         t.emit(pre_toks)                       # test value in A
         yb = t.force_newline()                 # '>' at (rail,yb); man east at BL
         put(p, BL, yb, "v")                    # man (east) -> south
         put(p, BL, yb + 1, "X")                # A>0 CW=west(step); A<0 CCW=east(skip)
-        # ---- SKIP arm (east), row yb+1, cols BL+1.. ; then east lane down ----
-        x = BL + 1
-        for ch in skip_ops:
-            put(p, x, yb + 1, ch); x += 1      # man heading east at (x, yb+1)
-        put(p, ELANE, yb + 1, "v")             # reach east lane (glide east), turn south
-        # ---- STEP arm (west): rail down to yb+3, east into band, serpentine ----
+        # ---- SKIP arm (east): serpentine from (BL+1, yb+1) ----
+        sx, sy, sd = lay_serpentine_ops(skip_ops, yb + 1, BL + 1)
+        put(p, sx, sy, "v")                    # south to sy+1
+        put(p, sx, sy + 1, ">")               # east (glide) to ELANE
+        hput(p, ELANE, sy + 1, "v")           # descend east lane
+        # ---- STEP arm (west): rail down past skip, east into band, serpentine ----
         put(p, rail, yb + 1, "v")              # X-west -> rail south
-        put(p, rail, yb + 2, "v")
-        put(p, rail, yb + 3, ">")              # east into band
-        ex, ey, ed = lay_serpentine_ops(step_ops, yb + 3, BL)
+        step_start = sy + 2                    # below the skip arm (tight)
+        put(p, rail, step_start, ">")          # east into band
+        ex, ey, ed = lay_serpentine_ops(step_ops, step_start, BL)
         put(p, ex, ey, "v")                    # south
         put(p, ex, ey + 1, "<")               # west; glide to rail
-        hput(p, rail, ey + 1, "v")             # catch at rail -> south
-        # ---- merge on the rail, below both arms ----
-        mrow = ey + 2
-        # skip: east lane down to mrow, then west to rail
-        for yy in range(yb + 2, mrow):
-            hput(p, ELANE, yy, "v")
-        put(p, ELANE, mrow, "<")              # west along mrow -> glide to rail
-        hput(p, rail, mrow, "v")              # both: at rail, heading south
-        # step: rail from ey+1 down to mrow
-        for yy in range(ey + 1, mrow):
+        hput(p, rail, ey + 1, "v")             # step at rail -> south
+        # rail continuous: yb+1..step_start (initial descent) and ey+1..mrow (final)
+        for yy in range(yb + 2, step_start):
             hput(p, rail, yy, "v")
+        # ---- merge below everything ----
+        mrow = ey + 2
+        for yy in range(ey + 1, mrow):
+            hput(p, rail, yy, "v")             # step's final rail descent
+        for yy in range(sy + 1, mrow):
+            hput(p, ELANE, yy, "v")            # skip's east-lane descent
+        put(p, ELANE, mrow, "<")              # skip: west along mrow -> glide to rail
+        hput(p, rail, mrow, "v")              # both at rail -> south
         t._start_row(mrow + 1)                 # '>' at (rail,mrow+1); man east at BL
 
     # ---- BODY: prefix+branch1 ; mid+branch2 ; corrective ----
@@ -360,7 +366,7 @@ def build(band_right=48):
     put(p, CMD_S + 1, tail_y + 5, "v")
     put(p, CMD_S + 1, tail_y + 6, "<")
     put(p, ROUND_RAIL, tail_y + 6, "^")
-    put(p, ROUND_RAIL, body_start, ">")
+    put(p, ROUND_RAIL, setup_start, ">")
     GB = tail_y + 7
     GL = PC.GL; GR = PC.GR
     BIN = PC.BIN; BOUT = PC.BOUT; CCMD = PC.CCMD; CINP = PC.CINP

@@ -58,8 +58,8 @@ LARGE_FOLDED_ACTUAL = {
 # seven public cases, including the measured n=20 case.
 PREFIX64_R6_ACTUAL = (
     523,
-    485,
-    (14_765, 14_447, 60_911, 14_359, 18_919, 14_447, 5_046_592),
+    475,
+    (14_763, 14_445, 60_915, 14_357, 18_923, 14_445, 5_046_596),
 )
 
 

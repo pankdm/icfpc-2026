@@ -19,7 +19,7 @@ if ROWS < 1 or ROWS > 16 or ROWS > WORKERS:
     raise ValueError("SS_ROWS must be between 1 and min(16, SS_WORKERS)")
 
 WORKER_X0 = 8
-ROW_STRIDE = 68
+ROW_STRIDE = 66 if base.PREFIX_MODE else 68
 BROADCAST_Y = 0
 WORKER_Y = 6
 COLLECTOR_Y = 60
@@ -59,7 +59,6 @@ def build_row_broadcaster(builder, y, room_right, worker_bases, worker_y, prepro
         C(22, y + 1, "}")
         if base.PREFIX_MODE:
             C(23, y + 1, "M")
-            C(24, y + 1, "S")
             C(25, y + 1, "1")
             C(26, y + 1, "N")
             C(27, y + 1, "S")
@@ -100,18 +99,23 @@ def build_row_broadcaster(builder, y, room_right, worker_bases, worker_y, prepro
 def build_local_collector(builder, y, room_right, candidate_columns):
     p = builder.program
     C = builder.cell
-    builder.room(10, y, room_right - 10, 8)
-    builder.man(12, y + 2)
+    height = 4 if base.PREFIX_MODE else 8
+    man_y = y + 1 if base.PREFIX_MODE else y + 2
+    builder.room(10, y, room_right - 10, height)
+    builder.man(12, man_y)
     end_x = candidate_columns[-1] + 12
     if base.PREFIX_MODE:
-        C(13, y + 2, ">")
+        C(13, y + 1, ">")
         for column in candidate_columns:
-            C(column, y + 2, "r")
-            C(column + 1, y + 2, "X")
-            C(column + 1, y + 3, ">")
-        C(end_x, y + 2, "0")
-        C(end_x + 1, y + 2, "v")
-        C(end_x + 1, y + 3, "v")
+            C(column, y + 1, "r")
+            C(column + 1, y + 1, "X")
+            C(column + 1, y + 2, ">")
+        C(end_x - 1, y + 1, "0")
+        C(end_x, y + 1, "v")
+        C(end_x, y + 2, ">")
+        C(end_x + 1, y + 2, "s")
+        C(end_x + 2, y + 2, "H")
+        return (end_x + 1, y + 4)
     else:
         C(13, y + 2, "0")
         C(14, y + 2, "M")
@@ -192,15 +196,20 @@ def build():
 
     for row_index, source in enumerate(collector_sources):
         next_collector_y = (row_index + 1) * ROW_STRIDE + COLLECTOR_Y
-        p.pipe(
+        route = [source]
+        if base.PREFIX_MODE:
+            route.append((source[0], source[1] + 1))
+            route.append((8, source[1] + 1))
+        else:
+            route.append((8, source[1]))
+        route.extend(
             [
-                source,
-                (8, source[1]),
                 (8, next_collector_y - 2),
                 (PRIOR_ATTACHMENT_X, next_collector_y - 2),
                 (PRIOR_ATTACHMENT_X, next_collector_y - 1),
             ]
         )
+        p.pipe(route)
 
     return builder.program
 

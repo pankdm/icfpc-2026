@@ -349,7 +349,7 @@ def build_full2():
 
     # --- vertical apparatus to the RIGHT ---
     MY = 1
-    rows = [MY + 5*k + 1 for k in range(6)]  # man pipe rows: 2,7,12,17,22,27
+    rows = [MY + 4*k + 1 for k in range(6)]  # man pipe rows (pitch 4)
 
     DX = 16                                  # gap col 15 (dispatch pipe routes via the south, not this gap)
     disp_east = dispatcher_v(L, DX, rows)    # east wall col
@@ -357,7 +357,7 @@ def build_full2():
 
     MX = disp_east + 3                        # gap of 2 cols (disp_east+1, +2) -> pipe
     for k in range(6):
-        vman(L, MX, MY + 5*k)
+        vman(L, MX, MY + 4*k)
     man_east = MX + 7
 
     GX = man_east + 3                         # gap of 2 -> dup pipes

@@ -194,11 +194,11 @@ def build_merger(L, x0, y0, W):
     L.put(xc, st+1, '0'); L.put(xc, st+2, 's'); L.put(xc, st+3, 'H')
     return H, y0+H-1, ocol
 
-def build_full():
+def build_full(W=16):
     prog = ctrl.build_dispatch()
     L = Layout()
-    W = 16
-    cols = dict(I=2, R=5, F=7, D=10)
+    D = min(W-4, 10)
+    cols = dict(I=2, R=5, F=7, D=D)
     Hroom = place_controller(L, prog, cols, W)
     sw = Hroom-1
     # I room + relay in band A

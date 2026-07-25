@@ -1,0 +1,84 @@
++-------------------------------------+             >-------------------------------v
+|     @>0s0s0s0s0s0s0s0s0s0s0s0s0sv   |             |                               |
+|                            vs0s0<   |             ^                               |
+|      v                     <        |   +--------------------------------+        |
+|>     >v                             |   | v                             <|        |
+|      v<                             |   |                                |        |
+|      >v                             |   |        >s                     ^|        |
+|   vr  <                             |   |                                |        |
+|   >  >MrWsv                         |   |                                |        |
+|      v    <                         |   |                                |        |
+|      >v                             |   |                                |        |
+|   vr  <                             |   |                                |        |
+|   >  >MrsrsrsrsrWsv                 |   |                                |        |
+|      v            <                 |   |                                |        |
+|      >v                             |   |                                |        |
+|   vr  <                             |   |                                |        |
+|   >  >MrWsv                         |   |        0                       |        |
+|      v    <                         | >>|@>     rX                       |        |
+|      >v                             | | |        M                       |        |
+|   vr  <                             | | |        1                       |        |
+|   >  >MrsrWsrsrsrsrsrsrsrsMrsrsrv   | | |        -                       |        |
+|      vsrsrsrsWrsrsrsrsrM-srsrsrs<   | | |        N                       |        |
+|      >rsrsrsrsrsrsMrsrsrs-MrWsrsv   | | |                                |        |
+|      vrsrsrM+1M*W2M}W`36`M-W1Msr<   | | |                                |        |
+|      >srsrsrsrsrsrsrsrWsrsrsM1W-v   | | |                                |        |
+|      vsrsWrsrsrsrM+1M*W2M}W`36`M<   | | |                                |        |
+|      >rsrsrsrsrsrsrsrsMrsrsrsrs*v   | | |                                |        |
+|      vrsrsrsrsrsrsrsrsrsrMsrsWrM<   | | | ^s   rs<                       |        |
+|      >srs*MrWsrsrsrsrsrsrsrsrsrsv   | | +--------------------------------+        |
+|      vrsrsWrsrsrsrMNsrsrsrsrsrsr<   | |    v    v                                 |
+|      >srsrsrsrsrsrsrsrsrsrsrsrsMv   | |    |    |                                 |
+|      vsrM{W5MsrsrsWrsrsrsrsrM{W5<   | |    |    |                                 |
+|      >rsrsrsrsrsrsrsrsrs+MrsrWsrv   | |    |    v                                 |
+|      vsrMsrsrsrsrsrsrsrsrsrsrsrs<   | |    |  +================================+  |
+|      >rsrsrsrsrsrsrsrsrsrsrsrs+Mv   | |    |  :                                :  |
+|      vrsrsrsrsrsrsWrsrsrsrsrsrsr<   | |    |  :                                :  |
+|      >sMrsrs-MrsrsrsrWsrsrsrsrsrv   | |    |  :                                :  |
+|      v`36`Msrsrsrsrsrsrsrsrsrsrs<   | |    |  :                                :  |
+|      >W}MrsrsrsrsrsrsrsrsrsrWsrsv   | |    >->:                                :  |
+|      vsrsrsrsrsrsrsrsrsrsrsrsrsr<   | |       :                                :  |
+|      >rsMrsrsrsrsrs&Mrsrsrsrsrsrv   | |       :                                :  |
+|      vsrsrsrsrsrsrsrsrsrsrsWrsrs<   | |       :                                :  |
+|      >rsrsrsrsrsMrsrsrs-M1+brsrsv   | |       :                                :  |
+|      v                          <   | |       :                                :  |
+| >    >rsrsrsM1+v                    | |       :                                :  |
+|      v         <                    | |       :                                :  |
+|      >v                             | |       :                                :  |
+|       >                          sv | |       :                                :  |
+|      v                            < | |       :                                :  |
+|      >3M5*v                         | |       :                                :  |
+|      v    <                         | |       :                                :  |
+|      >v                             | |       :                                :  |
+|       >                          sv | |       :                                :  |
+|      v                            < | |       :                                :  |
+|      >rsrsM+MrsrsrsrsrsrWsrsrsrsv   | |       :                                :  |
+|      v-srsrsrsrsrsrsrsrsrsrsrMsr<   | |       :                                :  |
+|      >M`63`W}M1+MrsrsrsrsrsrWsrsv   | |       :                                :  |
+|      v   M-srsrMsrsrsrsrsrsrsrsr<   | |       :                                :  |
+|      >..`63`W}M1+MrWsrsMrsrs*Mrsv   | |       +================================+  |
+|      vM*srMsrsrsrsrsrsrsrsrs+rsr<   | |                        ^                  |
+|      >rsrsrsrsrsr+srsrsrsMrsrsrsv   | |                        |                  |
+|      vsrsrsrMsrs+rM*srsrsrsrsrsr<   | |                        |                  |
+|      >rsrsrsrsrsrsrs*Mrsrsrsr+srv   | |                        |                  |
+|         vsrsrsrsrsrsrsrsrsrsrsrs<   | |                        ^------------------<
+|      v  <                           | |
+|      >v                             | |
+|       m                             | |
+| ^     d                             | |
+|       1                             | |
+|       N                             | |
+|       >                          sv | |
+|^                                  < | |
+|                                     | |
++-------------------------------------+ |
+   ^    ^                        v  v   |
+   |    |v<                      |  >---^
+   |    |||                      |
+   ^    |||                      |
+  +-+   ||^----------------------<
+  |I|   ^v
+  +-+ +------------------------+
+      |@>rv                    |
+      | ^s<                    |
+      +------------------------+

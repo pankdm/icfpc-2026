@@ -1,36 +1,19 @@
-// Probe opcode semantics. Usage: node probe.js "OPS" [input] [nsteps]
-// Places a man at left of a room interior, ops running east. Prints a/b/bp/pos/dir each tick.
 const { boot } = require('/Users/visenbaev/icfpc26/sim/harness.js');
-(async () => {
-  const ops = process.argv[2] || '';
-  const input = process.argv[3] || '';
-  const N = parseInt(process.argv[4] || '20', 10);
-  const w = await boot();
-  // build a room: width enough for ops + margins. interior row = row 1.
-  const W = ops.length + 6;
-  const top = '+' + '-'.repeat(W - 2) + '+';
-  const mid = '|@' + ops + ' '.repeat(W - 3 - ops.length) + '|';
-  const bot = '+' + '-'.repeat(W - 2) + '+';
-  const rows = [top, mid, bot];
-  const s = w.newSession();
-  const raw = w.load(s, rows, input, '', '');
-  let j = JSON.parse(raw);
-  if (j.type === 'error') { console.log('LOAD ERR', j.message); process.exit(0); }
-  const brief = (jj) => {
-    const r = (jj.entities.runners || [])[0];
-    if (!r) return 'no-runner';
-    return `pos${r.pos} dir[${r.dir}] a=${r.a} b=${r.b} bp=${r.backpack}${r.halted?' H':''}`;
-  };
-  console.log('t0:', brief(j), 'out=', j.output);
-  for (let i = 0; i < N; i++) {
-    j = JSON.parse(w.step(s));
-    if (j.type === 'error') { console.log(`t${i+1}: ERR ${j.message}`); break; }
-    // which op cell is the runner on?
-    const r = (j.entities.runners||[])[0];
-    let cell = '';
-    if (r) { const c = r.pos[0]-1; cell = (c>=1 && c-1<ops.length)?ops[c-1]:'.'; }
-    console.log(`t${i+1}: [${cell}] ${brief(j)}${j.output?' out='+j.output:''}${j.halted?' <<HALT '+j.reason+'>>':''}`);
-    if (j.halted) break;
+const L = require('/Users/visenbaev/icfpc26/tools/lib.js');
+(async()=>{
+  const w=await boot();
+  const rows=L.manRows(L.readMan('solutions/sort-numbers/select-v3.man'));
+  // single round: count=3 vals 3 1 2 -> expect 1 2 3
+  const s=w.newSession();
+  let j=JSON.parse(w.load(s, rows, "3 3 1 2", "1 2 3", ""));
+  console.log('load type', j.type, j.message||'');
+  let last=j;
+  while(!j.halted && !j.outputSettled && j.step<20000){
+    const nj=JSON.parse(w.stepN(s,2000,false));
+    if(nj.type==='error'){console.log('ERR',nj.message);break;}
+    if(nj.step===j.step){j=nj;break;}
+    j=nj;
   }
-  process.exit(0);
+  console.log('step',j.step,'halted',j.halted,'output',JSON.stringify(j.output),'reason',j.reason,'fatal',JSON.stringify(j.fatal||null));
+  w.closeSession(s);
 })();

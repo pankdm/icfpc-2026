@@ -191,7 +191,8 @@ def build(
     digit_widths: tuple[int, ...] = DEFAULT_DIGIT_WIDTHS,
     offset: int = OFFSET,
 ) -> tuple[Program, int, int]:
-    """Build feeder -> decoder -> year stage -> phrase -> decoder -> expanders -> O."""
+    """Build feeder -> decoder -> year stage -> phrase -> unpacker -> comma
+    expander -> restorer -> O."""
     if base != BASE or offset != OFFSET or digit_widths != DEFAULT_DIGIT_WIDTHS:
         raise ValueError(
             f"the folded decoder layout requires base=92, offset=31, and "
@@ -250,8 +251,9 @@ def build(
             x += 1
         return x
 
-    # The year machine's receive row.  The year machine is seven rows high, so
-    # lift this row six cells below the feeder.
+    # The year machine's receive row.  The year room's top border sits directly
+    # under the feeder, and the receive row is interior row 5 of that 7-row
+    # room, so it lands six rows below the feeder's bottom border.
     run_row = feeder_bottom + 6
     # The first decoder shares that row, so feeder -> decoder -> year is one
     # straight horizontal run and the decoder lands in band B (see below).
@@ -320,7 +322,8 @@ def build(
     program.put(year_x + 9, year_top + 3, "s")
     program.put(year_x + 9, year_top + 2, "<")
 
-    # Receive loop and the first 18 operations of the marker path.
+    # Receive loop, plus as much of the marker path (the first 16 of `common`'s
+    # 19 cells) as fits on the receive row before the room's east wall.
     loop_y = year_top + 5
     put_row(program, year_x + 1, loop_y, [">", ">", " ", " ", " ", " ", "r", "N", "X"])
     common = (
@@ -355,9 +358,9 @@ def build(
     # A second base decoder is the year "unpacker".  Ordinary shifted symbols
     # are one-digit base-92 chunks and pass through unchanged.  Generated
     # boundaries already include their colon-space, so there is no colon stage.
-    # Fold the remaining pipeline beside the year room.  The output room is
-    # tucked beneath it, so the long final pipe does not add a feeder row.
-    upper_row = feeder_bottom + 2
+    # The rest of the pipeline is folded into two staggered bands east of the
+    # year room (see the band comment below); the output room sits at the west
+    # end of the upper band, so nothing here adds a feeder row.
 
     def phrase_expander(x0: int, glyph: int, packed_value: int, row: int) -> int:
         """Full-replacement decoder stage for a reserved 'phrase' glyph:
@@ -425,8 +428,9 @@ def build(
     def expander(x0: int, token: int, row: int) -> int:
         row1 = [">", "M", "r", "s", "~", "X", "1", "s", "v"]
         row2 = ["^", "`", *str(token)[::-1], "`", "<", " ", "@", "<"]
-        # Both current tokens are two decimal digits, keeping this compact form
-        # aligned with the baseline builder.
+        # The comma is currently the only PUNCT_SPACE_TOKENS entry, and its
+        # shifted symbol is two decimal digits; the assert below pins that,
+        # keeping this compact form aligned with the baseline builder.
         assert len(row1) == len(row2)
         program.room(x0, row - 1, 11, 4)
         put_row(program, x0 + 1, row, row1)

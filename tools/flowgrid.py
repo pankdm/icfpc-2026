@@ -66,6 +66,7 @@ def lay_cfg_controller(
     pooled_edges=False,
     tight_gaps=False,
     dedup_edges=False,
+    coalesce_targets=False,
 ):
     """Lay out *flow* and return its bounds and named external pipe ports.
 
@@ -93,7 +94,10 @@ def lay_cfg_controller(
                 if pooled_edges and dedup_edges:
                     targets = tuple(dict.fromkeys(targets))
                 for target in targets:
-                    incoming[target] += 1
+                    if coalesce_targets and pooled_edges:
+                        incoming[target] = 1
+                    else:
+                        incoming[target] += 1
     y = y0 + 3
 
     def put(x, yy, ch):
@@ -283,6 +287,21 @@ def lay_cfg_controller(
                 routes.append((highway, target))
 
     if pooled_edges:
+        if coalesce_targets:
+            by_target = {}
+            for route in pooled_routes:
+                group = by_target.setdefault(route["target"], {
+                    "sources": [],
+                    "target": route["target"],
+                    "merge_y": heads[route["target"]] - (
+                        1 if tight_gaps else 2
+                    ),
+                    "source_index": route["source_index"],
+                })
+                for source in route["sources"]:
+                    if source not in group["sources"]:
+                        group["sources"].append(source)
+            pooled_routes = list(by_target.values())
         # Color vertical route intervals. Disjoint intervals safely share a
         # highway because their only direction glyphs are at the two ends.
         lanes = []

@@ -28,11 +28,10 @@ M_CELLS=[
  (1,6,'v'),(2,6,'2'),(3,6,'X'),(6,6,'W'),(7,6,'b'),(10,6,'M'),
  (1,7,'N'),(3,7,'s'),(6,7,'/'),(7,7,'W'),(10,7,'*'),
  (1,8,'s'),(3,8,'>'),(4,8,'^'),(6,8,'>'),(7,8,'^'),(9,8,'^'),(10,8,'X'),
- (1,9,'>'),(2,9,'0'),(3,9,'M'),(4,9,'^'),(10,9,'2'),
- (5,10,'^'),(7,10,'0'),(8,10,'s'),(9,10,'N'),(10,10,'<'),
+ (1,9,'>'),(2,9,'0'),(3,9,'M'),(4,9,'^'),(5,9,'^'),(6,9,'0'),(7,9,'s'),(8,9,'N'),(9,9,'2'),(10,9,'<'),
 ]
 M_MAN=(6,1)
-M_W,M_H=12,12
+M_W,M_H=12,11
 
 P_CELLS=[
  (3,1,'v'),(3,2,'M'),(3,3,'r'),(3,4,'X'),
@@ -53,15 +52,15 @@ def block(p,ox,oy,w,h,cells,man):
 
 def build(save):
     p=lm.Program()
-    block(p,0,0,M_W,M_H,M_CELLS,M_MAN)           # M: cols0-11 rows0-11
-    block(p,0,14,C_W,C_H,C_CELLS,C_MAN)          # C: cols0-11 rows14-19
-    p.pipe([(9,13),(9,12)])                      # C->M straight
+    block(p,0,0,M_W,M_H,M_CELLS,M_MAN)           # M: cols0-11 rows0-10
+    block(p,0,13,C_W,C_H,C_CELLS,C_MAN)          # C: cols0-11 rows13-18
+    p.pipe([(9,12),(9,11)])                      # C->M straight
     block(p,13,0,P_W,P_H,P_CELLS,P_MAN)          # P: cols13-19 rows0-8
-    p.put(12,10,'>'); p.put(13,10,'-'); p.put(14,10,'^'); p.put(14,9,'^')  # M->P
+    p.put(12,9,'>'); p.put(13,9,'-'); p.put(14,9,'^')   # M->P L into P south wall
     p.output_room(16,11)                         # O: cols16-18 rows11-13
     p.pipe([(17,9),(17,10)])                     # P->O
     p.input_room(14,14)                          # I: cols14-16 rows14-16
-    p.pipe([(13,15),(12,15)])                    # I->C
+    p.pipe([(13,15),(12,15)])                    # I->C (row15 hits C interior band)
     print('footprint',p.footprint())
     p.save(save)
 if __name__=='__main__':

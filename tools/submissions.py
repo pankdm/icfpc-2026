@@ -76,10 +76,30 @@ def local_mans():
     return out
 
 
+def download(sub_id, dest):
+    """Fetch a submission's PROGRAM TEXT.
+
+    The submitted source IS retrievable after all, via the dashboard session cookie:
+    /api/v1/dashboard/submissions/<id>/download. Neither the Bearer API key nor any
+    documented route exposes it, which is why it looked lost — and two of our best builds
+    (tcp's 32x31 and the LLLM champion) exist nowhere in git precisely because of that."""
+    req = urllib.request.Request(BASE + f"/dashboard/submissions/{sub_id}/download")
+    req.add_header("Cookie", cookie())
+    req.add_header("User-Agent", "Mozilla/5.0")
+    with urllib.request.urlopen(req, timeout=120) as r:
+        body = r.read().decode("utf-8", "replace")
+    os.makedirs(os.path.dirname(dest), exist_ok=True)
+    with open(dest, "w", encoding="utf-8") as fh:
+        fh.write(body if body.endswith("\n") else body + "\n")
+    return len(body)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--all", action="store_true")
     ap.add_argument("--match", action="store_true")
+    ap.add_argument("--download", metavar="DIR",
+                    help="save each problem's BEST submitted program into DIR/<slug>.man")
     args = ap.parse_args()
 
     # the endpoint defaults to the 50 most recent; ?limit= widens it (200 is the max it
@@ -124,6 +144,19 @@ def main():
                 v = detail.get(k)
                 s[k] = float(v) if isinstance(v, (int, float, str)) and str(v) != "None" else None
         s.setdefault("avgTicks", None)
+
+    if args.download:
+        slugs = {p.get("name"): p.get("slug") for p in lib.list_problems()}
+        for name, s_ in sorted(best.items()):
+            slug = slugs.get(name) or name.lower().replace(" ", "-")
+            dest = os.path.join(args.download, f"{slug}.man")
+            try:
+                n = download(s_["id"], dest)
+                print(f"  {slug:24} {s_['width']}x{s_['height']} score {s_['score']:,.0f} "
+                      f"-> {dest} ({n:,} bytes)")
+            except Exception as exc:                       # noqa: BLE001
+                print(f"  {slug:24} FAILED: {exc}")
+        return
 
     mans = local_mans() if args.match else {}
     print(f"{'problem':22}{'cases':>8}{'box':>11}{'m^2':>9}{'avgTicks':>12}{'score':>18}   bound")

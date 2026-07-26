@@ -54,15 +54,25 @@ def load_rows(path):
 
 def analyze(rows):
     """Room + pipe topology, straight from the reference interpreter."""
+    # The grid goes through a TEMP FILE, never argv: a large program (our LLM solution is
+    # 612x1768, over 1 MB) exceeds ARG_MAX and the exec fails with "Argument list too long".
     script = (
+        "const fs=require('fs');"
         "const {boot}=require(process.argv[1]+'/sim/harness.js');"
         "(async()=>{const w=await boot();"
-        "const rows=JSON.parse(process.argv[2]);"
+        "const rows=JSON.parse(fs.readFileSync(process.argv[2],'utf8'));"
         "console.log(w.analyze(rows));process.exit(0)})()"
         ".catch(e=>{console.log(JSON.stringify({type:'error',message:String(e)}));process.exit(1)})"
     )
-    r = subprocess.run(["node", "-e", script, REPO, json.dumps(rows)],
-                       capture_output=True, text=True, cwd=REPO)
+    import tempfile
+    fd, tmp = tempfile.mkstemp(suffix=".json")
+    try:
+        with os.fdopen(fd, "w") as fh:
+            json.dump(rows, fh)
+        r = subprocess.run(["node", "-e", script, REPO, tmp],
+                           capture_output=True, text=True, cwd=REPO)
+    finally:
+        os.unlink(tmp)
     try:
         return json.loads((r.stdout or "").strip().splitlines()[-1])
     except (ValueError, IndexError):
@@ -135,6 +145,18 @@ class Lift:
                 outs = [TURNS[ch]]
             elif ch in BRANCH:
                 outs = [d, CW[d], CCW[d]]              # sign/backpack decides at runtime
+            elif ch == "Y":
+                # A fork BIRTHS two men beside the cell, one clockwise and one
+                # counter-clockwise of the incoming heading, each facing away. Their walks
+                # are reachable code that no straight-line successor covers. Treating `Y`
+                # as "continue straight" under-approximates reachability, and anything
+                # built on that (dead-code elimination, fold safety) is then unsound.
+                outs = [CW[d], CCW[d]]
+            elif ch == "U":
+                # `U` receives and then turns AWAY FROM THE PIPE, so the resulting heading
+                # depends on where the pipe sits relative to this cell, not on the incoming
+                # direction. Fan out to every heading rather than guess.
+                outs = [d, CW[d], CCW[d], CW[CW[d]]]
             else:
                 outs = [d]
             for nd in outs:
@@ -182,6 +204,11 @@ class Lift:
             self.men.append({
                 "start": list(start),
                 "room": self.room_of(*start),
+                # The FULL reachable set, not just cells that landed in a block. Consumers
+                # that reconstruct reachability from blocks + op_cells silently miss turn
+                # glyphs and glides, and anything built on that (dead-code elimination) then
+                # deletes cells the man actually walks.
+                "reach": [f"{x},{y}" for (x, y) in sorted(cells)],
                 "reachable": len(cells),
                 "ops": len(ops),
                 "turns": len(turns),
@@ -208,7 +235,7 @@ def verify(rows, path, slug, lifted, cap=200000):
     script = (
         "const {boot}=require(process.argv[1]+'/sim/harness.js');"
         "(async()=>{const w=await boot();const s=w.newSession();"
-        "const rows=JSON.parse(process.argv[2]);"
+        "const rows=JSON.parse(require('fs').readFileSync(process.argv[2],'utf8'));"
         "let j=JSON.parse(w.load(s,rows,process.argv[3],process.argv[4],''));"
         "const seen=[];let n=0;const cap=+process.argv[5];"
         "while(!j.halted && n<cap){for(const r of (j.entities&&j.entities.runners)||[])"
@@ -218,8 +245,14 @@ def verify(rows, path, slug, lifted, cap=200000):
         "w.closeSession(s);process.exit(0)})()"
         ".catch(e=>{console.log(JSON.stringify({error:String(e)}));process.exit(1)})"
     )
-    r = subprocess.run(["node", "-e", script, REPO, json.dumps(rows), inp, exp, str(cap)],
-                       capture_output=True, text=True, cwd=REPO)
+    fd, tmp = __import__("tempfile").mkstemp(suffix=".json")
+    try:
+        with os.fdopen(fd, "w") as fh:
+            json.dump(rows, fh)
+        r = subprocess.run(["node", "-e", script, REPO, tmp, inp, exp, str(cap)],
+                           capture_output=True, text=True, cwd=REPO)
+    finally:
+        os.unlink(tmp)
     try:
         got = json.loads((r.stdout or "").strip().splitlines()[-1])
     except (ValueError, IndexError):

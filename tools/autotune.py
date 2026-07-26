@@ -441,7 +441,7 @@ def box_of(man_text):
     return max(xs[-1] - xs[0] + 1, ys[-1] - ys[0] + 1) ** 2
 
 
-def screen(knobs, slug, builder_rel, source, args, baseline_man):
+def screen(knobs, slug, builder_rel, source, args, baseline_man, deadline=None):
     """Classify every knob with BUILD-ONLY probes (+1 / -1) — no oracle at all.
 
     Two full sweeps showed 67-71% of candidates dying in the builder and up to 5% coming out
@@ -452,9 +452,19 @@ def screen(knobs, slug, builder_rel, source, args, baseline_man):
     t0 = time.time()
     probes = [(k, d) for k in knobs for d in (1, -1)]
     verdict = {}
+    truncated = False
     with futures.ThreadPoolExecutor(max_workers=args.jobs) as ex:
-        jobs = {ex.submit(build_only, slug, builder_rel, patch(source, k, k.value + d), args): (k, d)
-                for k, d in probes}
+        jobs = {}
+        for k, d in probes:
+            # Screening must be CHARGED against --budget. Build rates span ~35x across
+            # builders (0.06 s/knob to 2.0 s/knob measured), so on a slow builder an
+            # unbudgeted screen can consume the entire allowance and leave zero candidate
+            # evaluations -- and the run then reports "no improvement found", i.e. a local
+            # optimum that was never actually tested.
+            if deadline is not None and time.time() > deadline:
+                truncated = True
+                break
+            jobs[ex.submit(build_only, slug, builder_rel, patch(source, k, k.value + d), args)] = (k, d)
         for f in futures.as_completed(jobs):
             k, d = jobs[f]
             try:
@@ -471,7 +481,13 @@ def screen(knobs, slug, builder_rel, source, args, baseline_man):
     base_box = box_of(baseline_man)
     shrinkers = [k for k in live if (verdict[k.name][1] or base_box) < base_box]
     counts = {s: sum(1 for v in verdict.values() if v[0] == s) for s in ("live", "inert", "break")}
-    print(f"screened {len(knobs)} knobs in {time.time() - t0:.1f}s: {counts['live']} live, "
+    if truncated:
+        # Never DROP an unscreened knob: not screening it is not evidence against it.
+        unscreened = [k for k in knobs if k.name not in verdict]
+        live = live + unscreened
+        print(f"screening hit the budget after {time.time() - t0:.1f}s — {len(unscreened)} knobs "
+              f"unscreened and kept (raise --budget, or --no-screen)")
+    print(f"screened {len(verdict)} knobs in {time.time() - t0:.1f}s: {counts['live']} live, "
           f"{counts['inert']} inert, {counts['break']} always-break "
           f"→ searching {len(live)} ({len(shrinkers)} can shrink the box)")
     # box-shrinkers first: a smaller box is an input-independent win
@@ -563,7 +579,9 @@ def main():
         return
 
     if knobs and not args.no_screen:
-        knobs = screen(knobs, args.slug, builder_rel, source, args, base_man)
+        # leave at least a third of the budget for the search the screen exists to serve
+        deadline = (t_start + args.budget * 0.66) if args.budget != float("inf") else None
+        knobs = screen(knobs, args.slug, builder_rel, source, args, base_man, deadline)
     allowed = {k.name for k in knobs} | {m.name for m in macros}
     print()
     if not allowed:

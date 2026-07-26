@@ -1,0 +1,101 @@
+   +--------+         +--------+         +----------------------+  +--------------------+
+   |>rsr-s v|         |>rsr*s v|         |@  v  >9M{{Mv v    s-<|  |@3b>  dHv    sWs   <|  +-+
+   |^ s-rsr<|         |^ s*rsr<|<<<<<<<<<|v  <  ^  v  Y>> rsr+X^|<<|  v^ mY > 9M{{NMrbrx|<<|I|
+ v<|    @1M^|<<<<<<<<<| @`18`M^|         |>     ^  >   ^     s< |  |        ^    sWsWrW<|  +-+
+ v +--------+         +--------+         +----------------------+  +--------------------+
++---------------------------------------------------------------------------------------------------------+
+|                                                @                                                 3b>  dH|
+|                                                                                        >r/SWSW r-Sv^ mYv|
+|                                                                                        ^W`81`     <    <|
++---------------------------------------------------------------------------------------------------------+
++-----+ v        +-----+ v        +-----+ v        +-----+ v        +-----+ v      v +-----+
+|>r-v |<<        |>r-v |<<        |>r-v |<<        |>r-v |<<        |>r-v |<<      >>|>r-v |
+|M vXv|          |M vXv|          |M vXv|          |M vXv|          |M vXv|          |M vXv|
+|0 rrr|  +------+|1 rrr|  +------+|2 rrr|  +------+|3 rrr|  +------+|4 rrr|  +------+|5 rrr|  +------+
+|  rbr|  |@9M{{v||  rbr|  |@9M{{v||  rbr|  |@9M{{v||  rbr|  |@9M{{v||  rbr|  |@9M{{v||  rbr|  |@9M{{v|
+|   r |  |     M||   r |  |     M||   r |  |     M||   r |  |     M||   r |  |     M||   r |  |     M|
+| v < |  |v`81`<|| v < |  |v`81`<|| v < |  |v`81`<|| v < |  |v`81`<|| v < |  |v`81`<|| v < |  |v`81`<|
+|  >v<|  |>W*W1v||  >v<|  |>W*W1v||  >v<|  |>W*W1v||  >v<|  |>W*W1v||  >v<|  |>W*W1v||  >v<|  |>W*W1v|
+|   >v|  | v--W<||   >v|  | v--W<||   >v|  | v--W<||   >v|  | v--W<||   >v|  | v--W<||   >v|  | v--W<|
+| avv<|  | +vsW<|| avv<|  | +vsW<|| avv<|  | +vsW<|| avv<|  | +vsW<|| avv<|  | +vsW<|| avv<|  | +vsW<|
+| sm  |>>|vY>WrX|| sm  |>>|vY>WrX|| sm  |>>|vY>WrX|| sm  |>>|vY>WrX|| sm  |>>|vY>WrX|| sm  |>>|vY>WrX|
+| > >v|  |>v^  <|| > >v|  |>v^  <|| > >v|  |>v^  <|| > >v|  |>v^  <|| > >v|  |>v^  <|| > >v|  |>v^  <|
+| vd  |  | -vsW<|| vd  |  | -vsW<|| vd  |  | -vsW<|| vd  |  | -vsW<|| vd  |  | -vsW<|| vd  |  | -vsW<|
+| ms  |>>|vY>WrX|| ms  |>>|vY>WrX|| ms  |>>|vY>WrX|| ms  |>>|vY>WrX|| ms  |>>|vY>WrX|| ms  |>>|vY>WrX|
+|  > V|  |>v^  <||  > V|  |>v^  <||  > V|  |>v^  <||  > V|  |>v^  <||  > V|  |>v^  <||  > V|  |>v^  <|
+| avv<|  | -vsW<|| avv<|  | -vsW<|| avv<|  | -vsW<|| avv<|  | -vsW<|| avv<|  | -vsW<|| avv<|  | -vsW<|
+| sm  |>>|vY>WrX|| sm  |>>|vY>WrX|| sm  |>>|vY>WrX|| sm  |>>|vY>WrX|| sm  |>>|vY>WrX|| sm  |>>|vY>WrX|
+| > >v|  |>v^  <|| > >v|  |>v^  <|| > >v|  |>v^  <|| > >v|  |>v^  <|| > >v|  |>v^  <|| > >v|  |>v^  <|
+| vd  |  | -vsW<|| vd  |  | -vsW<|| vd  |  | -vsW<|| vd  |  | -vsW<|| vd  |  | -vsW<|| vd  |  | -vsW<|
+| ms  |>>|vY>WrX|| ms  |>>|vY>WrX|| ms  |>>|vY>WrX|| ms  |>>|vY>WrX|| ms  |>>|vY>WrX|| ms  |>>|vY>WrX|
+|  > V|  |>v^  <||  > V|  |>v^  <||  > V|  |>v^  <||  > V|  |>v^  <||  > V|  |>v^  <||  > V|  |>v^  <|
+| avv<|  | -vsW<|| avv<|  | -vsW<|| avv<|  | -vsW<|| avv<|  | -vsW<|| avv<|  | -vsW<|| avv<|  | -vsW<|
+| sm  |>>|vY>WrX|| sm  |>>|vY>WrX|| sm  |>>|vY>WrX|| sm  |>>|vY>WrX|| sm  |>>|vY>WrX|| sm  |>>|vY>WrX|
+| > >v|  |>v^  <|| > >v|  |>v^  <|| > >v|  |>v^  <|| > >v|  |>v^  <|| > >v|  |>v^  <|| > >v|  |>v^  <|
+| vd  |  | -vsW<|| vd  |  | -vsW<|| vd  |  | -vsW<|| vd  |  | -vsW<|| vd  |  | -vsW<|| vd  |  | -vsW<|
+| ms  |>>|vY>WrX|| ms  |>>|vY>WrX|| ms  |>>|vY>WrX|| ms  |>>|vY>WrX|| ms  |>>|vY>WrX|| ms  |>>|vY>WrX|
+|  > V|  |>v^  <||  > V|  |>v^  <||  > V|  |>v^  <||  > V|  |>v^  <||  > V|  |>v^  <||  > V|  |>v^  <|
+| avv<|  | -vsW<|| avv<|  | -vsW<|| avv<|  | -vsW<|| avv<|  | -vsW<|| avv<|  | -vsW<|| avv<|  | -vsW<|
+| sm  |>>|vY>WrX|| sm  |>>|vY>WrX|| sm  |>>|vY>WrX|| sm  |>>|vY>WrX|| sm  |>>|vY>WrX|| sm  |>>|vY>WrX|
+| > >v|  |>v^  <|| > >v|  |>v^  <|| > >v|  |>v^  <|| > >v|  |>v^  <|| > >v|  |>v^  <|| > >v|  |>v^  <|
+| vd  |  | -vsW<|| vd  |  | -vsW<|| vd  |  | -vsW<|| vd  |  | -vsW<|| vd  |  | -vsW<|| vd  |  | -vsW<|
+| ms  |>>|vY>WrX|| ms  |>>|vY>WrX|| ms  |>>|vY>WrX|| ms  |>>|vY>WrX|| ms  |>>|vY>WrX|| ms  |>>|vY>WrX|
+|  > V|  |>v^  <||  > V|  |>v^  <||  > V|  |>v^  <||  > V|  |>v^  <||  > V|  |>v^  <||  > V|  |>v^  <|
+| avv<|  | -vsW<|| avv<|  | -vsW<|| avv<|  | -vsW<|| avv<|  | -vsW<|| avv<|  | -vsW<|| avv<|  | -vsW<|
+| sm  |>>|vY>WrX|| sm  |>>|vY>WrX|| sm  |>>|vY>WrX|| sm  |>>|vY>WrX|| sm  |>>|vY>WrX|| sm  |>>|vY>WrX|
+| > >v|  |>v^  <|| > >v|  |>v^  <|| > >v|  |>v^  <|| > >v|  |>v^  <|| > >v|  |>v^  <|| > >v|  |>v^  <|
+| vd  |  | -vsW<|| vd  |  | -vsW<|| vd  |  | -vsW<|| vd  |  | -vsW<|| vd  |  | -vsW<|| vd  |  | -vsW<|
+| ms  |>>|vY>WrX|| ms  |>>|vY>WrX|| ms  |>>|vY>WrX|| ms  |>>|vY>WrX|| ms  |>>|vY>WrX|| ms  |>>|vY>WrX|
+|  > V|  |>v^  <||  > V|  |>v^  <||  > V|  |>v^  <||  > V|  |>v^  <||  > V|  |>v^  <||  > V|  |>v^  <|
+| avv<|  | -vsW<|| avv<|  | -vsW<|| avv<|  | -vsW<|| avv<|  | -vsW<|| avv<|  | -vsW<|| avv<|  | -vsW<|
+| sm  |>>|vY>WrX|| sm  |>>|vY>WrX|| sm  |>>|vY>WrX|| sm  |>>|vY>WrX|| sm  |>>|vY>WrX|| sm  |>>|vY>WrX|
+| > >v|  |>v^  <|| > >v|  |>v^  <|| > >v|  |>v^  <|| > >v|  |>v^  <|| > >v|  |>v^  <|| > >v|  |>v^  <|
+| vd  |  | -vsW<|| vd  |  | -vsW<|| vd  |  | -vsW<|| vd  |  | -vsW<|| vd  |  | -vsW<|| vd  |  | -vsW<|
+| ms  |>>|vY>WrX|| ms  |>>|vY>WrX|| ms  |>>|vY>WrX|| ms  |>>|vY>WrX|| ms  |>>|vY>WrX|| ms  |>>|vY>WrX|
+|  > V|  |>v^  <||  > V|  |>v^  <||  > V|  |>v^  <||  > V|  |>v^  <||  > V|  |>v^  <||  > V|  |>v^  <|
+| avv<|  | -vsW<|| avv<|  | -vsW<|| avv<|  | -vsW<|| avv<|  | -vsW<|| avv<|  | -vsW<|| avv<|  | -vsW<|
+| sm  |>>|vY>WrX|| sm  |>>|vY>WrX|| sm  |>>|vY>WrX|| sm  |>>|vY>WrX|| sm  |>>|vY>WrX|| sm  |>>|vY>WrX|
+| > >v|  |>v^  <|| > >v|  |>v^  <|| > >v|  |>v^  <|| > >v|  |>v^  <|| > >v|  |>v^  <|| > >v|  |>v^  <|
+| vd  |  | -vsW<|| vd  |  | -vsW<|| vd  |  | -vsW<|| vd  |  | -vsW<|| vd  |  | -vsW<|| vd  |  | -vsW<|
+| ms  |>>|vY>WrX|| ms  |>>|vY>WrX|| ms  |>>|vY>WrX|| ms  |>>|vY>WrX|| ms  |>>|vY>WrX|| ms  |>>|vY>WrX|
+|  > V|  |>v^  <||  > V|  |>v^  <||  > V|  |>v^  <||  > V|  |>v^  <||  > V|  |>v^  <||  > V|  |>v^  <|
+| avv<|  | -vsW<|| avv<|  | -vsW<|| avv<|  | -vsW<|| avv<|  | -vsW<|| avv<|  | -vsW<|| avv<|  | -vsW<|
+| sm  |>>|vY>WrX|| sm  |>>|vY>WrX|| sm  |>>|vY>WrX|| sm  |>>|vY>WrX|| sm  |>>|vY>WrX|| sm  |>>|vY>WrX|
+| > >v|  |>v^  <|| > >v|  |>v^  <|| > >v|  |>v^  <|| > >v|  |>v^  <|| > >v|  |>v^  <|| > >v|  |>v^  <|
+| vd  |  | -vsW<|| vd  |  | -vsW<|| vd  |  | -vsW<|| vd  |  | -vsW<|| vd  |  | -vsW<|| vd  |  | -vsW<|
+| ms  |>>|vY>WrX|| ms  |>>|vY>WrX|| ms  |>>|vY>WrX|| ms  |>>|vY>WrX|| ms  |>>|vY>WrX|| ms  |>>|vY>WrX|
+|  > V|  |>v^  <||  > V|  |>v^  <||  > V|  |>v^  <||  > V|  |>v^  <||  > V|  |>v^  <||  > V|  |>v^  <|
+| avv<|  | -vsW<|| avv<|  | -vsW<|| avv<|  | -vsW<|| avv<|  | -vsW<|| avv<|  | -vsW<|| avv<|  | -vsW<|
+| sm  |>>|vY>WrX|| sm  |>>|vY>WrX|| sm  |>>|vY>WrX|| sm  |>>|vY>WrX|| sm  |>>|vY>WrX|| sm  |>>|vY>WrX|
+| > >v|  |>v^  <|| > >v|  |>v^  <|| > >v|  |>v^  <|| > >v|  |>v^  <|| > >v|  |>v^  <|| > >v|  |>v^  <|
+| vd  |  | -vsW<|| vd  |  | -vsW<|| vd  |  | -vsW<|| vd  |  | -vsW<|| vd  |  | -vsW<|| vd  |  | -vsW<|
+| ms  |>>| >>WrX|| ms  |>>| >>WrX|| ms  |>>| >>WrX|| ms  |>>| >>WrX|| ms  |>>| >>WrX|| ms  |>>| >>WrX|
+|  > V|v<|  ^  <||  > V|v<|  ^  <||  > V|v<|  ^  <||  > V|v<|  ^  <||  > V|v<|  ^  <||  > V|v<|  ^  <|
+|^   <|v +------+|^   <|v +------+|^   <|v +------+|^   <|v +------+|^   <|v +------+|^   <|v +------+
+|Y  < |v         |Y  < |v         |Y  < |v         |Y  < |v         |Y  < |v         |Y  < |v
+|>m aH|v         |>m aH|v         |>m aH|v         |>m aH|v         |>m aH|v         |>m aH|v
+|^b *<|v         |^b *<|v         |^b *<|v         |^b *<|v         |^b *<|v         |^b *<|v
+|@4M5^|v         |@4M5^|v         |@4M5^|v         |@4M5^|v         |@4M5^|v         |@4M5^|v
++-----+v         +-----+v         +-----+v         +-----+v         +-----+v         +-----+v
++----------------------------------------------------------------------------------------------------+  +-+
+| > `2359295`W-v    > `2359295`W-v    > `2359295`W-v    > `2359295`W-v         @v                    |>>|O|
+| ^bW/RW*2M9<sa<m<  ^bW/RW*2M9<sa<m<  ^bW/RW*2M9<sa<m<  ^bW/RW*2M9<sa<m<                             |  +-+
+|             >m asv            >m asv            >m asv            >m asv                           |
+|           ^      <        vY^      <        vY^      <        vY^      <     v<                    |
+|           ^               <^                <^                <^             Yv                    |
+|  > `2359295`W-v    > `2359295`W-v    > `2359295`W-v    > `2359295`W-v                              |
+|  ^bW/RW*2M9<sa<m<  ^bW/RW*2M9<sa<m<  ^bW/RW*2M9<sa<m<  ^bW/RW*2M9<sa<m<                            |
+|              >m asv            >m asv            >m asv            >m asv                          |
+|            ^      <        vY^      <        vY^      <        vY^      <    v<                    |
+|            ^               <^                <^                <^            Yv                    |
+|   > `2359295`W-v    > `2359295`W-v    > `2359295`W-v    > `2359295`W-v                             |
+|   ^bW/RW*2M9<sa<m<  ^bW/RW*2M9<sa<m<  ^bW/RW*2M9<sa<m<  ^bW/RW*2M9<sa<m<                           |
+|               >m asv            >m asv            >m asv            >m asv                         |
+|             ^      <        vY^      <        vY^      <        vY^      <   v<                    |
+|             ^               <^                <^                <^           Yv                    |
+|    > `2359295`W-v    > `2359295`W-v    > `2359295`W-v    > `2359295`W-v                            |
+|    ^bW/RW*2M9<sa<m<  ^bW/RW*2M9<sa<m<  ^bW/RW*2M9<sa<m<  ^bW/RW*2M9<sa<m<                          |
+|                >m asv            >m asv            >m asv            >m asv                        |
+|              ^      <        vY^      <        vY^      <        vY^      <  v<                    |
+|              ^               <^                <^                <^          YH                    |
++----------------------------------------------------------------------------------------------------+

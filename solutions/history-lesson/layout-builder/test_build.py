@@ -34,27 +34,60 @@ class LayoutBuilderTest(unittest.TestCase):
     def test_dp_packs_every_constant(self):
         dictionary = self.metadata["dictionary"]
         self.assertEqual(sum(dictionary["constants_per_band"]), 44)
-        self.assertEqual(dictionary["bands"], 8)
-        # The DP's first tie-break fills earlier bands as much as the fixed
-        # width permits.
-        self.assertEqual(dictionary["constants_per_band"][:2], [10, 8])
+        self.assertEqual(dictionary["bands"], 6)
+        self.assertEqual(
+            dictionary["constants_per_band"],
+            [9, 9, 6, 6, 6, 8],
+        )
+        self.assertEqual(
+            len(dictionary["slots_per_band"]),
+            dictionary["bands"],
+        )
 
-    def test_service_rooms_are_stacked_on_the_right(self):
+    def test_dp_changes_layout_with_available_width(self):
+        values = [
+            1,
+            22,
+            333,
+            4444,
+            55555,
+            666666,
+            7777777,
+            88888888,
+        ]
+        narrow = builder.pack_dictionary(values, 18)
+        wide = builder.pack_dictionary(values, 30)
+        self.assertGreater(len(narrow), len(wide))
+        self.assertNotEqual(
+            [len(band.widths) for band in narrow],
+            [len(band.widths) for band in wide],
+        )
+
+    def test_all_tail_rooms_form_one_touching_row(self):
+        dictionary = self.metadata["dictionary"]
         rooms = self.metadata["service_rooms"]
-        for upper, lower in zip(rooms, rooms[1:]):
-            self.assertEqual(
-                lower[2], upper[2] + upper[4] + builder.ROOM_GAP
-            )
-        for _, x, _, width, _ in rooms:
-            self.assertEqual(x + width, self.metadata["feeder_width"])
+        self.assertEqual(rooms[0][1], dictionary["x"] + dictionary["width"])
+        self.assertTrue(all(room[2] == dictionary["y"] for room in rooms))
+        for left, right in zip(rooms, rooms[1:]):
+            self.assertEqual(right[1], left[1] + left[3])
+
+    def test_tail_touches_feeder_bottom(self):
+        dictionary = self.metadata["dictionary"]
+        feeder_bottom = self.metadata["feeder_rows"] + 1
+        self.assertEqual(dictionary["y"], feeder_bottom + 1)
 
     def test_no_pipes_are_declared(self):
         self.assertEqual(self.metadata["pipes"], 0)
+        self.assertFalse(self.metadata["connected"])
 
     def test_buffer_loop_follows_all_constant_bands(self):
         dictionary = self.metadata["dictionary"]
         x = dictionary["x"]
         bottom = dictionary["y"] + dictionary["height"] - 1
+        self.assertEqual(
+            "".join(self.program.get(x + dx, bottom - 3) for dx in range(1, 5)),
+            "vs0s",
+        )
         self.assertEqual(
             "".join(self.program.get(x + dx, bottom - 2) for dx in range(1, 6)),
             ">>rsv",

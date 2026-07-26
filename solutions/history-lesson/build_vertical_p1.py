@@ -74,7 +74,7 @@ def delayed_dispatcher_rows():
 DISP_DELAYED_ROWS = delayed_dispatcher_rows()
 
 
-def build_encoding(extra_phrases=EXTRA_PHRASES):
+def build_encoding(extra_phrases=EXTRA_PHRASES, optimize=True):
     symbols, logical_ring, _ = base.build_encoding(
         extra_pair_count=extra_phrases
     )
@@ -171,8 +171,12 @@ def build_encoding(extra_phrases=EXTRA_PHRASES):
             output.append(byte)
     assert bytes(output) == base.TEXT
 
-    bands = base.optimize_feeder(physical_symbols, WIDTH)
-    if extra_phrases == EXTRA_PHRASES:
+    bands = (
+        base.optimize_feeder(physical_symbols, WIDTH)
+        if optimize
+        else None
+    )
+    if optimize and extra_phrases == EXTRA_PHRASES:
         assert len(bands) == 32
     return physical_symbols, ring, bands
 

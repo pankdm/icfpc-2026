@@ -90,6 +90,7 @@ fn serde_char(c: char) -> String {
 
 struct Args {
     grade: bool,
+    inspect: Option<u64>,
     program: String,
     steps: u64,
     input: String,
@@ -100,11 +101,12 @@ struct Args {
 
 fn parse_args() -> Args {
     let raw: Vec<String> = std::env::args().skip(1).collect();
-    let mut a = Args { grade: false, program: String::new(), steps: 200, input: String::new(),
+    let mut a = Args { grade: false, inspect: None, program: String::new(), steps: 200, input: String::new(),
         expected: String::new(), frames: String::new(), cap: 5_000_000 };
     let mut positional: Vec<String> = vec![];
     for arg in raw {
         if arg == "--grade" { a.grade = true; }
+        else if let Some(v) = arg.strip_prefix("--inspect=") { a.inspect = v.parse().ok(); }
         else if let Some(v) = arg.strip_prefix("--input=") { a.input = v.to_string(); }
         else if let Some(v) = arg.strip_prefix("--expected=") { a.expected = v.to_string(); }
         else if let Some(v) = arg.strip_prefix("--frames=") { a.frames = v.to_string(); }
@@ -120,11 +122,21 @@ fn parse_args() -> Args {
 fn main() {
     let args = parse_args();
     if args.program.is_empty() {
-        eprintln!("usage: lm [--grade] <program.man> [steps] [--input=..] [--expected=..] [--frames=..] [--cap=N]");
+        eprintln!("usage: lm [--grade|--inspect=N] <program.man> [steps] [--input=..] [--expected=..] [--frames=..] [--cap=N]");
         std::process::exit(2);
     }
     let src = std::fs::read_to_string(&args.program).expect("read program");
     let rows: Vec<String> = src.lines().map(|l| l.to_string()).collect();
+
+    if let Some(steps) = args.inspect {
+        let mut w = World::load(&rows, &args.input, &args.expected, &args.frames, args.cap.max(steps));
+        for _ in 0..steps {
+            if w.end != EndReason::Running || w.output_settled() { break; }
+            w.step();
+        }
+        println!("{}", snapshot_json(&w));
+        return;
+    }
 
     if args.grade {
         run_grade(&args, &rows);

@@ -19,6 +19,7 @@ re-validate the engine after touching `interp/`.
 Build the engine first: cd interp && cargo build --release
 """
 import argparse
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import json
 import os
 import subprocess
@@ -55,7 +56,7 @@ def footprint(path):
     return {"w": W, "h": H, "box": max(W, H) ** 2}
 
 
-def grade(slug, man, cap=None):
+def grade(slug, man, cap=None, jobs=1, progress=False):
     spec_path = os.path.join(REPO, "tests", f"{slug}.json")
     if not os.path.exists(spec_path):
         return {"error": f"no cached spec tests/{slug}.json"}
@@ -64,8 +65,7 @@ def grade(slug, man, cap=None):
     spec = json.load(open(spec_path))
     cases = spec.get("publicTestData") or []
     tick_cap = cap or spec.get("tickCap") or 5_000_000
-    results, ticks = [], []
-    for tc in cases:
+    def grade_case(tc):
         inp, exp, frames = rounds_of(tc)
         cmd = [LM, "--grade", man, f"--input={inp}", f"--expected={exp}", f"--cap={int(tick_cap)}"]
         if frames:
@@ -74,8 +74,28 @@ def grade(slug, man, cap=None):
         try:
             v = json.loads((p.stdout or "").strip().splitlines()[-1])
         except (ValueError, IndexError):
-            return {"error": f"engine: {(p.stderr or p.stdout or '')[:120]}"}
-        results.append({"name": tc.get("name", "(case)"), **v})
+            v = {"status": "engine-error", "reason": (p.stderr or p.stdout or "")[:120]}
+        return {"name": tc.get("name", "(case)"), **v}
+
+    results = [None] * len(cases)
+    with ThreadPoolExecutor(max_workers=max(1, jobs)) as executor:
+        pending = {
+            executor.submit(grade_case, test_case): index
+            for index, test_case in enumerate(cases)
+        }
+        for future in as_completed(pending):
+            index = pending[future]
+            results[index] = future.result()
+            if progress:
+                result = results[index]
+                print(
+                    f"{result['name']}: {result.get('status')}@"
+                    f"{result.get('settleTick', '?')}",
+                    file=sys.stderr,
+                    flush=True,
+                )
+    ticks = []
+    for v in results:
         if v.get("status") == "pass":
             ticks.append(v.get("settleTick") or 0)
     passed = sum(1 for r in results if r.get("status") == "pass")
@@ -107,10 +127,14 @@ def main():
     ap.add_argument("--cap", type=int)
     ap.add_argument("--verify", action="store_true",
                     help="also grade with the oracle and report any disagreement")
+    ap.add_argument("--jobs", type=int, default=1,
+                    help="parallel Rust case processes (default 1)")
+    ap.add_argument("--progress", action="store_true",
+                    help="print each completed case to stderr")
     args = ap.parse_args()
 
     t0 = time.time()
-    fast = grade(args.slug, args.man, args.cap)
+    fast = grade(args.slug, args.man, args.cap, args.jobs, args.progress)
     t_fast = time.time() - t0
     if not args.verify:
         print(json.dumps(fast))

@@ -949,6 +949,10 @@ def main():
     ap.add_argument("--cases")
     ap.add_argument("--pipe-len", choices=("free", "min", "exact"), default="free")
     ap.add_argument("--plan", help="json {offsets:[[x,y]..], attach:[[[sx,sy],[dx,dy]]..]}")
+    ap.add_argument("--guard", action="store_true",
+                    help="force the adjacency guard on even when the original violates it "
+                         "(gradebook needs this: a re-routed pipe running alongside a "
+                         "sub-room reads as attached to it and steals its s/r)")
     ap.add_argument("--tighten", action="store_true",
                     help="re-derive any pipe whose route leaves the blocks' bounding box")
     ap.add_argument("--pin-attach", action="store_true",
@@ -959,6 +963,8 @@ def main():
     args = ap.parse_args()
 
     plan = Plan(args.man)
+    if args.guard:
+        plan.adjacency_ok_base = True
     print(f"{Path(args.man).name}: {len(plan.blocks)} blocks "
           f"({sum(1 for b in plan.blocks if b.kind=='room')} rooms, "
           f"{sum(1 for b in plan.blocks if b.kind=='display')} displays), "

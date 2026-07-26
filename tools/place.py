@@ -143,7 +143,11 @@ def render(cells):
 
 
 def trimmed(cells):
-    """Shift a cell map so its bounding box starts at (0,0) — margins are free."""
+    """Shift a cell map so its bounding box starts at (0,0) — margins are free.
+
+    This is not cosmetic: a routed pipe may bulge to a negative coordinate, and `render`
+    indexes a plain list, so an untrimmed negative cell wraps to the far edge of the grid
+    and silently deletes a room."""
     if not cells:
         return cells
     mx = min(x for x, _ in cells)
@@ -177,7 +181,8 @@ class Plan:
             sb = self._block_at((p.cells[0][0] - p.dirs[0][0], p.cells[0][1] - p.dirs[0][1]))
             db = self._block_at((p.cells[-1][0] + p.dirs[-1][0], p.cells[-1][1] + p.dirs[-1][1]))
             if sb is None or db is None:
-                raise SystemExit(f"pipe {i}: endpoint not on a room border — cannot plan")
+                raise SystemExit(f"pipe {p.idx}: endpoint not on a room border "
+                                 f"(src {p.cells[0]} dst {p.cells[-1]}) — cannot plan")
             p.src_b, p.src_off = sb
             p.dst_b, p.dst_off = db
 
@@ -234,7 +239,15 @@ class Plan:
         for b, (ox, oy) in zip(self.blocks, offsets):
             for (dx, dy), ch in b.glyphs.items():
                 cells[(ox + dx, oy + dy)] = ch
-        for (pcells, pdirs) in paths:
+        for pi, (pcells, pdirs) in enumerate(paths):
+            orig = self.pipes[pi] if pi < len(self.pipes) else None
+            if orig is not None and list(pcells) == list(orig.cells):
+                # an untouched pipe keeps its own glyphs: a champion may spell a straight
+                # run as arrowheads rather than body, which is legal and which our
+                # canonical renderer would silently rewrite (breaking the round-trip gate)
+                for (cx, cy) in pcells:
+                    cells[(cx, cy)] = self.rows[cy][cx]
+                continue
             n = len(pcells)
             for i, (cx, cy) in enumerate(pcells):
                 d = pdirs[i]
@@ -380,13 +393,26 @@ class Plan:
             return r
         if len(cells) > p.length:
             return None                      # cannot make a route shorter than shortest
-        need = p.length - len(cells)
+        # bulge inside the blocks' own bounding box if at all possible: padding that
+        # escapes the box costs max(w,h), which is squared in the score.
+        for pad_box in (core, bound):
+            r2 = self._pad(cells, dst, p.length, occ, taken, src, pad_box, ok_graze,
+                           pipe_len)
+            if r2 is not None:
+                return r2
+        return None
+
+    def _pad(self, cells, dst, target, occ, taken, src, bound, ok_graze, pipe_len):
+        cells = list(cells)
+        need = target - len(cells)
         if need % 2:
             # every route between one attachment pair has a fixed length PARITY, so an odd
             # deficit is unreachable; `min` may overshoot by one, `exact` simply cannot.
             if pipe_len != "min":
                 return None
             need += 1
+        if need <= 0:
+            return (cells, self._dirs(cells, dst)) if need == 0 or pipe_len == "min" else None
         blocked = occ | taken | set(cells) | {src, dst}
         lo_x, lo_y, hi_x, hi_y = bound
         while need > 0:
@@ -427,18 +453,22 @@ class Plan:
                     break
             if not grew:
                 return None
+        for i in range(len(cells) - 1):
+            if abs(cells[i + 1][0] - cells[i][0]) + abs(cells[i + 1][1] - cells[i][1]) != 1:
+                return None
+        if len(set(cells)) != len(cells):
+            return None
+        return cells, self._dirs(cells, dst)
+
+    @staticmethod
+    def _dirs(cells, dst):
         dirs = []
         for i in range(len(cells)):
             if i < len(cells) - 1:
                 dirs.append((cells[i + 1][0] - cells[i][0], cells[i + 1][1] - cells[i][1]))
             else:
                 dirs.append((dst[0] - cells[i][0], dst[1] - cells[i][1]))
-        for i in range(len(cells) - 1):
-            if abs(cells[i + 1][0] - cells[i][0]) + abs(cells[i + 1][1] - cells[i][1]) != 1:
-                return None
-        if len(set(cells)) != len(cells):
-            return None
-        return cells, dirs
+        return dirs
 
     def _route_one(self, src, dst, occ, taken, minlen, maxlen, bound, core=None,
                    ok_graze=None):
@@ -655,7 +685,13 @@ def verify_topology(plan, cells, layout):
     break in the oracle's reading, and the room then has no pipe on the side an `s`/`r`
     needs — a `no-pipe` crash on tick 2, with nothing wrong in the router's picture. This
     is what caught exactly that on gradebook."""
-    rows = render(cells).split("\n")
+    # trim FIRST: a route may legitimately bulge above y=0 or left of x=0, and the
+    # renderer indexes a plain list, so a negative coordinate silently wraps and eats a
+    # room. The graded text is the trimmed one, so the check must look at the same grid.
+    dx = min(0, min(x for x, _ in cells))
+    dy = min(0, min(y for _, y in cells))
+    shifted = {(x - dx, y - dy): ch for (x, y), ch in cells.items()}
+    rows = render(shifted).split("\n")
     w = max((len(r) for r in rows), default=0)
     topo = LIFT.analyze([r.ljust(w) for r in rows])
     if topo.get("type") == "error":
@@ -674,15 +710,17 @@ def verify_topology(plan, cells, layout):
     at = {}
     for gi, r in enumerate(got_rooms):
         for bi, (b, o) in enumerate(zip(plan.blocks, layout[0])):
-            if b.kind == "room" and tuple(r["min"]) == o and \
-                    tuple(r["max"]) == (o[0] + b.w - 1, o[1] + b.h - 1):
+            oo = (o[0] - dx, o[1] - dy)
+            if b.kind == "room" and tuple(r["min"]) == oo and \
+                    tuple(r["max"]) == (oo[0] + b.w - 1, oo[1] + b.h - 1):
                 at[gi] = bi
     if len(at) != len(got_rooms):
         return "a room moved to an unexpected rectangle"
     for gi, d in enumerate(got_disp):     # the oracle reports a display endpoint as -1
         for bi, (b, o) in enumerate(zip(plan.blocks, layout[0])):
-            if b.kind == "display" and tuple(d["min"]) == o and \
-                    tuple(d["max"]) == (o[0] + b.w - 1, o[1] + b.h - 1):
+            oo = (o[0] - dx, o[1] - dy)
+            if b.kind == "display" and tuple(d["min"]) == oo and \
+                    tuple(d["max"]) == (oo[0] + b.w - 1, oo[1] + b.h - 1):
                 break
         else:
             return "a display moved to an unexpected rectangle"

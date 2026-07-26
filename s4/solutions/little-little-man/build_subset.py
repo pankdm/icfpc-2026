@@ -316,6 +316,88 @@ def lay_controller(
     return layout if return_layout else layout["ports"]
 
 
+def _cmd_route(port_col, cy, command):
+    """Controller port -> a belt RAM's bottom-wall command attachment.
+
+    The attachment sits below the server, so the pipe must get past it and turn
+    back NORTH into it -- ending on the arrival heading leaves the pipe dangling
+    with ``dst: -1`` and no error, which silently re-binds the server's command
+    reads to its own belt.  Hugging the room's left wall keeps the detour to the
+    room's own height instead of the 80-row stagger the wide layout used.
+    """
+    lane = command[0] - 5
+    below = command[1] + 3
+    return [
+        (port_col, cy),
+        (port_col, cy + 1),
+        (lane, cy + 1),
+        (lane, below),
+        (command[0], below),
+        command,
+    ]
+
+
+def _attach_tight(p, ports, cy, ram_size, cell_ram_size, display_addr, gap):
+    """Hardware packed into one shallow band right under the controller wall.
+
+    The wide layout staggered every service 45-100 rows below the controller and
+    dog-legged each pipe around it, which cost two things at once:
+
+      * 143 grid rows of nothing but descending pipe (rows 994-1136 of the
+        277x1137 champion carried 4-10 cells each), and
+      * latency: the scalar-RAM command pipe was 122 cells and its reply 99, so
+        every scalar access paid ~221 ticks of pure transport.  Profiling showed
+        79% of the controller's ticks were stalled on `r`.
+
+    Here every service sits directly under the port column it serves, in one
+    43-row band, with `command_top` letting the command pipe be 2 cells long.
+    Both dimensions of the score move: box and average ticks.
+    """
+    top = cy + gap
+    ri, sp, rp = ports["ri"][0], ports["sp"][0], ports["rp"][0]
+    sc, rr, sd = ports["sc"][0], ports["rr"][0], ports["sd"][0]
+    ss = ports["ss"][0]
+
+    # Input: 3x3 room immediately below its port.
+    p.input_room(ri - 1, top)
+    p.pipe([(ri, top - 1), (ri, cy)])
+
+    # One-value scratch echo: stages a variable RAM address across payload
+    # computation without nesting a RAM request inside a write transaction.
+    sy = top + 4
+    sx = sp - 2
+    p.room(sx, sy, 8, 4)
+    p.text(sx + 1, sy + 1, "@>rsv")
+    p.put(sx + 5, sy + 2, "<")
+    p.put(sx + 2, sy + 2, "^")
+    p.pipe([(sp, cy), (sp, sy - 2), (sx + 3, sy - 2), (sx + 3, sy - 1)])
+    p.pipe([(sx + 4, sy - 1), (sx + 4, sy - 3), (rp, sy - 3), (rp, cy)])
+
+    # Scalar RAM directly under its command port; the command pipe hugs the
+    # room's left wall instead of descending 80 rows first (122 cells -> 36).
+    ram = belt_ram.build(p, sc - 2, top, ram_size)
+    p.pipe(_cmd_route(sc, cy, ram["command"]))
+    reply = ram["reply"]
+    p.pipe([reply, (rr, reply[1]), (rr, cy)])
+
+    # 16x16 display: ADDR on top (aligned to its port), DATA left, SWAP bottom.
+    addr_col = ports["sa"][0] if display_addr else sd + 38
+    dx, dy = addr_col - 8, top
+    p.display(dx, dy, 18, 18)
+    p.pipe([(sd, cy), (sd, dy + 8), (dx - 1, dy + 8)])
+    if display_addr:
+        p.pipe([(addr_col, cy), (addr_col, dy - 1)])
+    p.pipe([(ss, cy), (ss, dy + 20), (dx + 8, dy + 20), (dx + 8, dy + 18)])
+
+    if cell_ram_size is not None:
+        cc, cr = ports["cc"][0], ports["cr"][0]
+        cell = belt_ram.build(p, cc - 2, top, cell_ram_size)
+        p.pipe(_cmd_route(cc, cy, cell["command"]))
+        creply = cell["reply"]
+        p.pipe([creply, (cr, creply[1]), (cr, cy)])
+    return p
+
+
 def build_program(
     flow,
     ram_size,
@@ -329,6 +411,8 @@ def build_program(
     tight_gaps=False,
     dedup_edges=False,
     lay_fn=None,
+    hw_layout="wide",
+    hw_gap=2,
 ):
     """Attach a compiled Flow to the shared input/RAM/scratch/display hardware."""
     p = lm.Program()
@@ -350,8 +434,12 @@ def build_program(
     ram_cmd = ports["sc"]
     data = ports["sd"]
     swap = ports["ss"]
-    # Place RAM and display below the controller, then route outside its bbox.
     cy = inp[1]
+    if hw_layout == "tight":
+        return _attach_tight(
+            p, ports, cy, ram_size, cell_ram_size, display_addr, hw_gap
+        )
+    # Place RAM and display below the controller, then route outside its bbox.
     rox, roy = controller_code + 48, cy + 80
     ram = belt_ram.build(p, rox, roy, ram_size)
     # Input room.

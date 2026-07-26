@@ -167,6 +167,134 @@ class Cursor:
         self.put(turn_x + 1, branch_y + 2, "<")
         return branch_y, branch_y + 1, branch_y + 2
 
+    def branch2(self, glyph, merge_negative):
+        """Two-row branch: A>0 leaves on the first row, everything else on the second.
+
+        The man reaches ``glyph`` heading SOUTH, so A>0 turns him clockwise to
+        West (row ``branch_y``) and A=0 carries him one row further into a `<`
+        (row ``branch_y+1``).  With ``merge_negative`` the A<0 arm is turned
+        counter-clockwise to East, dropped one row, and sent West along
+        ``branch_y+1`` too -- it crosses the zero arm's own `<` heading in the
+        same direction, so both take the same corridor and the same target.
+        Use it when the branch has at most two distinct targets: 93 of this
+        program's 98 branches do, and this is a whole row cheaper than
+        ``branch3`` for each of them.
+        """
+        turn_x = self.x + self.d[0]
+        self.put(turn_x, self.y, "v")
+        branch_y = self.y + 1
+        self.put(turn_x, branch_y, glyph)
+        self.put(turn_x, branch_y + 1, "<")
+        if merge_negative:
+            self.put(turn_x + 1, branch_y, "v")
+            self.put(turn_x + 1, branch_y + 1, "<")
+        return branch_y, branch_y + 1
+
+
+# --------------------------------------------------------------- A/B liveness
+
+_DEF_A = (False, False, True, False)
+_NOP = (False, False, False, False)
+_EFFECT = {
+    "M": (True, False, False, True),
+    "W": (True, True, True, True),
+    "N": (True, False, True, False),
+    "/": (True, True, True, True),
+    "%": (True, True, True, False),
+    "s": (True, False, False, False),
+    "b": (True, False, False, False),
+    "X": (True, False, False, False),
+    "r": _DEF_A,
+    "R": _DEF_A,
+}
+for _ch in "+-*&|~{}":
+    _EFFECT[_ch] = (True, True, True, False)
+for _ch in "0123456789":
+    _EFFECT[_ch] = _DEF_A
+for _ch in "damn]<>^v@.H":
+    _EFFECT[_ch] = _NOP
+
+
+def _effect(token, glyphs):
+    """(reads A, reads B, defines A, defines B) for one Flow token."""
+    if token in glyphs:
+        return _EFFECT[glyphs[token]]
+    if len(token) > 1 and token[0] == "`":
+        return _DEF_A
+    return _EFFECT[token]
+
+
+def ab_liveness(flow, glyphs):
+    """Backward live-variable analysis for the A and B registers, per block.
+
+    A branch may only be rewritten into a cheaper shape if the transform's
+    scratch use of A/B is invisible, so this decides that rather than assuming
+    it: the `M` `/` zero-squash clobbers both registers and `N` clobbers A.
+    """
+    succ = {}
+    for label, tokens in flow.blocks.items():
+        term = [t for t in tokens if isinstance(t, tuple)]
+        succ[label] = tuple(term[0][1:]) if term else ()
+    live_a = {label: False for label in flow.blocks}
+    live_b = dict(live_a)
+    for _ in range(len(flow.blocks) + 2):
+        changed = False
+        for label, tokens in flow.blocks.items():
+            a = any(live_a[s] for s in succ[label])
+            b = any(live_b[s] for s in succ[label])
+            term = [t for t in tokens if isinstance(t, tuple)]
+            if term and term[0][0] == "br":
+                a = True
+            for token in reversed([t for t in tokens if not isinstance(t, tuple)]):
+                reads_a, reads_b, defs_a, defs_b = _effect(token, glyphs)
+                if defs_a:
+                    a = False
+                if defs_b:
+                    b = False
+                if reads_a:
+                    a = True
+                if reads_b:
+                    b = True
+            if (a, b) != (live_a[label], live_b[label]):
+                live_a[label], live_b[label] = a, b
+                changed = True
+        if not changed:
+            break
+    return live_a, live_b
+
+
+def branch_plans(flow, glyphs):
+    """label -> (extra ops before X, gadget, [(arm, target), ...]).
+
+    ``gadget`` is "2" (A>0 row, A=0 row, no A<0 arm), "2m" (A<0 merged into the
+    A=0 row) or "3" (the original three-row fan-out).
+    """
+    live_a, live_b = ab_liveness(flow, glyphs)
+    plans = {}
+    for label, tokens in flow.blocks.items():
+        term = [t for t in tokens if isinstance(t, tuple)]
+        if not term or term[0][0] != "br":
+            continue
+        pos, zero, neg = term[0][1:]
+        arms = (pos, zero, neg)
+        free_a = not any(live_a[t] for t in arms)
+        free_b = not any(live_b[t] for t in arms)
+        if pos == zero == neg:
+            plans[label] = ((), "2m", [pos, pos])
+        elif pos == neg and free_a and free_b:
+            # A := (A != 0): `M` copies A into B, `/` leaves A/A -- 1 for every
+            # non-zero A and, because B is then also 0, 0 for A = 0.
+            plans[label] = (("M", "/"), "2", [pos, zero])
+        elif zero == neg:
+            plans[label] = ((), "2m", [pos, zero])
+        elif pos == zero and free_a:
+            # Negating swaps the A>0 and A<0 arms, which makes the duplicated
+            # pair adjacent and therefore mergeable.
+            plans[label] = (("N",), "2m", [neg, pos])
+        else:
+            plans[label] = ((), "3", [pos, zero, neg])
+    return plans
+
 
 def _assign_corridors(edges, entry):
     order = sorted(
@@ -217,6 +345,7 @@ def lay_cfg_boustrophedon(
     y0=0,
     op_slack=6,
     lit_forbid=(),
+    flat_branch=False,
 ):
     cols = {
         name: x0 + code_x + spec[0]
@@ -236,6 +365,7 @@ def lay_cfg_boustrophedon(
     )
     opmax = max(cols.values()) + op_slack
     labels = list(flow.blocks)
+    plans = branch_plans(flow, glyphs) if flat_branch else None
 
     corridor_count = 6
     for _ in range(40):
@@ -250,6 +380,7 @@ def lay_cfg_boustrophedon(
             corridor_count,
             opmax,
             lit_forbid,
+            plans,
         )
         assignment, needed = _assign_corridors(edges, entry)
         if needed <= corridor_count:
@@ -289,7 +420,7 @@ def lay_cfg_boustrophedon(
 
 
 def _lay_once(flow, labels, cols, glyphs, bands, x0, y0, ncorr, opmax,
-              lit_forbid=()):
+              lit_forbid=(), plans=None):
     opmin = x0 + ncorr + 2
     cursor = Cursor(opmin, opmax)
     cursor.lit_cols.update(lit_forbid)
@@ -321,11 +452,24 @@ def _lay_once(flow, labels, cols, glyphs, bands, x0, y0, ncorr, opmax,
             cursor.to_west()
             edges.append((cursor.y, term[1]))
         elif term[0] == "br":
-            positive_y, zero_y, negative_y = cursor.branch3("X")
-            edges.append((positive_y, term[1]))
-            edges.append((zero_y, term[2]))
-            edges.append((negative_y, term[3]))
-            cursor.y = negative_y
+            plan = plans.get(label) if plans else None
+            if plan is None:
+                positive_y, zero_y, negative_y = cursor.branch3("X")
+                edges.append((positive_y, term[1]))
+                edges.append((zero_y, term[2]))
+                edges.append((negative_y, term[3]))
+                cursor.y = negative_y
+            else:
+                extra, gadget, targets = plan
+                for token in extra:
+                    cursor.place(token, opmin, opmax)
+                if gadget == "3":
+                    rows = cursor.branch3("X")
+                else:
+                    rows = cursor.branch2("X", gadget == "2m")
+                for row, target in zip(rows, targets):
+                    edges.append((row, target))
+                cursor.y = rows[-1]
         else:
             raise Conflict(f"unknown terminator {term!r}")
         y = cursor.y + 1

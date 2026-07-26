@@ -7,11 +7,21 @@ the component and are suitable as endpoints for ``Program.pipe``.
 """
 
 
-def build(program, ox, oy, size):
+def build(program, ox, oy, size, command_top=False):
     """Stamp a RAM server and its recirculation relay.
 
     Returns ``{"command": point, "reply": point}``.  The server owns the area
     from roughly ``(ox, oy)`` through ``(ox + 78, oy + 39)``.
+
+    ``command_top`` moves the command attachment from the room's BOTTOM wall to
+    its TOP wall (same column), which lets the command pipe be 2 cells instead
+    of walking around the whole server.  **It changes nearest-pipe binding and
+    is not currently usable**: the write branch's value read at ``(ox+4,
+    oy+15)`` is 12 cells from ``belt_in`` and 18 from a top command, so it
+    silently starts consuming belt values instead of the write payload.  With
+    the default bottom command those two distances tie at 12 and reading order
+    hands it to the command.  Verified with ``pipecheck.bind`` over every ``r``
+    and ``s`` in the room; keep the flag off unless the write branch moves too.
     """
     put, text = program.put, program.text
     # OFF encoding makes the belt's seed sentinel distinguishable by sign.
@@ -99,7 +109,7 @@ def build(program, ox, oy, size):
     put(ox + 16, oy + 23, "^")
     program.room(ox, oy, 24, 25)
 
-    command = (ox + 2, oy + 25)
+    command = (ox + 2, oy - 1) if command_top else (ox + 2, oy + 25)
     belt_in = (ox + 6, oy + 25)
     belt_out = (ox + 10, oy + 25)
     reply = (ox + 24, oy + 16)

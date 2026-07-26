@@ -151,10 +151,10 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'tools'))
 from littleman import Program
 
 # MEMORY bottom-wall pipe attachment columns (see module docstring).
-X_OUT, X_CMD, X_P2, X_P1 = 1, 6, 10, 16
-MEM_W, MEM_H = 19, 21          # room(0,0,MEM_W,MEM_H) -> interior 1..17 x 1..19
-MEM_BOT = MEM_H - 1            # bottom wall row 20
-PIPE_ROW = MEM_H               # attachment cells sit on row 21
+X_OUT, X_CMD, X_P2, X_P1 = 1, 3, 9, 14
+MEM_W, MEM_H = 17, 18          # room(0,0,MEM_W,MEM_H) -> interior 1..15 x 1..16
+MEM_BOT = MEM_H - 1            # bottom wall row 17
+PIPE_ROW = MEM_H               # attachment cells sit on row 18
 
 
 def vring(P, down, up, top, nrelay):
@@ -214,72 +214,67 @@ def build():
     # ================= MEMORY : cols 0-18, rows 0-20 =================
     p.room(0, 0, MEM_W, MEM_H)
 
-    # -- init: A=10, BP=10, A=0, then 10 laps x 10 sends of 0 = 100 zeros --
-    for i, c in enumerate("@`10`b0v"):
+    # -- init: A=20, BP=20, A=0, then 20 laps x 5 sends of 0 = 100 zeros --
+    # 5 sends/lap (not 10) keeps every init 's' at x>=8, which is what binds
+    # them to the belt rather than the output pipe (OUT/P1 midpoint is 7.5).
+    for i, c in enumerate("@`20`b0v"):
         P(1 + i, 1, c)
     P(8, 2, '>')
-    for i, c in enumerate("ssssss"):       # cols 9-14, all x>=9 -> belt
+    for i, c in enumerate("sssss"):        # cols 9-13
         P(9 + i, 2, c)
-    P(15, 2, 'v'); P(15, 3, '<')
-    for i, c in enumerate("ssss"):         # cols 14-11, all x>=9 -> belt
-        P(14 - i, 3, c)
-    P(10, 3, 'm'); P(9, 3, ' '); P(8, 3, 'd')
-    P(7, 3, 'v'); P(7, 4, '<'); P(1, 4, 'v')
+    P(14, 2, 'v'); P(14, 3, '<')
+    for x in range(10, 14):
+        P(x, 3, ' ')
+    P(9, 3, 'm'); P(8, 3, 'd')
+    for x in range(2, 8):                  # BP==0 -> west, then down into row 4
+        P(x, 3, ' ')
+    P(1, 3, 'v')
 
-    # -- row 5: delta -> rot -> split rot = 8a + r8, BP := r8 --
+    # -- row 4: delta -> rot -> split rot = 8a + r8 --
     # r:A=delta  M:B=delta  `100`:A=100  W:A=delta,B=100  %:A=rot
-    # M:B=rot  8:A=8  W:A=rot,B=8  /:A=a,B=r8  W:A=r8,B=a
-    P(1, 5, '>')
-    for i, c in enumerate("rM`100`W%M8W/W"):
-        P(2 + i, 5, c)
-    P(16, 5, 'v')
+    # M:B=rot  8:A=8  W:A=rot,B=8  /:A=a,B=r8
+    P(1, 4, '>')
+    for i, c in enumerate("rM`100`W%M8W/"):
+        P(2 + i, 4, c)
+    P(15, 4, 'v')
 
-    # -- row 6: the two rings, flowing WESTWARD --
-    P(16, 6, '<')
-    P(15, 6, 'b')                          # BP = r8
-    bot1 = vring(P, 14, 13, 6, 1)          # remainder ring: 1 relay / 8-cell lap
-    P(12, 6, 'W')                          # A = a  (B survived the relays)
-    P(11, 6, 'b')                          # BP = a
-    bot8 = vring(P, 10, 9, 6, 8)           # main ring: 8 relays / 22-cell lap
-    P(8, 6, ' '); P(7, 6, 'v')
+    # -- row 5: the two rings, flowing WESTWARD --
+    P(15, 5, '<')
+    P(14, 5, 'b')                          # BP = a
+    vring(P, 13, 12, 5, 8)                 # main ring: 8 relays / 22-cell lap
+    P(11, 5, 'W')                          # A = r8 (B survived the relays)
+    P(10, 5, 'b')                          # BP = r8
+    vring(P, 9, 8, 5, 1)                   # remainder ring: 1 relay / 8-cell lap
+    P(7, 5, ' '); P(6, 5, ' '); P(5, 5, 'v')
 
     # -- tap: read the command pair, dispatch on op --
-    P(7, 7, 'r')                           # second value (CMD: 1 vs P2 3)
-    P(7, 8, 'M')                           # B = value
-    P(7, 9, 'r')                           # op            (CMD: 1 vs P2 3)
-    P(7, 10, 'X')                          # op=1 -> cw(south->west); op=0 -> south
-    for y in range(11, 18):
-        P(7, y, ' ')
+    P(5, 6, 'r')                           # second value (CMD 2 vs P2 4)
+    P(5, 7, 'M')                           # B = value
+    P(5, 8, 'r')                           # op           (CMD 2 vs P2 4)
+    P(5, 9, 'X')                           # op=1 -> cw(south->west); op=0 -> south
     # READ arm (op == 0): tap the belt, output AND reinject
-    P(7, 18, '>')
-    for x in range(8, 11):
-        P(x, 18, ' ')
-    P(11, 18, 'r')                         # belt value   (P2: 1 vs CMD 5)
-    P(12, 18, 'S')                         # -> output pipe AND belt (reinject)
-    for x in range(13, 17):
-        P(x, 18, ' ')
-    P(17, 18, '^')
+    P(5, 10, '>'); P(6, 10, ' ')
+    P(7, 10, 'r')                          # belt value   (P2 2 vs CMD 4)
+    P(8, 10, 'S')                          # -> output pipe AND belt (reinject)
+    P(9, 10, ' '); P(10, 10, ' '); P(11, 10, 'v')
+    for y in range(11, 16):
+        P(11, y, ' ')
+    P(11, 16, '<')
     # WRITE arm (op == 1): discard the old belt value, send the new one
-    P(6, 10, 'v')
-    for y in range(11, 19):
-        P(6, y, ' ')
-    P(6, 19, '>')
-    for x in range(7, 11):
-        P(x, 19, ' ')
-    P(11, 19, 'r')                         # old value, discarded
-    P(12, 19, 'W')                         # A = value (from B)
-    P(13, 19, 's')                         # -> belt      (P1: 3 vs OUT 12)
-    for x in range(14, 17):
-        P(x, 19, ' ')
-    P(17, 19, '^')
-    # -- return: up the free col 17, then west along row 4 into row 5 --
-    for y in range(5, 18):
-        P(17, y, ' ')
-    P(17, 4, '<')
-    for x in range(8, 17):
-        P(x, 4, ' ')
-    for x in range(2, 7):
-        P(x, 4, ' ')
+    P(4, 9, 'v')
+    for y in range(10, 14):
+        P(4, y, ' ')
+    P(4, 14, '>'); P(5, 14, ' '); P(6, 14, ' ')
+    P(7, 14, 'r')                          # old value, discarded
+    P(8, 14, 'W')                          # A = value (from B)
+    P(9, 14, 's')                          # -> belt      (P1 5 vs OUT 8)
+    P(10, 14, 'v'); P(10, 15, ' '); P(10, 16, '<')
+    # -- return: WEST along row 16, then north up the free col 1 into row 4 --
+    for x in range(2, 10):
+        P(x, 16, ' ')
+    P(1, 16, '^')
+    for y in range(5, 16):
+        P(1, y, ' ')
 
     # ================= CONTROL : cols 0-9, rows 33-41 =================
     CX, CY = 0, 33
@@ -324,21 +319,23 @@ def build():
     H(2, 2, ' '); H(1, 2, '^')
 
     # ================= IO =================
-    p.output_room(0, 23)
+    p.output_room(0, 20)
     p.input_room(10, 33)                   # moved in with CONTROL's new right wall
 
     # ================= pipes =================
     out = [(X_OUT, PIPE_ROW), (X_OUT, PIPE_ROW + 1)]
     cmd = [(X_CMD, 32), (X_CMD, PIPE_ROW)]
     ipipe = [(9, 34), (8, 34)]             # input left wall -> CONTROL right wall (now col 7)
-    p1 = [(X_P1, PIPE_ROW), (X_P1, 23), (19, 23)]
+    p1 = [(X_P1, PIPE_ROW), (X_P1, 23), (19, 23)]   # -> HOP's left wall (20,23)
     # Belt return: serpentine in rows 27-31 over cols 11-31, then north up the
     # deliberately-kept-clear col 10.  The FIRST segment must run SOUTH so the
     # start cell's backward neighbour is (25,25) = HOP's bottom wall; a westward
     # first segment points its backward neighbour at empty space and HOP then
     # has no outgoing pipe at all (fatal no-pipe on its first 's').
+    # ...then north up col X_P2, which the serpentine deliberately keeps clear
+    # (its horizontal runs start at col 11).
     p2 = [(25, 26), (25, 27), (11, 27), (11, 28), (31, 28), (31, 29),
-          (11, 29), (11, 30), (31, 30), (31, 31), (10, 31),
+          (11, 29), (11, 30), (31, 30), (31, 31), (X_P2, 31),
           (X_P2, PIPE_ROW)]
     for pts in (out, cmd, ipipe, p1, p2):
         p.pipe(pts)

@@ -28,7 +28,7 @@ the target text into a compact stream with these base-92 symbols:
 | --- | --- |
 | `0` | Emit the next `; YYYY: ` prefix (2000 through 2026). |
 | `1..16` | A short dictionary entry; `13` means `, `. |
-| `17..91` | Ordinary ASCII stored as `symbol + 31`. |
+| Unescaped `17..91` (except `29`) | Ordinary ASCII stored as `symbol + 31`. |
 | `29, k` | Escape pair selecting ring position `k` for a longer phrase. |
 
 The encoder greedily replaces recurring phrases when the saved feeder space is
@@ -36,6 +36,67 @@ larger than the decimal literal needed to preload the phrase.  Dictionary
 values are raw ASCII packed little-endian in base 128; a phrase is at most nine
 bytes so it fits in a signed 64-bit literal.  The final base-92 symbol stream is
 packed little-endian into as many literals as each feeder slot can hold.
+
+### Current dictionary and symbol fill
+
+This is the exact generated table for the checked-in `history-ring.man`.
+`␠` denotes an ASCII space.  Positions 1–16 are direct symbols; positions
+17–35 are reached only by an escape pair (`29, position`).  The two count
+columns show how many times the corresponding reference appears in the final
+2,042-symbol stream.
+
+| Position | Expansion | Direct | Escape target |
+| ---: | --- | ---: | ---: |
+| 1 | `␠` | 181 | — |
+| 2 | `and␠` | 21 | — |
+| 3 | `"` | 17 | — |
+| 4 | `"␠(` | 20 | — |
+| 5 | `on` | 37 | — |
+| 6 | `an` | 37 | — |
+| 7 | `or` | 32 | — |
+| 8 | `er` | 31 | — |
+| 9 | `(` | 1 | — |
+| 10 | `)` | 14 | — |
+| 11 | `,␠USA` | 11 | — |
+| 12 | `in` | 29 | — |
+| 13 | `,␠` | 64 | — |
+| 14 | `-` | 9 | — |
+| 15 | `.` | 5 | — |
+| 16 | `en` | 24 | — |
+| 17 | `ed␠` | — | 5 |
+| 18 | `burg` | — | 4 |
+| 19 | `␠Peyt` | — | 5 |
+| 20 | `bstract` | — | 3 |
+| 21 | `␠program` | — | 2 |
+| 22 | `Dimitrio` | — | 2 |
+| 23 | `o␠Russo` | — | 2 |
+| 24 | `␠type` | — | 3 |
+| 25 | `Sim` | — | 7 |
+| 26 | `'` | — | 1 |
+| 27 | `0` | — | — |
+| 28 | `cti` | — | 6 |
+| 29 | `␠the␠` | — | 3 |
+| 30 | `David␠` | — | 3 |
+| 31 | `(virtual` | — | 2 |
+| 32 | `Haskell` | — | 4 |
+| 33 | `);␠199` | — | 3 |
+| 34 | `ada␠"` | — | 3 |
+| 35 | `es)` | — | 6 |
+
+The rest of the stream is filled as follows:
+
+| Symbol form | Count | Meaning |
+| --- | ---: | --- |
+| `0` | 27 | Stateful YEAR marker: emit the next `; YYYY: ` prefix. |
+| Direct dictionary symbols `1..16` | 533 | Expanded through the first 16 rows above. |
+| Escape controls `29` | 64 | Consume the following symbol as a dictionary position 17–35. |
+| Escape target symbols | 64 | The second half of those escape pairs. |
+| Raw shifted ASCII | 1,354 | Any other unescaped symbol is decoded as `symbol + 31`. |
+
+`29` occurs 67 times in the raw physical stream: 64 times as the escape
+control and three times as the target selecting dictionary position 29.  The
+table is generated from `build_ring.py`; regenerate it if the input text or
+phrase-selection rules change.
 
 Two details are intentional rather than cosmetic:
 

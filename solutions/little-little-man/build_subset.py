@@ -256,6 +256,7 @@ def lay_controller(
     pooled_edges=False,
     return_layout=False,
     tight_gaps=False,
+    dedup_edges=False,
 ):
     if port_profile == "compact" and banked:
         spec = {
@@ -306,6 +307,7 @@ def lay_controller(
         direct_edges=direct_edges,
         pooled_edges=pooled_edges,
         tight_gaps=tight_gaps,
+        dedup_edges=dedup_edges,
     )
     return layout if return_layout else layout["ports"]
 
@@ -321,6 +323,7 @@ def build_program(
     cell_ram_size=None,
     pooled_edges=False,
     tight_gaps=False,
+    dedup_edges=False,
 ):
     """Attach a compiled Flow to the shared input/RAM/scratch/display hardware."""
     p = lm.Program()
@@ -334,6 +337,7 @@ def build_program(
         banked=cell_ram_size is not None,
         pooled_edges=pooled_edges,
         tight_gaps=tight_gaps,
+        dedup_edges=dedup_edges,
     )
     inp = ports["ri"]
     ram_reply = ports["rr"]

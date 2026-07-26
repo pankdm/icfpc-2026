@@ -65,6 +65,7 @@ def lay_cfg_controller(
     direct_edges=False,
     pooled_edges=False,
     tight_gaps=False,
+    dedup_edges=False,
 ):
     """Lay out *flow* and return its bounds and named external pipe ports.
 
@@ -88,7 +89,10 @@ def lay_cfg_controller(
     if direct_edges or pooled_edges:
         for tokens in flow.blocks.values():
             if tokens and isinstance(tokens[-1], tuple):
-                for target in tokens[-1][1:]:
+                targets = tokens[-1][1:]
+                if pooled_edges and dedup_edges:
+                    targets = tuple(dict.fromkeys(targets))
+                for target in targets:
                     incoming[target] += 1
     y = y0 + 3
 
@@ -198,10 +202,11 @@ def lay_cfg_controller(
                 ((x, source_y + 1), "S", zero),
                 ((x + 1, source_y), "E", negative),
             ]
-        for (source_x, edge_y), direction, target in edges:
-            if target not in target_col:
-                raise ValueError(f"edge targets unknown block {target!r}")
-            if pooled_edges:
+        if pooled_edges:
+            grouped = {}
+            for (source_x, edge_y), direction, target in edges:
+                if target not in target_col:
+                    raise ValueError(f"edge targets unknown block {target!r}")
                 if direction == "W":
                     put(source_x, edge_y, "<")
                 elif direction == "E":
@@ -218,12 +223,34 @@ def lay_cfg_controller(
                     # The zero branch has already moved south from X into this
                     # cell; turn it west immediately.
                     put(source_x, edge_y, "<")
+                grouped.setdefault(target, []).append((source_x, edge_y))
+            for target, sources in grouped.items():
+                source_groups = [sources] if dedup_edges else [[source] for source in sources]
+                for source_group in source_groups:
+                    slot = target_slot[target]
+                    target_slot[target] += 1
+                    merge_y = heads[target] - (1 if tight_gaps else 2) - slot
+                    pooled_routes.append({
+                        "sources": source_group,
+                        "target": target,
+                        "merge_y": merge_y,
+                        "source_index": source_index,
+                    })
+            continue
+
+        for (source_x, edge_y), direction, target in edges:
+            if target not in target_col:
+                raise ValueError(f"edge targets unknown block {target!r}")
+            if pooled_edges:
                 slot = target_slot[target]
                 target_slot[target] += 1
                 merge_y = heads[target] - (1 if tight_gaps else 2) - slot
-                pooled_routes.append(
-                    (source_x, edge_y, target, merge_y, source_index)
-                )
+                pooled_routes.append({
+                    "sources": [(source_x, edge_y)],
+                    "target": target,
+                    "merge_y": merge_y,
+                    "source_index": source_index,
+                })
                 continue
             if direction == "W":
                 highway = left_highway
@@ -262,9 +289,13 @@ def lay_cfg_controller(
         assigned = []
         for route in sorted(
             pooled_routes,
-            key=lambda item: (min(item[1], item[3]), max(item[1], item[3])),
+            key=lambda item: (
+                min([item["merge_y"]] + [source[1] for source in item["sources"]]),
+                max([item["merge_y"]] + [source[1] for source in item["sources"]]),
+            ),
         ):
-            lo, hi = sorted((route[1], route[3]))
+            ys = [route["merge_y"]] + [source[1] for source in route["sources"]]
+            lo, hi = min(ys), max(ys)
             lane = next(
                 (index for index, end in enumerate(lanes) if end < lo),
                 None,
@@ -275,10 +306,13 @@ def lay_cfg_controller(
             else:
                 lanes[lane] = hi
             assigned.append((route, lane))
-        for (source_x, edge_y, target, merge_y, _source_index), lane in assigned:
+        for route, lane in assigned:
             highway = code - 2 - lane
+            target = route["target"]
+            merge_y = route["merge_y"]
             target_x = target_col[target]
-            put(highway, edge_y, "v" if merge_y > edge_y else "^")
+            for _source_x, edge_y in route["sources"]:
+                put(highway, edge_y, "v" if merge_y > edge_y else "^")
             put(highway, merge_y, "<")
             put(target_x, merge_y, "v")
             put(target_x, heads[target], ">")

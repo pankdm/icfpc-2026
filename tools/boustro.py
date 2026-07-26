@@ -218,7 +218,12 @@ def lay_cfg_boustrophedon(
 
     max_y = max(y for _, y in cursor.cells)
     wall_y = max_y + 1
-    width = max(opmax, max(cols.values())) + 2 - x0
+    # +1 on opmax reserves the TURN column: newline/to_west/branch3 put their glyph at
+    # self.x + d, i.e. opmax+1, while place() only clamps ops to opmax. Without the
+    # reserve that turn glyph lands on the room's own right wall and the build dies with
+    # AssertionError (x, y, '|', 'v') as soon as an op actually reaches opmax — which is
+    # what any attempt to widen the op bands (replica ports, band overrides) triggers.
+    width = max(opmax + 1, max(cols.values())) + 2 - x0
     height = wall_y - y0 + 1
     program.room(x0, y0, width, height)
     for (x, y), ch in cursor.cells.items():

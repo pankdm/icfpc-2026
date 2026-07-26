@@ -56,17 +56,23 @@ Read the three numbers this gives you:
      256/4 hangs.
    - `compact=True` — COMPACT_PORTS map + west→east component floor (walks
      max 250→155 cols, display feeds drop straight in). Another -20%.
+   - `boustrophedon=True` — wrap shims become west-heading op rows (safe:
+     X is entered heading south, const_ops has no backtick literals, bands
+     are column-functions). Snake controller 294→260 rows, -30% score.
 2. **Reflow (attachment-band floorplanning)** — `tools/reflow.py`, the LLLM
    41.9x. When walkfold `fuse` refuses because no in-band column assignment
    exists, the fix is moving the hot pipe's ATTACHMENT, not giving up.
-3. **walkfold passes** (`lift/pull/fuse/norm/squash`) — intra-room
+3. **Connector passes for control-dense grids** — `stairfold.py` (flatten
+   walk staircases), `reroute.py` (A* connector rip-up, empty-row objective):
+   gradebook 771M→438M server. Use when blockify shows many branch states.
+4. **walkfold passes** (`lift/pull/fuse/norm/squash`) — intra-room
    re-placement; gradebook -69% over its life. `squash` is the box win.
-4. **place.py** — rigid room translation + pipe re-routing (the only placement
+5. **place.py** — rigid room translation + pipe re-routing (the only placement
    move that can't change a man's walk). A few %.
-5. **fold.py / polish.py / compact_man.py** — mechanical row/col deletion.
-6. **autotune.py** — single-literal perturbation; read `tools/AUTOTUNE.md`.
+6. **fold.py / polish.py / compact_man.py** — mechanical row/col deletion.
+7. **autotune.py** — single-literal perturbation; read `tools/AUTOTUNE.md`.
    Wasted on hand-folded champions, useful on fresh builders.
-7. **Algorithm rewrites** (bit-op classifiers, linked-list scans instead of
+8. **Algorithm rewrites** (bit-op classifiers, linked-list scans instead of
    full-range scans) — historically the biggest wins (1.5–2x) but manual;
    prototype in `scratchpad/` first.
 

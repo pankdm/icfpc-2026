@@ -91,16 +91,33 @@ class Cursor:
             self.put(self.x + 1, self.y + 1, "<")
             self.x, self.y, self.d = self.x + 1, self.y + 1, W
 
-    def branch3(self, glyph):
+    def branch3(self, glyph, inline_leg=None):
         """v/X entered heading south. Returns the three westbound leg rows
-        (positive, zero, negative) — flowgrid's W/S/E mapping exactly."""
+        (positive, zero, negative) — flowgrid's W/S/E mapping exactly.
+
+        ``inline_leg`` ('p'/'z'/'n'): that leg becomes the fall-through into
+        the next block; it is routed BELOW the other two legs' rows, because
+        those rows must stay blank west of the gadget for their corridor
+        glides — the continuation would otherwise drop turn glyphs into them.
+        On return with an inline leg, the cursor is positioned heading WEST on
+        the continuation row."""
         t = self.x + self.d[0]
         self.put(t, self.y, "v")
         yb = self.y + 1
-        self.put(t, yb, glyph)          # positive leg exits west along yb
-        self.put(t, yb + 1, "<")        # zero leg drops one row, turns west
-        self.put(t + 1, yb, "v")        # negative leg exits east, turns south
-        self.put(t + 1, yb + 2, "<")    # ... and west two rows below
+        self.put(t, yb, glyph)              # positive leg exits west along yb
+        if inline_leg != "z":
+            self.put(t, yb + 1, "<")        # zero leg drops one row, west
+        self.put(t + 1, yb, "v")            # negative leg exits east, south
+        self.put(t + 1, yb + 2, "<")        # ... and west two rows below
+        if inline_leg == "p":
+            self.put(t - 1, yb, "v")        # drop below the z/n edge rows
+            self.put(t - 1, yb + 3, "<")
+            self.x, self.y, self.d = t - 1, yb + 3, W
+        elif inline_leg == "z":
+            self.put(t, yb + 3, "<")        # falls through blank z/n rows
+            self.x, self.y, self.d = t, yb + 3, W
+        elif inline_leg == "n":
+            self.x, self.y, self.d = t + 1, yb + 2, W
         return yb, yb + 1, yb + 2
 
 
@@ -198,12 +215,32 @@ def _lay_once(flow, labels, cols, glyphs, bands, x0, y0, ncorr, opmax):
     opmin = x0 + ncorr + 2
     cur = Cursor(opmin, opmax)
     entry, edges, intent = {}, [], {}
+
+    # single-predecessor next-in-order blocks are entered INLINE: the taken leg
+    # (or goto) simply keeps walking west into the next block's ops — no
+    # corridor hop, no canonical entry row.
+    preds = {l: 0 for l in labels}
+    for l in labels:
+        toks = flow.blocks[l]
+        if toks and isinstance(toks[-1], tuple):
+            for t in toks[-1][1:]:
+                preds[t] += 1
+
     y = y0 + 1
+    inline_next = False                  # cursor already positioned for label
     for li, label in enumerate(labels):
-        entry[label] = y
-        cur.x, cur.y, cur.d = opmin - 1, y, E
+        if inline_next:
+            inline_next = False
+        else:
+            entry[label] = y
+            cur.x, cur.y, cur.d = opmin - 1, y, E
         if li == 0:
             cur.put(opmin - 1, y, "@")
+        nxt = labels[li + 1] if li + 1 < len(labels) else None
+
+        def inlinable(tgt):
+            return tgt == nxt and preds[tgt] == 1
+
         term = None
         for tok in flow.blocks[label]:
             if isinstance(tok, tuple):
@@ -218,15 +255,34 @@ def _lay_once(flow, labels, cols, glyphs, bands, x0, y0, ncorr, opmax):
         if term is None:
             pass                                    # halt block ends with H op
         elif term[0] == "go":
-            cur.to_west()
-            edges.append((cur.y, term[1]))
+            if inlinable(term[1]):
+                inline_next = True                  # just keep walking
+            else:
+                cur.to_west()
+                edges.append((cur.y, term[1]))
         elif term[0] == "br":
-            yp, yz, yn = cur.branch3("X")
-            edges.append((yp, term[1]))
-            edges.append((yz, term[2]))
-            edges.append((yn, term[3]))
-            cur.y = yn
+            p_t, z_t, n_t = term[1], term[2], term[3]
+            if inlinable(p_t) and p_t not in (z_t, n_t):
+                leg = "p"
+            elif inlinable(z_t) and z_t not in (p_t, n_t):
+                leg = "z"
+            elif inlinable(n_t) and n_t not in (p_t, z_t):
+                leg = "n"
+            else:
+                leg = None
+            yp, yz, yn = cur.branch3("X", inline_leg=leg)
+            if leg != "p":
+                edges.append((yp, p_t))
+            if leg != "z":
+                edges.append((yz, z_t))
+            if leg != "n":
+                edges.append((yn, n_t))
+            if leg is None:
+                cur.y = yn
+            else:
+                inline_next = True
         else:
             raise Conflict(f"unknown terminator {term!r}")
-        y = cur.y + 1
+        if not inline_next:
+            y = cur.y + 1
     return cur, entry, edges, intent

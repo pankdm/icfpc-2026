@@ -249,3 +249,77 @@ and goes further than either.
 Revised ceiling: lap 6 at P=3 is ticks/MAC = 2, the collision floor, i.e. the
 1,684-avg / ~3.4M row of the table above becomes reachable at P=3 rather than needing
 P=4 on an 8-cell lap.
+
+---
+
+# Resolved control flow (2026-07-26) — no counter rings needed
+
+The open question after `seedA` was how to drive three nested loops with only ONE
+`BP`. Resolved: **markers in the rings**, not counters, with one hard constraint
+discovered while working it through.
+
+## The ordering constraint that decides everything
+
+A marker can only live in the ring that the lap pops **first**. If the lap pops `b`
+then `c`, and the k-step boundary is signalled in the c-ring, then by the time the
+boundary is seen a `b` has already been popped — and pushing it back sends it to the
+ring's TAIL, corrupting FIFO order. Every marker scheme must respect this.
+
+The lap must pop `b` first (it re-pushes `b` immediately, before `*` clobbers it), so
+**the markers go in the b-ring.**
+
+## Ring inventory
+
+| ring | contents | notes |
+|---|---|---|
+| A-ring | N*M raw a-values | consumed once; drains, never re-pushed |
+| b-ring | M*K raw b-values + one ROWMARK | cycles once per output row |
+| c-ring | K accumulators | pops K per k-step, so it self-aligns |
+| a-holder | the live `a` | re-read every MAC (registers cannot hold it) |
+| K-ring | K | re-read to reset `BP` at each k-step |
+
+Five relay rooms. **No i-counter, k-counter, N or M ring** — the ROWMARK drives the
+row boundary and the program simply ends when the A-ring runs dry (the man blocks
+forever, which is free: output has already settled).
+
+## Loop structure
+
+```
+k-step:  reload BP = K        (r K-ring, s K-ring back, b)
+         pop b
+         if b is ROWMARK:     push it back (it belongs at the tail), emit the row,
+                              then fall through to fetch the next a
+         else:                fetch a from A-ring into the a-holder
+         run the j-loop:      the 10-op lap, x K, counted down in BP with m/d
+```
+
+The marker test costs ~6 ops but runs **once per k-step (256x), not per MAC (4096x)**,
+so it is ~1,500 ticks total — noise against the 16^3 case.
+
+## Why accumulators keep an OFFSET
+
+Store `c + 1e6`. Addition preserves the offset (`(c+OFF) + a*b = c' + OFF`), so the
+lap needs no correction, but every c stays positive and a negative marker is
+distinguishable with a single `X`. |c| <= 16*99*99 = 156,816 << 1e6, so it is safe.
+Subtract the offset only at emit time.
+
+## Remaining work, in order
+
+1. `seedB` — seed A-ring and b-ring (needs an M-ring and K-ring to recompute M*K
+   after N*M has consumed the registers), push the ROWMARK, init the c-ring with K
+   zeros.
+2. `mac` — one k-step: the 10-op lap x K under `BP`, then emit the c-ring. This is
+   the core risk and should be built against a hand-fed input before the seeder is
+   wired to it.
+3. Join them, add the ROWMARK branch and the row emit.
+4. Fold the box, then raise P with `Y` (see the improvements section above).
+
+Pipe-column plan that makes nearest-binding unambiguous for the lap (walk east along
+the top row, west along the bottom):
+```
+top wall (segments y=ctrl_top-1):   bIn  bOut  aIn  aOut     ascending columns
+bottom wall:                        cOut ....  cIn           cIn east of cOut
+input on the LEFT wall, output on the RIGHT
+```
+so the eastward walk meets `r b, s b, ..., r a, s a` in order and the westward return
+meets `r c, ..., s c` in order.

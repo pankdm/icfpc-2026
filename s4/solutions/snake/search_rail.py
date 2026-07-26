@@ -43,8 +43,10 @@ BASE_FLOOR = dict(scalar_off=24, cell_off=112, ctop=5, sp_row=8, ri_row=12,
                   sc_band=1, cc_band=2, rr_band=3, cr_band=3, rp_band=5,
                   sd_band=8, ss_band=20)
 
-
-WALL = set("+-|:=")
+# The banked RAM servers attach their reply pipes *inside* their own component,
+# so even a correct build reports a few loose pipe ends.  Budget = whatever the
+# baseline produces; anything above it is a port pipe that missed its room.
+BASE_DANGLING = None
 
 
 def evaluate(cols, floor, code_x=10, verify=False):
@@ -66,6 +68,12 @@ def evaluate(cols, floor, code_x=10, verify=False):
     if manlint.bad_overwrites(program):
         return None
     if manlint.literal_faults(program.render().split("\n")):
+        return None
+    global BASE_DANGLING
+    loose = len(manlint.dangling_pipes(program))
+    if BASE_DANGLING is None:
+        BASE_DANGLING = loose
+    elif loose > BASE_DANGLING:
         return None
     if verify:
         try:

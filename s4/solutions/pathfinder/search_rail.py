@@ -38,6 +38,7 @@ BASE_FLOOR = dict(scalar_off=48, cell_off=164, ctop=5, scratch_off=18,
                   queue_tail=266, sd_band=-4, sa_band=-3, ss_band=20,
                   queue_rows=1, queue_right_off=300)
 QUEUE_FLOOR = 40   # measured BFS frontier is <= ~19 items; keep 2x headroom
+BASE_DANGLING = None   # set from the baseline build on first evaluate
 
 
 def evaluate(cols, floor, verify=False, queue_floor=QUEUE_FLOOR):
@@ -57,8 +58,14 @@ def evaluate(cols, floor, verify=False, queue_floor=QUEUE_FLOOR):
         return None
     if manlint.bad_overwrites(program):
         return None
+    global BASE_DANGLING
+    loose = len(manlint.dangling_pipes(program))
+    if BASE_DANGLING is None:
+        BASE_DANGLING = loose
+    elif loose > BASE_DANGLING:
+        return None
     qr = layout["ports"]["qr"]
-    queue = [n for a, b, n in program.pipes if b == qr]
+    queue = [rec[2] for rec in program.pipes if rec[1] == qr]
     if not queue or min(queue) < queue_floor:
         return None
     if manlint.literal_faults(program.render().split("\n")):

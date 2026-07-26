@@ -159,7 +159,7 @@ def choose_phrases(stream):
     return stream, phrases
 
 
-def build_encoding(table_budget=None):
+def build_encoding(table_budget=None, west_first=False):
     stream, phrases = choose_phrases(tokenize(TEXT))
 
     def table_cells(phr):
@@ -225,9 +225,11 @@ def build_encoding(table_budget=None):
     widths = []
     for j, chunk in enumerate(chunks_desc):
         widths.append(max(len(str(pair_vals[i])) for i in chunk))
-    # physical slot order: ascending width so slot 0 is narrow (sentinel row
-    # tail leaves room for the pump)
-    phys = sorted(range(nB), key=lambda j: widths[j])
+    # physical slot order puts the narrow slot where the sentinel lands, so
+    # that row's tail leaves room for the pump: slot 0 for the east-first
+    # layout, slot nB-1 for the west-first one.
+    phys = sorted(range(nB), key=lambda j: -widths[j] if west_first
+                  else widths[j])
     TB = [widths[j] for j in phys]
     cellgrid = [[None] * nB for _ in range(4)]
     fill = []
@@ -235,25 +237,33 @@ def build_encoding(table_budget=None):
         pj = phys.index(j)
         for r, i in enumerate(chunk):
             cellgrid[r][pj] = pairs[i]
-    # position numbering: preload order row-major, west rows reversed
-    posmap = {}
-    pos = 17
-    for r in range(4):
-        east = (r + 2) % 2 == 0     # P1 rows: 0,1 = group A; B rows start at 2
-        rng_ = range(nB) if (r % 2 == 0) else range(nB - 1, -1, -1)
-        for pj in rng_:
-            idx = cellgrid[r][pj]
-            if idx is None:
-                continue
-            posmap[idx] = pos
-            ring[pos] = pack128(phrase_bytes(phrases[idx][0]))
-            pos += 1
-    # sentinel (0) belongs at the very last preload position: row 3 (west),
-    # slot 0.  Ensure that cell is free; if occupied, swap its entry into a
-    # free cell.
-    if cellgrid[3][0] is not None:
+
+    # position numbering follows the preload walk: row-major, and within a
+    # row the direction the little man actually travels.
+    def walk(r):
+        westward = (r % 2 == 0) if west_first else (r % 2 == 1)
+        return range(nB - 1, -1, -1) if westward else range(nB)
+
+    def number(ring):
+        posmap, pos = {}, 17
+        for r in range(4):
+            for pj in walk(r):
+                idx = cellgrid[r][pj]
+                if idx is None:
+                    continue
+                posmap[idx] = pos
+                ring[pos] = pack128(phrase_bytes(phrases[idx][0]))
+                pos += 1
+        return posmap
+
+    posmap = number(ring)
+    # The sentinel (0) belongs at the very last preload position: the final
+    # cell of row 3 in walk order.  Ensure that cell is free; if occupied,
+    # move its entry to a free cell and renumber.
+    last = list(walk(3))[-1]
+    if cellgrid[3][last] is not None:
         # find a free cell and move the occupant there
-        moved = cellgrid[3][0]
+        moved = cellgrid[3][last]
         done = False
         for r in range(4):
             for pj in range(nB):
@@ -262,19 +272,9 @@ def build_encoding(table_budget=None):
                     cellgrid[r][pj] = moved
                     done = True
         assert done, "no free cell for sentinel"
-        cellgrid[3][0] = None
-        # renumber positions
-        posmap, pos = {}, 17
+        cellgrid[3][last] = None
         ring = {k: v for k, v in ring.items() if k <= 16}
-        for r in range(4):
-            rng_ = range(nB) if (r % 2 == 0) else range(nB - 1, -1, -1)
-            for pj in rng_:
-                idx = cellgrid[r][pj]
-                if idx is None:
-                    continue
-                posmap[idx] = pos
-                ring[pos] = pack128(phrase_bytes(phrases[idx][0]))
-                pos += 1
+        posmap = number(ring)
     for i in pairs:
         slot_of[i] = ("pair", posmap[i])
     layout = dict(TB=TB, cellgrid=cellgrid,
@@ -536,10 +536,16 @@ def p1_slot_cells(v, width, east):
     return ["`", *d, "`", "s"] if east else ["s", "`", *d[::-1], "`"]
 
 
-def p1_room(program, x0, y0, width, ring, layout):
+def p1_room(program, x0, y0, width, ring, layout, west_first=False):
     """Template preload room: 2 group-A rows (smalls 1..16, 8 slots) and
     4 group-B rows (pairs grid + zero sentinel), all slot-aligned so every
-    column's backtick count is even.  Inline pump on the last row."""
+    column's backtick count is even.
+
+    East-first (the 10-row form) walks E,W,E,W,E,W and ends bottom-left, so
+    the pump needs two rows of its own below the data.  West-first walks
+    W,E,W,E,W,E and ends bottom-*right*, which lets the pump be a six-cell
+    loop in the two columns between the turn column and the right wall --
+    two rows cheaper for the same work."""
     smalls = [ring[v] for v in range(1, 17)]
     szA = [len(str(v)) for v in smalls]
     TA = [max(szA[j], szA[15 - j]) for j in range(8)]
@@ -549,6 +555,13 @@ def p1_room(program, x0, y0, width, ring, layout):
     inner = width - 4
     assert sum(TA) + 3 * 8 <= inner, (sum(TA) + 24, inner)
     assert sum(TB) + 3 * nB + 4 <= inner + 1, (sum(TB) + 3 * nB, inner)
+    # Both bands share one turn column, one past the wider band's last cell
+    # (an eastbound row's final 's' sits on that cell, a westbound row's does
+    # not, so the eastbound span is the one to clear).
+    turn = x0 + 3 + max(sum(w + 3 for w in TA), sum(w + 3 for w in TB))
+    if west_first:
+        # turn column, two pump columns, right wall
+        assert turn + 3 <= x0 + width - 1, (turn, width)
 
     def place_row(y, vals, widths, east):
         # feeder-style alignment: slot pitch w+3; east cells at start+1,
@@ -565,13 +578,16 @@ def p1_room(program, x0, y0, width, ring, layout):
             put_row(program, x, y, cells)
         return endx
 
-    # group A rows: values 1..8 (east), 9..16 (west)
-    rows_spec = [
-        (smalls[0:8], TA, True),
-        # westbound row: walk order is east->west, so slot 7 is sent first;
-        # entries 9..16 must sit reversed for preload order 9,10,...,16
-        (smalls[8:16][::-1], TA, False),
-    ]
+    # Group A rows carry ring positions 1..16.  The row walked first holds
+    # 1..8; a westbound row is visited slot nB-1 first, so its values sit
+    # reversed to keep preload order ascending.
+    if west_first:
+        # slot j now pairs smalls[7-j] with smalls[8+j], so the widths run
+        # the other way too
+        rows_spec = [(smalls[0:8][::-1], TA[::-1], False),
+                     (smalls[8:16], TA[::-1], True)]
+    else:
+        rows_spec = [(smalls[0:8], TA, True), (smalls[8:16][::-1], TA, False)]
     # Group B contains the multi-symbol phrase entries.  Its last zero is the
     # sentinel observed by DISP after one full lookup rotation.
     for r in range(4):
@@ -582,10 +598,11 @@ def p1_room(program, x0, y0, width, ring, layout):
                 vals.append(0)          # zero sentinel / filler
             else:
                 vals.append(layout["val_of"][idx])
-        rows_spec.append((vals, TB, r % 2 == 0))
+        rows_spec.append((vals, TB, (r % 2 == 1) if west_first else (r % 2 == 0)))
     nrows = len(rows_spec)
-    room_h = nrows + 2 + 2            # data + 2 pump rows + borders
+    room_h = nrows + 2 if west_first else nrows + 2 + 2
     program.room(x0, y0, width, room_h)
+    right = turn if west_first else x0 + width - 2
     for ri, (vals, widths, east) in enumerate(rows_spec):
         y = y0 + 1 + ri
         last = ri == nrows - 1
@@ -593,16 +610,30 @@ def p1_room(program, x0, y0, width, ring, layout):
         if east:
             if ri:
                 program.put(x0 + 1, y, ">")
-            assert not last
-            program.put(x0 + width - 2, y, "v")
+            if last:
+                assert west_first
+                # Walk on past the turn column into the pump loop: '^' r '>'
+                # up the first spare column, 'v' s '<' down the second.
+                program.put(right, y, ">")
+                put_row(program, right + 1, y - 2, [">", "v"])
+                put_row(program, right + 1, y - 1, ["r", "s"])
+                put_row(program, right + 1, y, ["^", "<"])
+            else:
+                program.put(right, y, "v")
         else:
-            program.put(x0 + width - 2, y, "<")
+            program.put(right, y, "<")
             program.put(x0 + 1, y, "v")
             if last:
                 # descend to the pump rows below the data
                 put_row(program, x0 + 1, y + 1, [">", ">", "r", "s", "v"])
                 put_row(program, x0 + 1, y + 2, [" ", "^", "<", "<", "<"])
-    program.put(x0 + 1, y0 + 1, "@")
+    if west_first:
+        # A man spawns facing east, so start him one cell west of the turn
+        # column: he steps onto its '<', turns, and walks back over '@'.
+        assert program.cells.get((right - 1, y0 + 1)) is None, "no room for @"
+        program.put(right - 1, y0 + 1, "@")
+    else:
+        program.put(x0 + 1, y0 + 1, "@")
     return room_h
 
 
@@ -632,11 +663,11 @@ def audit_vertical_ticks(program):
     return bad
 
 
-def build(W=83, variable=False, compact_tail=False):
+def build(W=83, variable=False, compact_tail=False, west_first=False):
     assert W >= (82 if variable else 83)
     if compact_tail and (W != 82 or not variable):
         raise ValueError("the compact 82x82 tail requires W=82 and variable=True")
-    symbols, ring, layout = build_encoding()
+    symbols, ring, layout = build_encoding(west_first=west_first)
     if variable:
         bands = optimize_feeder(symbols, W)
         chunks = [chunk.value for band in bands for chunk in band.chunks]
@@ -648,7 +679,8 @@ def build(W=83, variable=False, compact_tail=False):
         bands = None
     assert verify(chunks, ring), "encoding does not reproduce the text"
     if compact_tail:
-        program = build_compact_once(W, chunks, ring, layout, bands)
+        program = build_compact_once(W, chunks, ring, layout, bands,
+                                     west_first=west_first)
     else:
         program = build_once(W, chunks, dw, ring, layout, bands=bands)
     bad = audit_vertical_ticks(program)
@@ -663,8 +695,11 @@ def build_champion():
     return program
 
 
-def build_compact_once(W, chunks, ring, layout, bands):
-    """Place the optimized feeder and the hand-folded 18-row service tail."""
+def build_compact_once(W, chunks, ring, layout, bands, west_first=False):
+    """Place the optimized feeder and the hand-folded service tail.
+
+    ``west_first`` uses the 8-row P1 (pump in the margin instead of two rows
+    of its own), which drops the tail from 18 rows to 16."""
     program = Program()
     feeder_rows = variable_feeder(program, bands, W)
     assert feeder_rows == 62
@@ -680,8 +715,9 @@ def build_compact_once(W, chunks, ring, layout, bands):
     dwid, dh = paste_room(program, 51, tail_top, DISP_ROWS)
     assert (dwid, dh) == (27, 8)
     paste_room(program, 4, tail_top + 4, DECODER_ROWS)
-    p1h = p1_room(program, 0, tail_top + 8, 80, ring, layout)
-    assert p1h == 10
+    p1h = p1_room(program, 0, tail_top + 8, 80, ring, layout,
+                  west_first=west_first)
+    assert p1h == (8 if west_first else 10)
 
     # feeder -> DECODER
     program.pipe([(1, tail_top), (1, tail_top + 5), (3, tail_top + 5)])
@@ -708,20 +744,37 @@ def build_compact_once(W, chunks, ring, layout, bands):
         end_direction="E",
     )
 
-    # Dictionary ring, at its exact semantic capacity floor: 2 + 33 = 35.
-    # DISP -> P1 takes the two outer columns down and back up.  The last cell
-    # turns south into P1's top border.
-    program.pipe(
-        [
-            (78, tail_top),
-            (81, tail_top),
-            (81, tail_top + 17),
-            (80, tail_top + 17),
-            (80, tail_top + 7),
-            (79, tail_top + 7),
-        ],
-        end_direction="S",
-    )
+    # Dictionary ring.  Its two legs together must hold at least
+    # (entries + sentinel - 1) = 35 words, so the forward leg is deliberately
+    # snaked rather than taken straight down.  The last cell turns south into
+    # P1's top border.
+    if west_first:
+        # P1 is two rows shorter, so the outer columns no longer reach far
+        # enough on their own: fold the leg back up column 80 and down 79.
+        program.pipe(
+            [
+                (78, tail_top),
+                (81, tail_top),
+                (81, tail_top + 15),
+                (80, tail_top + 15),
+                (80, tail_top + 1),
+                (79, tail_top + 1),
+                (79, tail_top + 7),
+            ],
+            end_direction="S",
+        )
+    else:
+        program.pipe(
+            [
+                (78, tail_top),
+                (81, tail_top),
+                (81, tail_top + 17),
+                (80, tail_top + 17),
+                (80, tail_top + 7),
+                (79, tail_top + 7),
+            ],
+            end_direction="S",
+        )
     # P1 -> DISP is the minimum two-cell return; its final cell turns west.
     program.pipe(
         [(78, tail_top + 7), (78, tail_top + 6)],

@@ -122,7 +122,7 @@ def build():
 
 if __name__ == "__main__":
     p, ck = build()
-    out = os.path.join(os.path.dirname(os.path.abspath(__file__)), "poc1.man")
+    out = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lanes-poc1.man")
     p.save(out)
     print(out, "footprint", p.footprint())
     for name in ("row", "col", "box"):

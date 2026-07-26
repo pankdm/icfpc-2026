@@ -37,7 +37,7 @@ class LayoutBuilderTest(unittest.TestCase):
         self.assertEqual(dictionary["bands"], 6)
         self.assertEqual(
             dictionary["constants_per_band"],
-            [9, 10, 6, 6, 7, 6],
+            [8, 12, 6, 6, 6, 6],
         )
         self.assertEqual(
             len(dictionary["slots_per_band"]),
@@ -80,18 +80,48 @@ class LayoutBuilderTest(unittest.TestCase):
         self.assertEqual(self.metadata["pipes"], 0)
         self.assertFalse(self.metadata["connected"])
 
-    def test_buffer_loop_follows_all_constant_bands(self):
+    def test_top_left_pump_and_return_follow_all_constant_bands(self):
         dictionary = self.metadata["dictionary"]
         x = dictionary["x"]
+        y = dictionary["y"]
         bottom = dictionary["y"] + dictionary["height"] - 1
         actual = tuple(
             "".join(
                 self.program.get(x + dx, y)
-                for dx in range(1, builder.FOOTER_WIDTH + 1)
+                for dx in range(1, builder.TOP_LEFT_BLOCK_WIDTH + 1)
             )
-            for y in range(bottom - 3, bottom)
+            for y in range(y + 1, y + 3)
         )
-        self.assertEqual(actual, builder.FOOTER_ROWS)
+        self.assertEqual(actual, builder.TOP_LEFT_BLOCK_ROWS)
+        self.assertEqual(
+            self.program.get(x + builder.START_COLUMN, y + 1),
+            "@",
+        )
+        self.assertEqual(
+            self.program.get(x + builder.START_COLUMN, y + 3),
+            "<",
+        )
+        self.assertEqual(
+            self.program.get(x + builder.LATER_START_COLUMN, y + 3),
+            "v",
+        )
+        self.assertEqual(
+            self.program.get(x + builder.LATER_START_COLUMN, y + 4),
+            ">",
+        )
+        for return_y in range(y + 2, bottom):
+            self.assertEqual(
+                self.program.get(x + builder.RETURN_COLUMN, return_y),
+                "^",
+            )
+        self.assertEqual(
+            self.program.get(x + 2, bottom - 1),
+            "s",
+        )
+        self.assertEqual(
+            self.program.get(x + 3, bottom - 1),
+            "0",
+        )
 
 
 if __name__ == "__main__":

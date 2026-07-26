@@ -35,25 +35,27 @@ chooses how many sequential constants belong to each paired band. For every
 candidate band, an inner DP chooses the top/bottom split and aligns real and
 dummy literal slots at minimum width. No slot counts or row split are fixed.
 The combined objective minimizes paired bands, maximizes constants in earlier
-bands, and then minimizes unused width. The final band is optimized under a
-special constraint: it must begin its bottom row with a real westbound
-constant send immediately after an immutable 3×6 block at the lower-left.
-That block has the exact form:
+bands, and then minimizes unused width. The 2×4 pump shifts only the first
+paired band four columns to the right. Later bands recover that space and
+reserve only the leftmost column for the upward return (plus their normal
+start/turn cells). The fixed top-left control area is:
 
 ```text
-vs0<<<
->>rsv^
- ^<<<^
+>rsv
+^<<<
 ```
+
+The initial `@` is immediately to the right of that 2×4 area. After the final
+constant, the loader sends the zero sentinel and follows a column of `^`
+instructions back to the pump.
+
+A one-row bridge immediately below the first pair carries its column-5
+descent west and down into the column-2 starts used by every later pair.
 
 The builder may permute physical dictionary positions while keeping direct
 entries in positions 1–16 and escaped entries after them. It rewrites feeder
 references to match. At the default 52-column width this lets the DP attain
-the six-band lower bound and embeds the three-row loop two rows higher.
-
-After the last constant, the loader sends the zero sentinel and enters the
-`r`/`s` buffer iteration loop; the loop remains physically and semantically at
-the end of the preload path.
+the minimum feasible band count without adding footer rows below the constants.
 
 The generated `.man` is not a runnable solution. It has no pipes by design,
 so its `r` and `s` instructions would fail if executed. Pipe attachment and
@@ -70,9 +72,11 @@ python3 solutions/history-lesson/layout-builder/build.py --connect-pipes
 This moves DECODER, UNPACK, output, and DISP two rows below their pipe-free
 positions, leaving the dictionary in place. It then adds six intentionally
 spacious, non-optimized routes: the four streaming pipeline links and both
-directions of the dictionary ring. Connected outputs receive a `-connected`
-filename suffix by default. Routes may extend to the right, but the builder
-asserts that none extends below the dictionary room's bottom boundary.
+directions of the dictionary ring. Connected mode reserves two blank rows at
+the bottom of the dictionary room for those routes; the compact pipe-free
+room does not. Connected outputs receive a `-connected` filename suffix by
+default. Routes may extend to the right, but the builder asserts that none
+extends below the dictionary room's bottom boundary.
 
 Verify a connected default build with both interpreters:
 

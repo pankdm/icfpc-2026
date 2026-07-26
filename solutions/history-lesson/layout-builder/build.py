@@ -36,18 +36,21 @@ LOGGER = logging.getLogger(__name__)
 # A physical permutation found by the width-constrained packing search. Direct
 # positions remain in the first sixteen slots and escaped positions after
 # them, so references can be remapped without changing the stream protocol.
-# At dictionary width 52 this reaches the six-band source-width lower bound.
+# This order keeps similarly-sized values close enough for the paired-row DP
+# to share literal columns efficiently.
 PACKING_ORDER_44 = [
-    2, 13, 10, 5, 8, 11, 7, 15, 6, 9, 12, 1, 4, 16, 3, 14,
-    23, 36, 18, 22, 34, 25, 26, 27, 30, 29, 38, 40, 24, 42,
-    37, 19, 32, 43, 39, 33, 44, 35, 41, 17, 21, 28, 20, 31,
+    11, 2, 5, 7, 8, 6, 4, 9, 15, 16, 1, 14, 12, 10, 13, 3,
+    25, 18, 36, 26, 22, 19, 40, 23, 35, 30, 34, 41, 24, 39,
+    31, 27, 29, 32, 17, 20, 44, 37, 38, 21, 43, 33, 28, 42,
 ]
-FOOTER_ROWS = (
-    "vs0<<<",
-    ">>rsv^",
-    " ^<<<^",
+TOP_LEFT_BLOCK_ROWS = (
+    ">rsv",
+    "^<<<",
 )
-FOOTER_WIDTH = 6
+TOP_LEFT_BLOCK_WIDTH = 4
+RETURN_COLUMN = 1
+START_COLUMN = 5
+LATER_START_COLUMN = 2
 
 
 @dataclass(frozen=True)
@@ -198,30 +201,36 @@ def pack_dictionary(values: list[int], room_width: int) -> list[DictionaryBand]:
 
     Bands are independently right-aligned.
     """
-    if room_width < 8:
-        raise ValueError("dictionary width must be at least 8")
-    capacity = room_width - 5
-    # The final bottom row enters a fixed 3x6 footer at the left. Its first
-    # ordinary westbound slot begins in column seven.
-    final_capacity = room_width - 10
+    if room_width < 13:
+        raise ValueError("dictionary width must be at least 13")
+    # The top-left 2x4 block shifts the first paired band four columns right
+    # compared with an ordinary band. Later bands recover that width: column
+    # one is the upward return and column two is the ordinary band-to-band
+    # descent. On the final bottom row columns two and three send the zero
+    # sentinel before the man enters the return.
+    first_capacity = room_width - 9
+    capacity = room_width - 6
+    final_capacity = room_width - 7
     values_tuple = tuple(values)
     max_constants_per_band = 2 * (capacity // 4)
 
     @lru_cache(maxsize=None)
-    def solve(index: int):
+    def solve(index: int, band_index: int):
         if index == len(values_tuple):
             return (0, (), 0, ())
         best = None
         remaining = len(values_tuple) - index
         for count in range(1, min(remaining, max_constants_per_band) + 1):
             segment = values_tuple[index:index + count]
-            band_capacity = (
-                final_capacity if index + count == len(values_tuple)
-                else capacity
-            )
             final_band = index + count == len(values_tuple)
+            band_capacity = capacity
+            if band_index == 0:
+                band_capacity = first_capacity
+            if final_band:
+                band_capacity = min(band_capacity, final_capacity)
             # The final band must contain at least one bottom-row constant so
-            # the westbound path sends a final value before entering footer.
+            # the westbound path sends a final value before entering the
+            # sentinel and upward return path.
             top_count_stop = count if final_band else count + 1
             for top_count in range(1, top_count_stop):
                 band = _best_band(
@@ -232,7 +241,7 @@ def pack_dictionary(values: list[int], room_width: int) -> list[DictionaryBand]:
                 used = sum(width + 3 for width in band.widths)
                 if used > band_capacity:
                     continue
-                tail = solve(index + count)
+                tail = solve(index + count, band_index + 1)
                 if tail is None:
                     continue
                 candidate = (
@@ -245,7 +254,7 @@ def pack_dictionary(values: list[int], room_width: int) -> list[DictionaryBand]:
                     best = candidate
         return best
 
-    result = solve(0)
+    result = solve(0, 0)
     if result is None:
         widest = max((len(str(value)) for value in values), default=0)
         raise ValueError(
@@ -315,26 +324,29 @@ def place_dictionary(
     y0: int,
     room_width: int,
     values: list[int],
+    bands: list[DictionaryBand] | None = None,
+    bottom_padding: int = 0,
 ) -> tuple[int, int]:
     """Place a right-aligned vertical-P1 dictionary and return (width, height)."""
-    bands = pack_dictionary(values, room_width)
-    room_height = 2 * len(bands) + 4
+    if bands is None:
+        bands = pack_dictionary(values, room_width)
+    room_height = 2 * len(bands) + 3 + bottom_padding
     program.room(x0, y0, room_width, room_height)
     turn_x = x0 + room_width - 2
 
     for band_index, band in enumerate(bands):
-        top_y = y0 + 1 + 2 * band_index
+        top_y = y0 + 1 + 2 * band_index + (1 if band_index else 0)
         bottom_y = top_y + 1
         pitch = sum(width + 3 for width in band.widths)
         final_band = band_index == len(bands) - 1
-        # Ordinary bands are right-aligned. The final band starts immediately
-        # after the fixed six-column footer.
-        base_x = (
-            x0 + FOOTER_WIDTH + 1
-            if final_band
-            else turn_x - pitch - 1
-        )
-        if base_x < x0 + 2:
+        base_x = turn_x - pitch - 1
+        if band_index == 0:
+            minimum_base_x = x0 + START_COLUMN + 1
+        elif final_band:
+            minimum_base_x = x0 + 4
+        else:
+            minimum_base_x = x0 + 3
+        if base_x < minimum_base_x:
             raise AssertionError((base_x, x0, room_width, band))
         starts = []
         cursor = base_x
@@ -376,16 +388,42 @@ def place_dictionary(
                     [" ", "`", *("0" * width), "`"],
                 )
 
-        program.put(x0 + 1, top_y, "@" if band_index == 0 else ">")
+        if band_index == 0:
+            program.put(x0 + START_COLUMN, top_y, "@")
+        else:
+            program.put(x0 + LATER_START_COLUMN, top_y, ">")
         program.put(turn_x, top_y, "v")
         program.put(turn_x, bottom_y, "<")
-        program.put(x0 + 1, bottom_y, "v")
+        if not final_band:
+            program.put(
+                x0 + (
+                    START_COLUMN
+                    if band_index == 0
+                    else LATER_START_COLUMN
+                ),
+                bottom_y,
+                "v",
+            )
 
-    # Stamp the immutable footer over the lower-left 3x6 area. Constants in
-    # the final band begin immediately to its right.
-    final_bottom_y = y0 + 2 * len(bands)
-    for row_offset, row in enumerate(FOOTER_ROWS):
-        _put_row(program, x0 + 1, final_bottom_y + row_offset, row)
+    # The fixed 2x4 top-left area contains the r/s pump. Constants in this
+    # first band begin after it; later bands recover the horizontal space.
+    for row_offset, row in enumerate(TOP_LEFT_BLOCK_ROWS):
+        _put_row(program, x0 + 1, y0 + 1 + row_offset, row)
+
+    # One dedicated row converts the first band's column-five descent into
+    # the column-two starts used by every later band. Keeping this off a
+    # constant row avoids forming a west/east arrow loop.
+    transition_y = y0 + 3
+    program.put(x0 + START_COLUMN, transition_y, "<")
+    program.put(x0 + LATER_START_COLUMN, transition_y, "v")
+
+    # After the final constant, send a zero sentinel and climb directly into
+    # the pump's leading `>`, completing the loop without footer rows.
+    final_bottom_y = y0 + 2 * len(bands) + 1
+    program.put(x0 + 3, final_bottom_y, "0")
+    program.put(x0 + 2, final_bottom_y, "s")
+    for y in range(y0 + 2, final_bottom_y + 1):
+        program.put(x0 + RETURN_COLUMN, y, "^")
     return room_width, room_height
 
 
@@ -549,6 +587,8 @@ def build(
         tail_y,
         dictionary_width,
         dictionary_values,
+        dictionary_bands,
+        bottom_padding=2 if connect_pipes else 0,
     )
     LOGGER.info(
         "placed dictionary: %d bands, %d rows",
@@ -628,6 +668,7 @@ def build(
             "y": tail_y,
             "width": dictionary_width,
             "height": dictionary_height,
+            "bottom_padding": 2 if connect_pipes else 0,
             "words": dictionary_words,
             "left_edge": dictionary_x,
             "right_edge": dictionary_x + dictionary_width - 1,
@@ -644,10 +685,13 @@ def build(
                 for band in dictionary_bands
             ],
             "physical_order": physical_order,
-            "footer": {
-                "width": FOOTER_WIDTH,
-                "height": len(FOOTER_ROWS),
-                "rows": FOOTER_ROWS,
+            "top_left_block": {
+                "width": TOP_LEFT_BLOCK_WIDTH,
+                "height": len(TOP_LEFT_BLOCK_ROWS),
+                "rows": TOP_LEFT_BLOCK_ROWS,
+                "return_column": RETURN_COLUMN,
+                "start_column": START_COLUMN,
+                "later_start_column": LATER_START_COLUMN,
             },
         },
         "service_rooms": service_rooms,

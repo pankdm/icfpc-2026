@@ -80,6 +80,39 @@ box give server avgTicks within ±2.6%). So you can predict the server without
 submitting: `server ≈ local grade.js score × 1.54` (snake), `× 1.49` (pathfinder),
 `× 1.12` (LLLM).
 
+**...but only under room RE-PLACEMENT.** Corrected 2026-07-26: ticks are *not*
+invariant under **port-column** changes, which is what a dense CFG re-lay does.
+The controller's row count falls when the hot `sc`/`rr` pair gets long overlapping
+Voronoi bands, but the hot ops then sit further apart and the man walks the
+difference — snake box −19% / ticks +22%, pathfinder box −7% / ticks +8%, both
+near-washes on score. Anything touching port columns must be judged on
+**box × ticks**, measured; `solutions/*/search_rail.py` does that on one real
+interpreter case.
+
+Snake/pathfinder dense re-lay (2026-07-26), all server-confirmed:
+
+| what | box | server | cases |
+|---|---|---|---|
+| snake live at fork | 64,009 | 15.110B | — |
+| snake `rail-cx10-o0` (rail terminators) | 47,524 | 13.359B | 17/17 |
+| snake `rail-cx10-o0-lit` (+ backtick literals) | 44,944 | 12.658B | 17/17 |
+| snake `dense-a` (+ searched ports/floor) | 36,481 | **12.477B** | 17/17 |
+| pathfinder `rail-bitset5` (rail terminators) | 108,241 | 265.353B | 18/18 |
+| pathfinder `dense-b` (+ searched ports/floor) | 96,721 | **240.331B** | 18/18 |
+
+Both champions regenerate byte-identically (`solutions/*/build_rail.py`).
+`tools/railflow.py` is the reusable piece: same op placement as `boustro`, but a
+jump costs 0 extra rows and a branch 1 instead of 4.
+
+`tools/manlint.py` is what makes a floorplan search safe. Three failure modes bit
+in a row, each invisible to the previous check, and all three are now covered:
+a crossing pipe (writes the same `|`-over-`-` a room corner does), a pipe end that
+misses a room wall (walls cannot be recognised by glyph, since pipe bodies use the
+same ones — and components stamped by copying cells never call `room`), and a grid
+that loads cleanly and then **deadlocks** (a shrunk pipe is a shrunk FIFO). Only
+the last is caught by running the program, so every search champion now pays for
+one Rust case.
+
 **LLLM geometry is provably exhausted** — `smtplace.py` returns UNSAT at M=233.
 Its only lever is shortening the op stream; its generator source is deleted at
 HEAD and must be recovered from commit `0ecfe41` (`lllm_build.py`,

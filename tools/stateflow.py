@@ -137,9 +137,9 @@ def build_program(
     """Compile *flow* and attach the shared stateful-problem hardware.
 
     ``lay_fn``: optional drop-in replacement for flowgrid.lay_cfg_controller —
-    same signature contract: (program, flow, port_spec, code_x=...) -> layout
-    dict with "ports"/"bottom"/... . Lets a builder swap the controller layout
-    while keeping this hardware assembly (and so every pipe length) unchanged.
+    same contract: (program, flow, port_spec, code_x=...) -> layout dict with
+    "ports"/"bottom"/... . Lets a builder swap the controller layout while
+    keeping this hardware assembly (and so every pipe length) unchanged.
     """
     p = lm.Program()
     port_spec = DEFAULT_PORTS.copy() if queue else {
@@ -254,8 +254,8 @@ def build_program(
         p.pipe([
             scalar["reply"],
             scalar["reply_turn"],
-            (scalar["reply_turn"][0], bottom + 4),
-            (ports["rr"][0], bottom + 4),
+            (scalar["reply_turn"][0], bottom + 1),
+            (ports["rr"][0], bottom + 1),
             ports["rr"],
         ])
     else:

@@ -294,7 +294,11 @@ def build_encoding(table_budget=None, extra_pair_count=0, tail_constants=False,
     chunks_desc = [order[i * 4:(i + 1) * 4] for i in range(nB)]
     widths = []
     for j, chunk in enumerate(chunks_desc):
-        widths.append(max(len(str(pair_vals[i])) for i in chunk))
+        # When the phrase count is a multiple of four, the extra legacy
+        # sentinel slot creates one otherwise-empty physical group.
+        widths.append(
+            max((len(str(pair_vals[i])) for i in chunk), default=1)
+        )
     # physical slot order puts the narrow slot where the sentinel lands, so
     # that row's tail leaves room for the pump: slot 0 for the east-first
     # layouts, slot nB-1 for the west-first one.

@@ -53,6 +53,13 @@ CODE_SLACK = 14         # spare code columns east of the last port column
 # Holder column order found by search_holder_order().  A port op must sit on its
 # own column, so whenever the next one is behind the cursor the code ribbon
 # wraps and costs a whole controller ROW -- and height is what the box squares.
+# MEASURED 2026-07-26 -- DO NOT "OPTIMISE" THIS BY ROW COUNT.  Annealing on rows
+# alone (scratchpad/lllm_order_search.py, 16 restarts x 20k moves) reaches 369
+# rows vs this order's 375, but the winner GRADED WORSE: box 164,025 -> 159,201
+# (-3%) while avgTicks went 411,684 -> 520,968 (+27%), i.e. score 67.5B -> 82.9B.
+# Column order sets BOTH the wrap count (height) and the man's walk length
+# (ticks), and the two trade off against each other.  Any future search here must
+# optimise box x ticks, not rows.  This order is the best MEASURED one.
 HOLDER_ORDER = [
     "KK", "PCOL", "RETM", "SH", "AD", "CD", "BL", "AL", "OPR", "VLR",
     "PH", "PA", "ADS", "HHT", "HD", "WW", "NOTMF", "PATF", "NOTME", "PATE",
@@ -219,18 +226,13 @@ class CodePlacer(object):
             elif st["d"] < 0 and st["x"] - (n - 1) < c.entry_col + 1:
                 wrap()
 
-        def face_east(n):
-            """Guarantee n free cells ahead on an EASTWARD row.
-
-            `d` only turns a taken branch south while the man walks east; on a
-            westward row it would turn him NORTH, straight into the ceiling.
-            """
-            if st["d"] < 0:
-                wrap()
-            if st["x"] + n - 1 > c.code_hi:
-                wrap()                        # -> westward on a blank row
-                st["x"] = c.entry_col + 2     # glide west over the blanks
-                wrap()                        # -> eastward again
+        # A taken branch must turn SOUTH.  `d` (clockwise) does that while the
+        # man walks EAST; walking WEST the same job is done by `a`
+        # (counter-clockwise) -- PROBLEM.md lines 86-87.  Using the heading's
+        # own glyph removes the forced turn-around that `face_east` used to pay
+        # on every branch that landed on a westward row: worth ~40 rows, and
+        # rows are what the box is squared on.
+        BRANCH_TURN = {1: "d", -1: "a"}
 
         for bi, (label, toks) in enumerate(blocks):
             nxt = labels[bi + 1] if bi + 1 < len(labels) else None
@@ -246,13 +248,15 @@ class CodePlacer(object):
             for tok in toks:
                 kind = tok[0] if isinstance(tok, tuple) else None
                 if kind in ("br", "brbp"):
-                    face_east(4)
+                    need(4)
                     if kind == "br":
                         put("b")
-                    put("d")
+                    put(BRANCH_TURN[st["d"]])
                     st["pend"] += 1
-                    self._lane(st["x"] - 1, st["y"] + st["pend"], tok[1], False,
-                               label)
+                    # the turn glyph is the cell just walked over, i.e. one step
+                    # BEHIND the cursor in the current heading
+                    self._lane(st["x"] - st["d"], st["y"] + st["pend"], tok[1],
+                               False, label)
                 elif kind == "go":
                     self.walk[label] = st["walk"]
                     tgt = tok[1]

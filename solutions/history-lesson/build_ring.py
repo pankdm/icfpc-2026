@@ -14,7 +14,8 @@ sentinel -1 and full-rotation restore).
 Rooms were unit-verified in scratchpad/history-ring/ (roomsim + tests).
 
 Usage:
-  python3 build_ring.py                         # reproduce best/82x82.man
+  python3 build_ring.py                         # reproduce best/81x81.man
+  python3 build_ring.py --legacy 82             # reproduce best/82x82.man
   python3 build_ring.py --narrow                # build candidates/81x82.man
   python3 build_ring.py --legacy                # reproduce history-ring.man
   python3 build_ring.py --legacy 82 --variable  # reproduce 82x83 intermediate
@@ -206,7 +207,8 @@ def add_best_pair_phrases(stream, phrases, count):
     return stream, chosen
 
 
-def build_encoding(table_budget=None, extra_pair_count=0, tail_constants=False):
+def build_encoding(table_budget=None, extra_pair_count=0, tail_constants=False,
+                   west_first=False):
     stream, phrases = choose_phrases(tokenize(TEXT))
     if extra_pair_count:
         stream, chosen = add_best_pair_phrases(
@@ -293,9 +295,11 @@ def build_encoding(table_budget=None, extra_pair_count=0, tail_constants=False):
     widths = []
     for j, chunk in enumerate(chunks_desc):
         widths.append(max(len(str(pair_vals[i])) for i in chunk))
-    # physical slot order: ascending width so slot 0 is narrow (sentinel row
-    # tail leaves room for the pump)
-    phys = sorted(range(nB), key=lambda j: widths[j])
+    # physical slot order puts the narrow slot where the sentinel lands, so
+    # that row's tail leaves room for the pump: slot 0 for the east-first
+    # layouts, slot nB-1 for the west-first one.
+    phys = sorted(range(nB), key=lambda j: -widths[j] if west_first
+                  else widths[j])
     TB = [widths[j] for j in phys]
     cellgrid = [[None] * nB for _ in range(4)]
     fill = []
@@ -303,25 +307,33 @@ def build_encoding(table_budget=None, extra_pair_count=0, tail_constants=False):
         pj = phys.index(j)
         for r, i in enumerate(chunk):
             cellgrid[r][pj] = grid_pairs[i]
-    # position numbering: preload order row-major, west rows reversed
-    posmap = {}
-    pos = 17
-    for r in range(4):
-        east = (r + 2) % 2 == 0     # P1 rows: 0,1 = group A; B rows start at 2
-        rng_ = range(nB) if (r % 2 == 0) else range(nB - 1, -1, -1)
-        for pj in rng_:
-            idx = cellgrid[r][pj]
-            if idx is None:
-                continue
-            posmap[idx] = pos
-            ring[pos] = pack128(phrase_bytes(phrases[idx][0]))
-            pos += 1
+
+    # Position numbering follows the preload walk: row-major, and within a row
+    # the direction the little man actually travels.
+    def walk(r):
+        westward = (r % 2 == 0) if west_first else (r % 2 == 1)
+        return range(nB - 1, -1, -1) if westward else range(nB)
+
+    def number(ring):
+        posmap, pos = {}, 17
+        for r in range(4):
+            for pj in walk(r):
+                idx = cellgrid[r][pj]
+                if idx is None:
+                    continue
+                posmap[idx] = pos
+                ring[pos] = pack128(phrase_bytes(phrases[idx][0]))
+                pos += 1
+        return posmap, pos
+
+    posmap, pos = number(ring)
     # In the legacy layout the sentinel belongs at the very last preload
-    # position: row 3 (west), slot 0.  The narrow layout fills this slot and
-    # emits its sentinel later on the extra eastbound row.
-    if not tail_constants and cellgrid[3][0] is not None:
+    # position: the final cell of row 3 in walk order.  The narrow layout
+    # fills that slot and emits its sentinel on the extra eastbound row.
+    last_cell = list(walk(3))[-1]
+    if not tail_constants and cellgrid[3][last_cell] is not None:
         # find a free cell and move the occupant there
-        moved = cellgrid[3][0]
+        moved = cellgrid[3][last_cell]
         done = False
         for r in range(4):
             for pj in range(nB):
@@ -330,19 +342,9 @@ def build_encoding(table_budget=None, extra_pair_count=0, tail_constants=False):
                     cellgrid[r][pj] = moved
                     done = True
         assert done, "no free cell for sentinel"
-        cellgrid[3][0] = None
-        # renumber positions
-        posmap, pos = {}, 17
+        cellgrid[3][last_cell] = None
         ring = {k: v for k, v in ring.items() if k <= 16}
-        for r in range(4):
-            rng_ = range(nB) if (r % 2 == 0) else range(nB - 1, -1, -1)
-            for pj in rng_:
-                idx = cellgrid[r][pj]
-                if idx is None:
-                    continue
-                posmap[idx] = pos
-                ring[pos] = pack128(phrase_bytes(phrases[idx][0]))
-                pos += 1
+        posmap, pos = number(ring)
     for i in tail_pairs:
         posmap[i] = pos
         ring[pos] = pack128(phrase_bytes(phrases[i][0]))
@@ -571,6 +573,7 @@ def variable_feeder(program, bands: list[Band], width: int):
     left = 1
     content_left = 2
     right = width - 2
+    row_base = 0
     for band_index, band in enumerate(bands):
         starts = []
         x = content_left
@@ -579,8 +582,9 @@ def variable_feeder(program, bands: list[Band], width: int):
             x += digits + 3
         assert x + 3 <= width, (x + 3, width)
 
-        for parity, chunks in enumerate((band.top, band.bottom)):
-            row = 2 * band_index + parity
+        halves = (band.top,) if band.rows == 1 else (band.top, band.bottom)
+        for parity, chunks in enumerate(halves):
+            row = row_base + parity
             y = row + 1
             east = parity == 0
             for logical_slot, chunk in enumerate(chunks):
@@ -602,7 +606,8 @@ def variable_feeder(program, bands: list[Band], width: int):
             if east:
                 if row:
                     program.put(left, y, ">")
-                program.put(right, y, "v")
+                # a lone final row runs out east, so it halts on the right
+                program.put(right, y, "H" if band.rows == 1 else "v")
             else:
                 program.put(right, y, "<")
                 program.put(
@@ -610,8 +615,9 @@ def variable_feeder(program, bands: list[Band], width: int):
                     y,
                     "H" if band_index == len(bands) - 1 else "v",
                 )
+        row_base += band.rows
     program.put(left, 1, "@")
-    rows = 2 * len(bands)
+    rows = row_base
     program.room(0, 0, width, rows + 2)
     return rows
 
@@ -622,12 +628,19 @@ def p1_slot_cells(v, width, east):
     return ["`", *d, "`", "s"] if east else ["s", "`", *d[::-1], "`"]
 
 
-def p1_room(program, x0, y0, width, ring, layout):
+def p1_room(program, x0, y0, width, ring, layout, west_first=False):
     """Template preload room: 2 group-A rows (smalls 1..16, 8 slots) and
     4 group-B rows, all slot-aligned so every column's backtick count is
     even.  The baseline puts its zero sentinel in group B and its pump at the
     lower left.  The narrow variant fills group B, sends tail constants plus
-    the sentinel on row 7, and moves the pump to the lower right."""
+    the sentinel on row 7, and moves the pump to the lower right.
+
+    ``west_first`` walks W,E,W,E,W,E instead of E,W,E,W,E,W, so the last data
+    row ends bottom-*right*.  That lets the pump be a six-cell loop in the two
+    columns between the turn column and the right wall rather than two rows of
+    its own -- an 8-row room instead of 10.  It is incompatible with
+    ``tail_constants``, which needs those rows to carry extra entries."""
+    assert not (west_first and layout["tail_pairs"])
     smalls = [ring[v] for v in range(1, 17)]
     szA = [len(str(v)) for v in smalls]
     TA = [max(szA[j], szA[15 - j]) for j in range(8)]
@@ -670,13 +683,24 @@ def p1_room(program, x0, y0, width, ring, layout):
             put_row(program, x, y, cells)
         return endx
 
-    # group A rows: values 1..8 (east), 9..16 (west)
-    rows_spec = [
-        (smalls[0:8], TA, True),
-        # westbound row: walk order is east->west, so slot 7 is sent first;
-        # entries 9..16 must sit reversed for preload order 9,10,...,16
-        (smalls[8:16][::-1], TA, False),
-    ]
+    # Both bands share one turn column, one past the wider band's last cell
+    # (an eastbound row's final 's' sits on that cell, a westbound row's does
+    # not, so the eastbound span is the one to clear).
+    turn = x0 + 3 + max(sum(w + 3 for w in TA), sum(w + 3 for w in TB))
+    if west_first:
+        # turn column, two pump columns, right wall
+        assert turn + 3 <= x0 + width - 1, (turn, width)
+
+    # Group A rows carry ring positions 1..16.  The row walked first holds
+    # 1..8; a westbound row is visited slot 7 first, so its values sit
+    # reversed to keep preload order ascending.
+    if west_first:
+        # slot j now pairs smalls[7-j] with smalls[8+j], so the widths run the
+        # other way too
+        rows_spec = [(smalls[0:8][::-1], TA[::-1], False),
+                     (smalls[8:16], TA[::-1], True)]
+    else:
+        rows_spec = [(smalls[0:8], TA, True), (smalls[8:16][::-1], TA, False)]
     # Group B contains the multi-symbol phrase entries.  In the baseline its
     # last zero is the sentinel observed by DISP after one full rotation.
     for r in range(4):
@@ -689,10 +713,11 @@ def p1_room(program, x0, y0, width, ring, layout):
                 vals.append(None if tail_pairs else 0)
             else:
                 vals.append(layout["val_of"][idx])
-        rows_spec.append((vals, TB, r % 2 == 0))
+        rows_spec.append((vals, TB, (r % 2 == 1) if west_first else (r % 2 == 0)))
     nrows = len(rows_spec)
-    room_h = nrows + 2 + 2            # data + 2 pump rows + borders
+    room_h = nrows + 2 if west_first else nrows + 2 + 2
     program.room(x0, y0, width, room_h)
+    right = turn if west_first else x0 + width - 2
     for ri, (vals, widths, east) in enumerate(rows_spec):
         y = y0 + 1 + ri
         last = ri == nrows - 1
@@ -700,10 +725,19 @@ def p1_room(program, x0, y0, width, ring, layout):
         if east:
             if ri:
                 program.put(x0 + 1, y, ">")
-            assert not last
-            program.put(x0 + width - 2, y, "v")
+            if last:
+                assert west_first
+                # Walk on past the turn column into the pump loop: '^' r '>'
+                # up the first spare column, 'v' s '<' down the second, so the
+                # first instruction executed on entry is the 'r'.
+                program.put(right, y, ">")
+                put_row(program, right + 1, y - 2, [">", "v"])
+                put_row(program, right + 1, y - 1, ["r", "s"])
+                put_row(program, right + 1, y, ["^", "<"])
+            else:
+                program.put(right, y, "v")
         else:
-            program.put(x0 + width - 2, y, "<")
+            program.put(right, y, "<")
             program.put(x0 + 1, y, "v")
             if last and not tail_pairs:
                 # descend to the pump rows below the data
@@ -738,7 +772,13 @@ def p1_room(program, x0, y0, width, ring, layout):
             put_row(program, start + 1, dummy_y, dummy)
         put_row(program, pump_x, extra_y, [">", ">", "r", "s", "v"])
         put_row(program, pump_x, dummy_y, [" ", "^", "<", "<", "<"])
-    program.put(x0 + 1, y0 + 1, "@")
+    if west_first:
+        # A man spawns facing east, so start him one cell west of the turn
+        # column: he steps onto its '<', turns, and walks back over '@'.
+        assert program.cells.get((right - 1, y0 + 1)) is None, "no room for @"
+        program.put(right - 1, y0 + 1, "@")
+    else:
+        program.put(x0 + 1, y0 + 1, "@")
     return room_h
 
 
@@ -768,18 +808,23 @@ def audit_vertical_ticks(program):
     return bad
 
 
-def build(W=83, variable=False, compact_tail=False, narrow=False):
-    assert W >= (81 if narrow else (82 if variable else 83))
-    if narrow:
+def build(W=83, variable=False, compact_tail=False, narrow=False,
+          west_first=False):
+    assert W >= (81 if (narrow or west_first) else (82 if variable else 83))
+    if narrow or west_first:
         if (W, variable, compact_tail) != (81, True, True):
             raise ValueError(
-                "the narrow tail requires W=81, variable=True, compact_tail=True"
+                "the narrow/west-first tails require W=81, variable=True, "
+                "compact_tail=True"
             )
+        if narrow and west_first:
+            raise ValueError("narrow and west_first are alternative tails")
     elif compact_tail and (W != 82 or not variable):
         raise ValueError("the compact 82x82 tail requires W=82 and variable=True")
     symbols, ring, layout = build_encoding(
         extra_pair_count=NARROW_EXTRA_PAIRS if narrow else 0,
         tail_constants=narrow,
+        west_first=west_first,
     )
     if variable:
         bands = optimize_feeder(symbols, W)
@@ -793,7 +838,8 @@ def build(W=83, variable=False, compact_tail=False, narrow=False):
     assert verify(chunks, ring), "encoding does not reproduce the text"
     if compact_tail:
         program = build_compact_once(
-            W, chunks, ring, layout, bands, narrow=narrow
+            W, chunks, ring, layout, bands, narrow=narrow,
+            west_first=west_first,
         )
     else:
         program = build_once(W, chunks, dw, ring, layout, bands=bands)
@@ -803,7 +849,14 @@ def build(W=83, variable=False, compact_tail=False, narrow=False):
 
 
 def build_champion():
-    """Build the checked-in 82x82 champion."""
+    """Build the checked-in 81x81 champion."""
+    program = build(81, variable=True, compact_tail=True, west_first=True)
+    assert program.footprint() == (81, 81, 6561)
+    return program
+
+
+def build_82x82():
+    """Build the previous 82x82 champion (still reproduced byte-for-byte)."""
     program = build(82, variable=True, compact_tail=True)
     assert program.footprint() == (82, 82, 6724)
     return program
@@ -816,51 +869,98 @@ def build_narrow():
     return program
 
 
-def build_compact_once(W, chunks, ring, layout, bands, narrow=False):
-    """Place the optimized feeder and the hand-folded 18-row service tail."""
+def build_compact_once(W, chunks, ring, layout, bands, narrow=False,
+                       west_first=False):
+    """Place the optimized feeder and the hand-folded service tail.
+
+    ``west_first`` is the 81x81 tail.  P1 needs 80 columns once its pump moves
+    into the margin, so the single column left beside it is a dead end for the
+    ring (a pipe cannot turn back in it).  All 35 ring cells therefore live in
+    the service band, which means widening the strip east of DISP to five
+    columns: every room slides one column left and DISP is trimmed to 26.
+    Each room keeps its position *relative* to its own pipe attachments, so
+    DISP's nearest-pipe bindings are unchanged."""
     program = Program()
     feeder_rows = variable_feeder(program, bands, W)
-    assert feeder_rows == 62
+    assert feeder_rows == (63 if west_first else 62)
     tail_top = feeder_rows + 2
-    assert tail_top == 64
+    assert tail_top == (65 if west_first else 64)
+
+    # Room left edges, and DISP's width.  DISP's last inner column is entirely
+    # blank, so 26 columns suffice; that trim is what pays for both narrow
+    # layouts.  For west_first it buys the five-column ring strip while still
+    # leaving DISP -> YEAR a two-column gap (the loader rejects a one-cell
+    # pipe, verified against the oracle).
+    xu, xo, xy, xd, xp = ((1, 16, 19, 3, 50) if west_first
+                          else (2, 17, 20, 4, 51))
+    disp_width = 26 if (narrow or west_first) else None
 
     # Service rooms occupy the top eight rows of the tail.  P1 is below them,
     # rather than above them as in build_once(), which removes the old gap rows.
-    paste_room(program, 2, tail_top, UNPACK_ROWS)
-    program.output_room(17, tail_top)
-    yw, yh = paste_room(program, 20, tail_top, year_rows())
+    paste_room(program, xu, tail_top, UNPACK_ROWS)
+    program.output_room(xo, tail_top)
+    yw, yh = paste_room(program, xy, tail_top, year_rows())
     assert (yw, yh) == (29, 7)
-    disp_width = 26 if narrow else None
-    dwid, dh = paste_room(program, 51, tail_top, DISP_ROWS, w=disp_width)
-    assert (dwid, dh) == ((26 if narrow else 27), 8)
-    paste_room(program, 4, tail_top + 4, DECODER_ROWS)
-    p1h = p1_room(program, 0, tail_top + 8, W - 2, ring, layout)
-    assert p1h == 10
+    dwid, dh = paste_room(program, xp, tail_top, DISP_ROWS, w=disp_width)
+    assert (dwid, dh) == ((26 if (narrow or west_first) else 27), 8)
+    paste_room(program, xd, tail_top + 4, DECODER_ROWS)
+    p1h = p1_room(program, 0, tail_top + 8, W - 1 if west_first else W - 2,
+                  ring, layout, west_first=west_first)
+    assert p1h == (8 if west_first else 10)
 
     # feeder -> DECODER
-    program.pipe([(1, tail_top), (1, tail_top + 5), (3, tail_top + 5)])
+    program.pipe([(xd - 3, tail_top), (xd - 3, tail_top + 5),
+                  (xd - 1, tail_top + 5)])
     # UNPACK -> O
-    program.pipe([(14, tail_top + 1), (16, tail_top + 1)])
+    program.pipe([(xu + 12, tail_top + 1), (xo - 1, tail_top + 1)])
     # DISP -> YEAR
-    program.pipe([(50, tail_top + 1), (49, tail_top + 1)])
-    # YEAR -> UNPACK.  The two adjacent bends at x15 are intentional.
+    program.pipe([(xp - 1, tail_top + 1), (xy + 29, tail_top + 1)])
+    # YEAR -> UNPACK.  The two adjacent bends are intentional.
     program.pipe([
-        (19, tail_top + 3),
-        (15, tail_top + 3),
-        (15, tail_top + 2),
-        (14, tail_top + 2),
+        (xy - 1, tail_top + 3),
+        (xu + 13, tail_top + 3),
+        (xu + 13, tail_top + 2),
+        (xu + 12, tail_top + 2),
     ])
     # DECODER -> DISP.  Its last cell is a north-to-east corner into DISP.
+    # In the west_first tail it shares the gap column with DISP -> YEAR, so it
+    # climbs only to row +3 and leaves row +1 to that pipe.
     program.pipe(
         [
-            (15, tail_top + 5),
-            (16, tail_top + 5),
-            (16, tail_top + 7),
-            (50, tail_top + 7),
-            (50, tail_top + 2),
+            (xd + 11, tail_top + 5),
+            (xd + 12, tail_top + 5),
+            (xd + 12, tail_top + 7),
+            (xp - 1, tail_top + 7),
+            (xp - 1, tail_top + (3 if west_first else 2)),
         ],
         end_direction="E",
     )
+
+    if west_first:
+        # Both legs snake inside the five-column strip east of DISP:
+        # 26 + 13 = 39 cells, over the 35-word capacity floor.
+        program.pipe(
+            [
+                (76, tail_top),
+                (80, tail_top),
+                (80, tail_top + 7),
+                (79, tail_top + 7),
+                (79, tail_top + 1),
+                (78, tail_top + 1),
+                (78, tail_top + 7),
+            ],
+            end_direction="S",
+        )
+        program.pipe(
+            [
+                (77, tail_top + 7),
+                (77, tail_top + 1),
+                (76, tail_top + 1),
+                (76, tail_top + 6),
+            ],
+            end_direction="W",
+        )
+        return program
 
     if narrow:
         # The 38-entry narrow dictionary plus sentinel needs at least 38
@@ -978,17 +1078,23 @@ def main():
         program = build_narrow()
         name = os.path.join("candidates", "81x82.man")
     elif legacy:
-        W = int(positional[0]) if positional else 83
-        program = build(W, variable=variable)
-        name = f"history-ring-variable-{W}.man" if variable else "history-ring.man"
+        if positional == ["82"] and not variable:
+            program, name = build_82x82(), os.path.join("best", "82x82.man")
+            legacy = False      # best/ files are stored without a final NL
+        else:
+            W = int(positional[0]) if positional else 83
+            program = build(W, variable=variable)
+            name = (f"history-ring-variable-{W}.man" if variable
+                    else "history-ring.man")
     else:
         if positional or variable:
             raise SystemExit(
-                "default build is best/82x82.man; use --legacy [W] [--variable] "
-                "for an older layout"
+                "default build is best/81x81.man; use --legacy 82 for the "
+                "previous champion, --narrow for the constant-tail candidate, "
+                "or --legacy [W] [--variable] for an older layout"
             )
         program = build_champion()
-        name = os.path.join("best", "82x82.man")
+        name = os.path.join("best", "81x81.man")
     out = os.path.join(HERE, name)
     os.makedirs(os.path.dirname(out), exist_ok=True)
     with open(out, "w") as f:

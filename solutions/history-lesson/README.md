@@ -1,15 +1,16 @@
 # History Lesson — ring dictionary build
 
-`best/82x82.man` remains the checked-in champion.  The narrower
-`candidates/81x82.man` is not yet considered valid for promotion to `best/`.
-It has an **81×82** non-space footprint and therefore the same footprint-only
-score of **6,724**.  `build_ring.py --narrow` reproduces the candidate
-byte-for-byte; the default builder invocation reproduces the champion.
+`best/81x81.man` is the checked-in champion.  It has an **81×81** non-space
+footprint, so its footprint-only score is **6,561**.  The default builder
+invocation reproduces it; `--legacy 82` and `--narrow` still reproduce the
+previous champion and the constant-tail candidate byte-for-byte.
 
 | Candidate | Footprint | Score |
 | --- | ---: | ---: |
+| `best/81x81.man` | 81×81 | **6,561** |
 | `best/82x82.man` | 82×82 | 6,724 |
 | `candidates/81x82.man` | 81×82 | 6,724 |
+| `history-ring-p1west-82x80.man` | 82×80 | 6,724 |
 | `history-ring.man` | 83×83 | 6,889 |
 | `history-lesson-with-year.man` | 84×84 | 7,056 |
 | `history-lesson-v3.man` / `v4.man` | 85×85 / 85×84 | 7,225 |
@@ -22,7 +23,7 @@ do not affect this problem's score.
 
 ## Encoding
 
-`build_ring.py` is the source of truth for `best/82x82.man`.  It transforms the
+`build_ring.py` is the source of truth for `best/81x81.man`.  It transforms the
 target text into a compact stream with these base-92 symbols:
 
 | Symbol | Meaning |
@@ -106,6 +107,50 @@ Two details are intentional rather than cosmetic:
 - Feeder rows alternate direction.  The westbound decimal spelling is reversed
   so that Littleman's direction-sensitive backtick literals retain the same
   numeric value.
+
+## The 81x81 tail (`west_first`)
+
+Two independent lines of work reached width 81.  `--narrow` keeps the 10-row
+P1 and buys its feeder rows with three extra dictionary entries carried in the
+pump rows; it lands at 81×82.  The champion instead takes three folds that
+together remove a row from each of the feeder, P1, and the ring's column
+budget, landing at 81×81.  The two are alternatives, not composable: the
+margin pump needs the very rows the constant tail uses.
+
+- **An odd feeder.**  The feeder is walked in two-row bands because both rows
+  of a band must put their backticks in the same columns.  The *last* band may
+  be a single eastbound row: the oracle only constrains what sits between two
+  backticks in a column, so a lone trailing tick merely opens a literal that
+  is never closed, and earlier bands are unaffected because the odd row is
+  last.  `optimize_feeder` now scores rows rather than bands.  At width 81 the
+  baseline stream needs 64 rows in whole bands but only 63 with a half band.
+- **The pump in P1's margin.**  Walking P1 west-first makes its last data row
+  end on the right, so the pump becomes a six-cell loop in the two columns
+  between the turn column and the right wall instead of two rows of its own.
+  P1 goes from 10 rows to 8.
+- **A trimmed DISP and a shifted band.**  DISP's last inner column is entirely
+  blank, so the room needs 26 columns.  With every service room slid one
+  column left, that trim widens the strip east of DISP to the five columns the
+  ring's 35 cells need, while still leaving DISP → YEAR a two-column gap — a
+  one-cell pipe is rejected by the loader, verified directly against the
+  oracle.  Each room keeps its position *relative* to its own attachments, so
+  DISP's nearest-pipe bindings are unchanged.
+
+That is 65 feeder rows + 8 service + 8 P1 = 81, with the ring at 26+13 = 39
+cells against a 35-word floor.
+
+Measured dead ends, recorded so they are not retried:
+
+- Rooms may not share a wall row; a two-room probe crashes with reason
+  `wall`.
+- Dropping the YEAR room costs more than it saves.  The `; YYYY: ` prefixes go
+  from 27 single symbols to inline text: 2,042 → 2,140 symbols, and the feeder
+  at width 81 goes 64 → 66 rows.  It frees 29 *columns* but no rows, because
+  DISP, not YEAR, sets the service band's height.
+- Re-selecting phrases for symbol count rather than grid cells is worse
+  (2,035–2,061 vs 2,042) once P1's width cap is enforced.  2,010 symbols would
+  buy 62 feeder rows; the constrained search plateaus well above that, which
+  is what `--narrow` sidesteps by adding entries instead.
 
 ## Runtime pipeline
 

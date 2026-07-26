@@ -61,6 +61,16 @@ class Band:
     def required_width(self) -> int:
         return 5 + sum(width + 3 for width in self.widths)
 
+    @property
+    def rows(self) -> int:
+        """A final band may be a single eastbound row (``bottom`` empty).
+
+        Nothing pairs its backticks vertically, which is fine: the oracle only
+        constrains what sits *between* two backticks in a column, and a lone
+        trailing tick just opens a literal that is never closed.  Earlier
+        bands are unaffected because the odd row is last."""
+        return 1 if not self.bottom else 2
+
 
 class FeederOptimizer:
     def __init__(
@@ -279,6 +289,29 @@ class FeederOptimizer:
                         best = candidate
         return best
 
+    def _final_row(self, start: int) -> tuple[int, int, list[Chunk]] | None:
+        """Return (slots, digit-cost, chunks) for a single trailing row."""
+        best: tuple[int, int, list[Chunk]] | None = None
+        for slots in range(1, self.max_slots + 1):
+            capacity = self._capacity(slots)
+            if capacity < slots:
+                continue
+            span = self.nsymbols - start
+            if not slots <= span <= slots * self.max_symbols:
+                continue
+            cost = self._plain_cost(start, self.nsymbols, slots)
+            if cost is None or cost > capacity:
+                continue
+            chunks = self._plain_chunks(start, self.nsymbols, slots)
+            if best is None or (cost, slots) < (best[1], best[0]):
+                best = (slots, cost, chunks)
+        return best
+
+    @staticmethod
+    def _make_row(chunks: list[Chunk]) -> Band:
+        widths = tuple(chunk.digits for chunk in chunks)
+        return Band(widths, tuple(chunks), ())
+
     @staticmethod
     def _make_band(slots: int, chunks: list[Chunk | None]) -> Band:
         assert len(chunks) == 2 * slots
@@ -304,7 +337,9 @@ class FeederOptimizer:
         bands[0] = 0
         used[0] = 0
 
-        final: tuple[int, int, int, list[Chunk | None]] | None = None
+        # The tail is scored in rows, not bands: every prefix transition is a
+        # two-row band, but the last piece may be a single row.
+        final: tuple[int, int, int, list[Chunk | None], bool] | None = None
         for start in range(self.nsymbols):
             if bands[start] == infinity:
                 continue
@@ -312,14 +347,24 @@ class FeederOptimizer:
             partial = self._final_band(start)
             if partial is not None:
                 slots, cost, chunks = partial
-                candidate = (bands[start] + 1, used[start] + cost, start, chunks)
+                candidate = (2 * bands[start] + 2, used[start] + cost, start,
+                             chunks, False)
+                if final is None or candidate[:2] < final[:2]:
+                    final = candidate
+
+            single = self._final_row(start)
+            if single is not None:
+                slots, cost, chunks = single
+                candidate = (2 * bands[start] + 1, used[start] + cost, start,
+                             chunks, True)
                 if final is None or candidate[:2] < final[:2]:
                     final = candidate
 
             for end, slots, cost in self._full_transitions(start):
                 if end == self.nsymbols:
                     chunks = self._paired_chunks(start, end, slots)
-                    candidate = (bands[start] + 1, used[start] + cost, start, chunks)
+                    candidate = (2 * bands[start] + 2, used[start] + cost,
+                                 start, chunks, False)
                     if final is None or candidate[:2] < final[:2]:
                         final = candidate
                     continue
@@ -333,7 +378,7 @@ class FeederOptimizer:
                 f"no feeder plan fits width={self.width}, max_slots={self.max_slots}"
             )
 
-        _, _, final_start, final_chunks = final
+        _, _, final_start, final_chunks, final_single = final
         reversed_bands: list[Band] = []
         end = final_start
         while end:
@@ -342,7 +387,10 @@ class FeederOptimizer:
             reversed_bands.append(self._make_band(slots, chunks))
             end = previous
         result = list(reversed(reversed_bands))
-        result.append(self._make_band(len(final_chunks) // 2, final_chunks))
+        if final_single:
+            result.append(self._make_row(final_chunks))
+        else:
+            result.append(self._make_band(len(final_chunks) // 2, final_chunks))
         assert [c.start for band in result for c in band.chunks] == [
             0,
             *[c.end for band in result for c in band.chunks][:-1],
@@ -399,7 +447,7 @@ def main() -> None:
         for band in plan:
             slot_hist[len(band.widths)] = slot_hist.get(len(band.widths), 0) + 1
         print(
-            f"width={width}: rows={2 * len(plan)} bands={len(plan)} "
+            f"width={width}: rows={sum(b.rows for b in plan)} bands={len(plan)} "
             f"chunks={len(chunks)} max_used={max(b.required_width for b in plan)} "
             f"slots={slot_hist}"
         )

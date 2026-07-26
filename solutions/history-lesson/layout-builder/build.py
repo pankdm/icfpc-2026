@@ -37,12 +37,12 @@ MAX_DICTIONARY_WORDS = DICTIONARY_CATALOG["maximum_words"]
 LOGGER = logging.getLogger(__name__)
 TOP_LEFT_BLOCK_ROWS = (
     ">rsv",
-    "^<<<",
+    "x<<<",
 )
 TOP_LEFT_BLOCK_WIDTH = 4
-RETURN_COLUMN = 1
+RETURN_COLUMN = 2
 START_COLUMN = 5
-LATER_START_COLUMN = 2
+LATER_START_COLUMN = 1
 
 # Port offsets are part of the compact dispatcher's design: its sends and
 # receives select the nearest matching pipe, so moving an attachment can
@@ -211,12 +211,10 @@ def pack_dictionary(values: list[int], room_width: int) -> list[DictionaryBand]:
         raise ValueError("dictionary width must be at least 13")
     # The top-left 2x4 block shifts the first paired band four columns right
     # compared with an ordinary band. Later bands recover that width: column
-    # one is the upward return and column two is the ordinary band-to-band
-    # descent. On the final bottom row columns two and three send the zero
-    # sentinel before the man enters the return.
+    # one is their start/descent and column two is the upward return.
     first_capacity = room_width - 9
     capacity = room_width - 6
-    final_capacity = room_width - 7
+    final_capacity = room_width - 10
     values_tuple = tuple(values)
     max_constants_per_band = 2 * (capacity // 4)
 
@@ -371,6 +369,7 @@ def repack_physical_dictionary(
     symbols: list[int],
     ring: dict[int, int],
     room_width: int,
+    search_order: bool = True,
 ) -> tuple[list[int], dict[int, int], list[int], list[DictionaryBand]]:
     """Choose and apply the best tested physical order for paired-row packing.
 
@@ -378,6 +377,17 @@ def repack_physical_dictionary(
     remains unchanged. Phrase priority affects the encoded stream; this step
     affects only literal geometry.
     """
+    if not search_order:
+        order = list(range(1, len(ring) + 1))
+        values = [ring[position] for position in order]
+        bands = pack_dictionary(values, room_width)
+        rewritten, new_ring, order = _rewrite_physical_dictionary(
+            symbols,
+            ring,
+            order,
+        )
+        return rewritten, new_ring, order, bands
+
     references = {
         position: count
         for position, _, count in dictionary_usage(symbols, ring)
@@ -469,12 +479,12 @@ def place_dictionary(
     """Place a right-aligned vertical-P1 dictionary and return (width, height)."""
     if bands is None:
         bands = pack_dictionary(values, room_width)
-    room_height = 2 * len(bands) + 3 + bottom_padding
+    room_height = 2 * len(bands) + 2 + bottom_padding
     program.room(x0, y0, room_width, room_height)
     turn_x = x0 + room_width - 2
 
     for band_index, band in enumerate(bands):
-        top_y = y0 + 1 + 2 * band_index + (1 if band_index else 0)
+        top_y = y0 + 1 + 2 * band_index
         bottom_y = top_y + 1
         pitch = sum(width + 3 for width in band.widths)
         final_band = band_index == len(bands) - 1
@@ -482,9 +492,10 @@ def place_dictionary(
         if band_index == 0:
             minimum_base_x = x0 + START_COLUMN + 1
         elif final_band:
-            minimum_base_x = x0 + 4
+            # The final westbound row needs `0s1b^` before column two.
+            minimum_base_x = x0 + 7
         else:
-            minimum_base_x = x0 + 3
+            minimum_base_x = x0 + 2
         if base_x < minimum_base_x:
             raise AssertionError((base_x, x0, room_width, band))
         starts = []
@@ -535,39 +546,32 @@ def place_dictionary(
         if band_index == 0:
             program.put(x0 + START_COLUMN, top_y, "@")
         else:
-            program.put(x0 + LATER_START_COLUMN, top_y, ">")
+            # This cell is on the room edge, where `>` would become a pipe
+            # endpoint and block the loader.  During preload BP=0, so `x`
+            # turns a southbound man counter-clockwise to face east.
+            program.put(x0 + LATER_START_COLUMN, top_y, "x")
         program.put(turn_x, top_y, "v")
         program.put(turn_x, bottom_y, "<")
         if not final_band:
-            program.put(
-                x0 + (
-                    START_COLUMN
-                    if band_index == 0
-                    else LATER_START_COLUMN
-                ),
-                bottom_y,
-                "v",
-            )
+            if band_index:
+                program.put(x0 + LATER_START_COLUMN, bottom_y, "v")
 
     # The fixed 2x4 top-left area contains the r/s pump. Constants in this
     # first band begin after it; later bands recover the horizontal space.
     for row_offset, row in enumerate(TOP_LEFT_BLOCK_ROWS):
         _put_row(program, x0 + 1, y0 + 1 + row_offset, row)
 
-    # One dedicated row converts the first band's column-five descent into
-    # the column-two starts used by every later band. Keeping this off a
-    # constant row avoids forming a west/east arrow loop.
-    transition_y = y0 + 3
-    program.put(x0 + START_COLUMN, transition_y, "<")
-    program.put(x0 + LATER_START_COLUMN, transition_y, "v")
-
-    # After the final constant, send a zero sentinel and climb directly into
-    # the pump's leading `>`, completing the loop without footer rows.
-    final_bottom_y = y0 + 2 * len(bands) + 1
-    program.put(x0 + 3, final_bottom_y, "0")
-    program.put(x0 + 2, final_bottom_y, "s")
-    for y in range(y0 + 2, final_bottom_y + 1):
-        program.put(x0 + RETURN_COLUMN, y, "^")
+    # The lower-left `x` sends BP=0 south during the one-shot preload. After
+    # the final constant, emit the sentinel, set BP=1, and turn north in
+    # column two.  That column is intentionally blank between bands: a
+    # northbound man keeps climbing, while preload paths cross it horizontally.
+    # At the pump row `<x` moves the return west, then odd BP turns it north.
+    final_bottom_y = y0 + 2 * len(bands)
+    program.put(x0 + 6, final_bottom_y, "0")
+    program.put(x0 + 5, final_bottom_y, "s")
+    program.put(x0 + 4, final_bottom_y, "1")
+    program.put(x0 + 3, final_bottom_y, "b")
+    program.put(x0 + RETURN_COLUMN, final_bottom_y, "^")
     return room_width, room_height
 
 
@@ -685,6 +689,7 @@ def build(
     dictionary_width: int = DEFAULT_DICTIONARY_WIDTH,
     dictionary_words: int = DEFAULT_DICTIONARY_WORDS,
     connect_pipes: bool = False,
+    search_dictionary_order: bool = True,
 ) -> tuple[Program, dict[str, object]]:
     if feeder_width < 8:
         raise ValueError("feeder width must be at least 8")
@@ -705,14 +710,45 @@ def build(
         dictionary_words,
     )
     LOGGER.info(
-        "selecting physical order for width %d while preserving reference class",
-        dictionary_width,
+        "dictionary choice order "
+        "(semantic slot: word, residual occurrences -> final references)"
     )
+    for action in selection["actions"]:
+        slot = action["slot"]
+        occurrences = action.get("occurrences_at_selection")
+        occurrence_label = (
+            str(occurrences)
+            if occurrences is not None
+            else "required identity"
+        )
+        LOGGER.info(
+            "  %02d: %r [%s], %s -> %d",
+            slot,
+            action["word"],
+            action["kind"],
+            occurrence_label,
+            selection["references"][slot],
+        )
+    if search_dictionary_order:
+        LOGGER.info(
+            "selecting physical order for width %d while preserving reference class",
+            dictionary_width,
+        )
+    else:
+        LOGGER.info("keeping catalog dictionary order (ordering search disabled)")
     symbols, ring, physical_order, dictionary_bands = (
-        repack_physical_dictionary(symbols, ring, dictionary_width)
+        repack_physical_dictionary(
+            symbols,
+            ring,
+            dictionary_width,
+            search_order=search_dictionary_order,
+        )
     )
     usage = dictionary_usage(symbols, ring)
-    LOGGER.info("selected dictionary words (physical slot: word -> references)")
+    LOGGER.info(
+        "physical packing order after reference rewrite "
+        "(physical slot: word -> references)"
+    )
     for physical_position, word, references in usage:
         LOGGER.info(
             "  %02d: %r -> %d",
@@ -744,7 +780,7 @@ def build(
         "running dictionary packing DP for width %d",
         dictionary_width,
     )
-    unpadded_dictionary_height = 2 * len(dictionary_bands) + 3
+    unpadded_dictionary_height = 2 * len(dictionary_bands) + 2
     # Connected mode needs the dictionary's bottom boundary to cover DISP's
     # south-wall ring endpoints. Small dictionaries can be shorter than that
     # service tail, so two fixed footer rows are not always sufficient.
@@ -892,6 +928,7 @@ def build(
         "service_rooms": service_rooms,
         "pipes": pipe_count,
         "connected": connect_pipes,
+        "searched_dictionary_order": search_dictionary_order,
     }
     return program, metadata
 
@@ -929,6 +966,14 @@ def parse_args() -> argparse.Namespace:
         help="move service rooms down two rows and add functional pipes",
     )
     parser.add_argument(
+        "--no-order-search",
+        action="store_true",
+        help=(
+            "keep catalog dictionary order instead of auditing physical "
+            "permutations (faster, potentially larger)"
+        ),
+    )
+    parser.add_argument(
         "-o",
         "--output",
         help="output .man path (default encodes the three layout parameters)",
@@ -948,17 +993,20 @@ def main() -> None:
             dictionary_width=args.dictionary_width,
             dictionary_words=args.dictionary_words,
             connect_pipes=args.connect_pipes,
+            search_dictionary_order=not args.no_order_search,
         )
     except ValueError as error:
         raise SystemExit(f"error: {error}") from error
 
     mode_suffix = "-connected" if args.connect_pipes else ""
+    order_suffix = "-natural-order" if args.no_order_search else ""
     output = args.output or os.path.join(
         HERE,
         (
             f"layout-f{args.feeder_width}"
             f"-d{args.dictionary_width}"
             f"-n{args.dictionary_words}"
+            f"{order_suffix}"
             f"{mode_suffix}.man"
         ),
     )

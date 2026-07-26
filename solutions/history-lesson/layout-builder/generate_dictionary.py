@@ -22,7 +22,10 @@ OUTPUT_PATH = os.path.join(HERE, "dictionary_words.json")
 B1 = 92
 B2 = 128
 ESC = 29
-DIRECT_PHRASE_SLOTS = [2, 4, 5, 6, 7, 8, 11, 12, 16]
+# The first nine are absent in the raw stream (slot 8 is restored through an
+# escape). Slot 13 becomes free after the first selected phrase consumes every
+# comma as part of `", "`, so it is deliberately selected last.
+DIRECT_PHRASE_SLOTS = [2, 4, 5, 6, 7, 8, 11, 12, 16, 13]
 MAX_WORDS = 91
 
 
@@ -110,64 +113,59 @@ def choose_dictionary(data: bytes):
     stream = replace_nonoverlap(stream, (17,), ("ref", 17))
     stream = replace_nonoverlap(stream, (8,), ("ref", 18))
 
-    direct_slots = iter(DIRECT_PHRASE_SLOTS)
-    remaining_direct = len(DIRECT_PHRASE_SLOTS)
-    next_escaped_slot = 19
     digit_weight = math.log10(B1)
 
-    # First use the source-cell-aware selector. It may choose direct and
-    # escaped phrases in one order; preserving that order makes overlap
-    # handling deterministic for every smaller prefix budget.
-    while True:
+    # Direct phrases do not increase the ring size: they occupy direct slots
+    # whose source characters are absent, except slot 8 whose apostrophe is
+    # restored through escaped slot 18. Pick them occurrence-first, replacing
+    # the residual stream after every choice before recounting candidates.
+    for slot in DIRECT_PHRASE_SLOTS:
+        if count_nonoverlap(stream, (slot,)):
+            raise ValueError(
+                f"cannot repurpose direct slot {slot}: raw symbol remains"
+            )
         best = None
         for pattern, occurrences in candidates(stream, 2).items():
             word = bytes(token + 31 for token in pattern)
             table_cost = len(str(pack128(word))) + 3
-            options = []
-            if remaining_direct:
-                options.append((
-                    digit_weight * (len(pattern) - 1) * occurrences - table_cost,
-                    "direct",
-                ))
-            if next_escaped_slot <= MAX_WORDS:
-                options.append((
-                    digit_weight * (len(pattern) - 2) * occurrences - table_cost,
-                    "escaped",
-                ))
-            for gain, kind in options:
-                key = (
-                    gain,
-                    len(pattern),
+            symbol_saving = (len(pattern) - 1) * occurrences
+            source_cell_gain = digit_weight * symbol_saving - table_cost
+            key = (
+                occurrences,
+                symbol_saving,
+                source_cell_gain,
+                -len(str(pack128(word))),
+                len(pattern),
+                word,
+            )
+            if source_cell_gain > 0 and (best is None or key > best[0]):
+                best = (
+                    key,
+                    pattern,
                     occurrences,
-                    -len(str(pack128(word))),
                     word,
+                    source_cell_gain,
+                    symbol_saving,
                 )
-                if gain > 0 and (best is None or key > best[0]):
-                    best = (key, pattern, occurrences, kind, word)
         if best is None:
-            break
-        _, pattern, occurrences, kind, word = best
-        if kind == "direct":
-            slot = next(direct_slots)
-            remaining_direct -= 1
-            min_words = 18 if slot == 8 else 17
-        else:
-            slot = next_escaped_slot
-            next_escaped_slot += 1
-            min_words = slot
+            raise ValueError(f"no beneficial direct phrase for slot {slot}")
+        _, pattern, occurrences, word, source_cell_gain, symbol_saving = best
         actions.append({
-            "kind": kind,
+            "kind": "direct",
             "slot": slot,
             "word": word.decode("ascii"),
-            "min_words": min_words,
+            "min_words": 18 if slot == 8 else 17,
             "occurrences_at_selection": occurrences,
-            "source_cell_gain": round(best[0][0], 6),
+            "symbol_saving": symbol_saving,
+            "source_cell_gain": round(source_cell_gain, 6),
+            "selection_basis": "highest residual occurrence count",
         })
         stream = replace_nonoverlap(stream, pattern, ("ref", slot))
 
-    # Fill remaining escaped capacity by pure stream-symbol saving. Every
-    # recurring phrase of at least three remaining tokens is beneficial once
-    # its dictionary slot is explicitly requested by the user.
+    # Escaped phrases cost two stream symbols. Recompute the residual stream
+    # after every choice and rank current candidates by occurrence count
+    # first. Symbol saving and literal size are only tie-breakers.
+    next_escaped_slot = 19
     while next_escaped_slot <= MAX_WORDS:
         best = None
         for pattern, occurrences in candidates(stream, 3).items():
@@ -175,18 +173,27 @@ def choose_dictionary(data: bytes):
             if saving <= 0:
                 continue
             word = bytes(token + 31 for token in pattern)
+            table_cost = len(str(pack128(word))) + 3
+            source_cell_gain = digit_weight * saving - table_cost
             key = (
+                occurrences,
                 saving,
+                source_cell_gain,
                 -len(str(pack128(word))),
                 len(pattern),
-                occurrences,
                 word,
             )
             if best is None or key > best[0]:
-                best = (key, pattern, occurrences, word)
+                best = (
+                    key,
+                    pattern,
+                    occurrences,
+                    word,
+                    source_cell_gain,
+                )
         if best is None:
             break
-        _, pattern, occurrences, word = best
+        _, pattern, occurrences, word, source_cell_gain = best
         slot = next_escaped_slot
         next_escaped_slot += 1
         actions.append({
@@ -196,11 +203,13 @@ def choose_dictionary(data: bytes):
             "min_words": slot,
             "occurrences_at_selection": occurrences,
             "symbol_saving": (len(pattern) - 2) * occurrences,
+            "source_cell_gain": round(source_cell_gain, 6),
+            "selection_basis": "highest residual occurrence count",
         })
         stream = replace_nonoverlap(stream, pattern, ("ref", slot))
 
     return {
-        "version": 1,
+        "version": 2,
         "source": "../icfp-history.txt",
         "encoding": "raw ASCII bytes shifted by 31; no year mapping",
         "base": B1,

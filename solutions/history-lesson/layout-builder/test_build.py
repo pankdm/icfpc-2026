@@ -35,7 +35,8 @@ class LayoutBuilderTest(unittest.TestCase):
     def test_dp_packs_every_constant(self):
         dictionary = self.metadata["dictionary"]
         self.assertEqual(sum(dictionary["constants_per_band"]), 24)
-        self.assertEqual(dictionary["bands"], 5)
+        self.assertEqual(dictionary["bands"], 4)
+        self.assertEqual(dictionary["height"], 10)
         self.assertEqual(
             len(dictionary["slots_per_band"]),
             dictionary["bands"],
@@ -53,7 +54,7 @@ class LayoutBuilderTest(unittest.TestCase):
             88888888,
         ]
         narrow = builder.pack_dictionary(values, 24)
-        wide = builder.pack_dictionary(values, 30)
+        wide = builder.pack_dictionary(values, 31)
         self.assertGreater(len(narrow), len(wide))
         self.assertNotEqual(
             [len(band.widths) for band in narrow],
@@ -83,6 +84,48 @@ class LayoutBuilderTest(unittest.TestCase):
         self.assertEqual(ring17[8], builder.raw_dictionary.pack128(b"'"))
         self.assertNotEqual(ring18[8], builder.raw_dictionary.pack128(b"'"))
         self.assertIn("'", metadata18["words"].values())
+
+    def test_order_search_can_be_skipped(self):
+        symbols, ring, _ = builder.raw_dictionary.build_encoding(
+            builder.vertical.base.TEXT,
+            24,
+        )
+        _, reordered_ring, order, bands = builder.repack_physical_dictionary(
+            symbols,
+            ring,
+            38,
+            search_order=False,
+        )
+        self.assertEqual(order, list(range(1, 25)))
+        self.assertEqual(reordered_ring, ring)
+        self.assertTrue(bands)
+
+    def test_catalog_is_unique_and_residual_occurrence_ordered(self):
+        catalog = builder.raw_dictionary.load_catalog()
+        phrases = [
+            action
+            for action in catalog["actions"]
+            if "occurrences_at_selection" in action
+        ]
+        occurrences = [
+            action["occurrences_at_selection"]
+            for action in phrases
+        ]
+        self.assertEqual(occurrences, sorted(occurrences, reverse=True))
+        words = [action["word"] for action in catalog["actions"]]
+        self.assertEqual(len(words), len(set(words)))
+
+        _, _, metadata = builder.raw_dictionary.build_encoding(
+            builder.vertical.base.TEXT,
+            60,
+        )
+        usa = next(
+            action
+            for action in phrases
+            if action["word"] == "USA"
+        )
+        self.assertEqual(usa["slot"], 20)
+        self.assertEqual(metadata["references"][usa["slot"]], 11)
 
     def test_tail_rooms_form_one_row_with_dispatcher_input_gap(self):
         dictionary = self.metadata["dictionary"]
@@ -127,7 +170,6 @@ class LayoutBuilderTest(unittest.TestCase):
         dictionary = self.metadata["dictionary"]
         x = dictionary["x"]
         y = dictionary["y"]
-        bottom = dictionary["y"] + dictionary["height"] - 1
         actual = tuple(
             "".join(
                 self.program.get(x + dx, y)
@@ -141,30 +183,33 @@ class LayoutBuilderTest(unittest.TestCase):
             "@",
         )
         self.assertEqual(
-            self.program.get(x + builder.START_COLUMN, y + 3),
-            "<",
-        )
-        self.assertEqual(
             self.program.get(x + builder.LATER_START_COLUMN, y + 3),
-            "v",
+            "x",
         )
         self.assertEqual(
             self.program.get(x + builder.LATER_START_COLUMN, y + 4),
-            ">",
+            "v",
         )
-        for return_y in range(y + 2, bottom):
+        final_bottom = y + 2 * dictionary["bands"]
+        for return_y in range(y + 3, final_bottom):
             self.assertEqual(
                 self.program.get(x + builder.RETURN_COLUMN, return_y),
-                "^",
+                " ",
             )
         self.assertEqual(
-            self.program.get(x + 2, bottom - 1),
+            self.program.get(x + builder.RETURN_COLUMN, final_bottom),
+            "^",
+        )
+        self.assertEqual(
+            self.program.get(x + 5, final_bottom),
             "s",
         )
         self.assertEqual(
-            self.program.get(x + 3, bottom - 1),
+            self.program.get(x + 6, final_bottom),
             "0",
         )
+        self.assertEqual(self.program.get(x + 4, final_bottom), "1")
+        self.assertEqual(self.program.get(x + 3, final_bottom), "b")
 
 
 if __name__ == "__main__":

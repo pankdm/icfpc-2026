@@ -90,6 +90,7 @@ fn serde_char(c: char) -> String {
 
 struct Args {
     grade: bool,
+    profile: bool,
     inspect: Option<u64>,
     program: String,
     steps: u64,
@@ -101,11 +102,12 @@ struct Args {
 
 fn parse_args() -> Args {
     let raw: Vec<String> = std::env::args().skip(1).collect();
-    let mut a = Args { grade: false, inspect: None, program: String::new(), steps: 200, input: String::new(),
+    let mut a = Args { grade: false, profile: false, inspect: None, program: String::new(), steps: 200, input: String::new(),
         expected: String::new(), frames: String::new(), cap: 5_000_000 };
     let mut positional: Vec<String> = vec![];
     for arg in raw {
         if arg == "--grade" { a.grade = true; }
+        else if arg == "--profile" { a.profile = true; a.grade = true; }
         else if let Some(v) = arg.strip_prefix("--inspect=") { a.inspect = v.parse().ok(); }
         else if let Some(v) = arg.strip_prefix("--input=") { a.input = v.to_string(); }
         else if let Some(v) = arg.strip_prefix("--expected=") { a.expected = v.to_string(); }
@@ -179,6 +181,25 @@ fn run_grade(args: &Args, rows: &[String]) {
         "pass" => println!("{{\"status\":\"pass\",\"settleTick\":{},\"footprint\":{}}}", settle, footprint),
         _ => println!("{{\"status\":\"{}\",\"settleTick\":{},\"footprint\":{},\"reason\":{}}}",
             status, settle, footprint, json_string(&reason)),
+    }
+    if args.profile {
+        let mut glyphs: Vec<(char, u64)> = w.executed.iter().map(|(k, v)| (*k, *v)).collect();
+        glyphs.sort_by_key(|(_, count)| std::cmp::Reverse(*count));
+        let mut rooms: Vec<(usize, u64)> = w.room_exec.iter().copied().enumerate().collect();
+        rooms.sort_by_key(|(_, count)| std::cmp::Reverse(*count));
+        eprintln!("PROFILE glyphs={:?}", glyphs);
+        eprintln!("PROFILE rooms={:?}", &rooms[..rooms.len().min(20)]);
+        let mut room_glyphs: Vec<((usize, char), u64)> =
+            w.room_glyph.iter().map(|(k, v)| (*k, *v)).collect();
+        room_glyphs.sort_by_key(|(_, count)| std::cmp::Reverse(*count));
+        eprintln!(
+            "PROFILE room_glyphs={:?}",
+            &room_glyphs[..room_glyphs.len().min(80)]
+        );
+        let mut cells: Vec<((i32, i32), u64)> =
+            w.executed_cells.iter().map(|(k, v)| (*k, *v)).collect();
+        cells.sort_by_key(|(_, count)| std::cmp::Reverse(*count));
+        eprintln!("PROFILE cells={:?}", &cells[..cells.len().min(60)]);
     }
 }
 

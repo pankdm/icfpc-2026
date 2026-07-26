@@ -178,6 +178,35 @@ cell/index job and return tagged results. Forking the existing scalar
 dispatcher alone merely adds contention, because the BFS controller still
 issues one dependent request at a time.
 
+Rust per-cell profiling later refined this diagnosis. In a one-round compact
+Pathfinder run, the controller spent about 302k/543k ticks gliding and about
+195k ticks blocked specifically on scalar-RAM replies. Four mirrored cell RAMs
+therefore made the dominant case worse (7.68M to 11.06M): independent neighbor
+reads could not repay four-way record broadcasts and eight extra controller
+ports. Profile the exact `r` cell, not merely the glyph or room, before
+replicating a service.
+
+## Treat controller origin and room boundaries as optimization parameters
+
+`flowgrid` originally placed Pathfinder code at x=380 while pooled return lanes
+began near x=2. Moving the same verified graph to the minimum routable x=60:
+
+- kept exact behavior and all seven public passes;
+- reduced the box from 701 to 496;
+- cut the heavy public case from 9,742,403 to 7,678,690 ticks;
+- reduced local score from about 4.13T to 1.62T.
+
+This parameter is as important as bank count. Search it automatically after
+every CFG change.
+
+The remaining sparse-room cost is vertical. A phase-only layout estimate gives
+roughly 57 rows for setup, 240 for BFS, and 145 for playback, versus 415 rows
+when all 47 blocks share one routed room. Modular rooms can therefore help, but
+only with explicit service ownership: pipe replies have one destination room,
+and men cannot cross a room wall. A sound decomposition keeps RAM/queue in the
+BFS owner and sends compact path/display messages to a playback room; blindly
+splitting basic blocks creates reply-routing and register-liveness problems.
+
 ## Emit display deltas, and understand round gating
 
 The interpreter advances rounds based on committed frames. A round that

@@ -121,6 +121,7 @@ DEFAULT_PORTS = {
 def build_program(
     flow,
     scalar_size=32,
+    scalar_belts=1,
     code_x=380,
     pooled_edges=True,
     tight_gaps=True,
@@ -130,6 +131,7 @@ def build_program(
     fast_cell_ram=False,
     cell_belts=8,
     packed_cell=False,
+    cell_replicas=1,
 ):
     """Compile *flow* and attach the shared stateful-problem hardware."""
     p = lm.Program()
@@ -137,6 +139,17 @@ def build_program(
         name: spec for name, spec in DEFAULT_PORTS.items()
         if name not in ("qs", "qr")
     }
+    if cell_replicas > 1:
+        port_spec.pop("cc")
+        port_spec.pop("cr")
+        if queue:
+            port_spec["qs"] = (602, "s")
+            port_spec["qr"] = (560, "r")
+        port_spec["ss"] = (150, "s")
+        for replica in range(cell_replicas):
+            offset = 160 + 80 * replica
+            port_spec[f"c{replica}s"] = (offset, "s")
+            port_spec[f"c{replica}r"] = (offset + 25, "r")
     layout = flowgrid.lay_cfg_controller(
         p,
         flow,
@@ -155,15 +168,36 @@ def build_program(
     # its bottom wall and route outside the room before entering a component.
     scalar_x, scalar_y = code_x + 48, bottom + 5
     cell_x, cell_y = code_x + (164 if packed_cell else 148), bottom + 5
-    scalar = belt_ram.build(p, scalar_x, scalar_y, scalar_size)
-    cell = (
-        split_ram.build(p, cell_x, cell_y, 256, cell_belts)
-        if fast_cell_ram else belt_ram.build(p, cell_x, cell_y, 256)
+    scalar = (
+        split_ram.build(p, scalar_x, scalar_y, scalar_size, scalar_belts)
+        if scalar_belts > 1 else belt_ram.build(p, scalar_x, scalar_y, scalar_size)
     )
-    packed = (
-        packed_ram_proxy.build(p, cell_x - 20, cell_y)
-        if packed_cell else None
-    )
+    if cell_replicas > 1:
+        if not (fast_cell_ram and packed_cell):
+            raise ValueError("replicated cell RAM requires packed split RAM")
+        cell_positions = [
+            (code_x + 177 + 80 * replica, cell_y)
+            for replica in range(cell_replicas)
+        ]
+        cells = [
+            split_ram.build(p, x, y, 256, cell_belts)
+            for x, y in cell_positions
+        ]
+        packeds = [
+            packed_ram_proxy.build(p, x - 20, y)
+            for x, y in cell_positions
+        ]
+        cell = cells[0]
+        packed = packeds[0]
+    else:
+        cell = (
+            split_ram.build(p, cell_x, cell_y, 256, cell_belts)
+            if fast_cell_ram else belt_ram.build(p, cell_x, cell_y, 256)
+        )
+        packed = (
+            packed_ram_proxy.build(p, cell_x - 20, cell_y)
+            if packed_cell else None
+        )
 
     # Round input.
     p.input_room(ports["ri"][0] - 1, bottom + 12)
@@ -190,21 +224,62 @@ def build_program(
     ])
 
     command = scalar["command"]
-    p.pipe([
-        ports["sc"],
-        (ports["sc"][0], scalar_y - 3),
-        (scalar_x - 3, scalar_y - 3),
-        (scalar_x - 3, command[1] + 3),
-        (command[0], command[1] + 3),
-        command,
-    ])
-    p.pipe([
-        scalar["reply"],
-        (ports["rr"][0], scalar["reply"][1]),
-        ports["rr"],
-    ])
+    if scalar_belts > 1:
+        p.pipe([
+            ports["sc"],
+            (ports["sc"][0], bottom + 2),
+            (command[0], bottom + 2),
+            command,
+        ])
+    else:
+        p.pipe([
+            ports["sc"],
+            (ports["sc"][0], scalar_y - 3),
+            (scalar_x - 3, scalar_y - 3),
+            (scalar_x - 3, command[1] + 3),
+            (command[0], command[1] + 3),
+            command,
+        ])
+    if scalar_belts > 1:
+        p.pipe([
+            scalar["reply"],
+            scalar["reply_turn"],
+            (scalar["reply_turn"][0], bottom + 4),
+            (ports["rr"][0], bottom + 4),
+            ports["rr"],
+        ])
+    else:
+        p.pipe([
+            scalar["reply"],
+            (ports["rr"][0], scalar["reply"][1]),
+            ports["rr"],
+        ])
     if fast_cell_ram:
-        if packed_cell:
+        if cell_replicas > 1:
+            for replica, ((replica_x, _), replica_cell, replica_packed) in enumerate(
+                zip(cell_positions, cells, packeds)
+            ):
+                p.pipe([
+                    ports[f"c{replica}s"],
+                    (ports[f"c{replica}s"][0], bottom + 1),
+                    (replica_packed["command"][0], bottom + 1),
+                    replica_packed["command"],
+                ])
+                p.pipe([
+                    replica_packed["expanded"],
+                    (replica_x - 3, replica_packed["expanded"][1]),
+                    (replica_x - 3, cell_y - 3),
+                    (replica_cell["command"][0], cell_y - 3),
+                    replica_cell["command"],
+                ])
+                p.pipe([
+                    replica_cell["reply"],
+                    replica_cell["reply_turn"],
+                    (replica_cell["reply_turn"][0], bottom + 3),
+                    (ports[f"c{replica}r"][0], bottom + 3),
+                    ports[f"c{replica}r"],
+                ])
+        elif packed_cell:
             p.pipe([
                 ports["cc"],
                 (ports["cc"][0], bottom + 1),
@@ -225,13 +300,14 @@ def build_program(
                 (cell["command"][0], bottom + 2),
                 cell["command"],
             ])
-        p.pipe([
-            cell["reply"],
-            cell["reply_turn"],
-            (cell["reply_turn"][0], bottom + 3),
-            (ports["cr"][0], bottom + 3),
-            ports["cr"],
-        ])
+        if cell_replicas == 1:
+            p.pipe([
+                cell["reply"],
+                cell["reply_turn"],
+                (cell["reply_turn"][0], bottom + 3),
+                (ports["cr"][0], bottom + 3),
+                ports["cr"],
+            ])
     else:
         p.pipe([
             ports["cc"],
@@ -249,7 +325,7 @@ def build_program(
 
     # Addressable 16x16 display.
     display_x = code_x + 110
-    display_y = bottom + 60
+    display_y = bottom + (70 if cell_replicas > 1 else 60)
     p.display(display_x, display_y, 18, 18)
     # RAM now sits immediately below the controller. Leave each display port
     # vertically, turn in the two-row band above RAM, and descend around the
@@ -267,10 +343,11 @@ def build_program(
         (scalar_x - 3, display_y + 8),
         (display_x - 1, display_y + 8),
     ])
+    swap_band = display_y + (110 if cell_replicas > 1 else 20)
     p.pipe([
         ports["ss"],
-        (ports["ss"][0], display_y + 20),
-        (display_x + 8, display_y + 20),
+        (ports["ss"][0], swap_band),
+        (display_x + 8, swap_band),
         (display_x + 8, display_y + 18),
     ])
 
@@ -279,7 +356,8 @@ def build_program(
     # exceed the maximum useful 16x16 BFS frontier, while the relay provides
     # FIFO order at pipeline throughput.
     if queue:
-        queue_x, queue_y = code_x + 268, bottom + 6
+        queue_x = code_x + (600 if cell_replicas > 1 else 268)
+        queue_y = bottom + 6
         p.room(queue_x, queue_y, 8, 6)
         p.text(queue_x + 1, queue_y + 1, "@>rsv")
         p.put(queue_x + 5, queue_y + 2, "<")
@@ -291,17 +369,19 @@ def build_program(
         queue_path = [
             (queue_x + 4, queue_y + 6),
             (queue_x + 4, queue_y + 8),
-            (code_x + 320, queue_y + 8),
+            (code_x + (652 if cell_replicas > 1 else 320), queue_y + 8),
         ]
-        current_x = code_x + 320
+        current_x = code_x + (652 if cell_replicas > 1 else 320)
+        queue_left = code_x + (612 if cell_replicas > 1 else 280)
+        queue_right = code_x + (652 if cell_replicas > 1 else 320)
         for row in range(9, 15):
             queue_path.append((current_x, queue_y + row))
-            current_x = code_x + (280 if current_x == code_x + 320 else 320)
+            current_x = queue_left if current_x == queue_right else queue_right
             queue_path.append((current_x, queue_y + row))
         queue_path.extend([
             (current_x, queue_y + 15),
-            (code_x + 266, queue_y + 15),
-            (code_x + 266, bottom + 3),
+            (code_x + (598 if cell_replicas > 1 else 266), queue_y + 15),
+            (code_x + (598 if cell_replicas > 1 else 266), bottom + 3),
             (ports["qr"][0], bottom + 3),
             ports["qr"],
         ])

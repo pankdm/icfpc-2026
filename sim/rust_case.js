@@ -39,6 +39,7 @@ const LM = path.join(lib.REPO, 'interp', 'target', 'release', 'lm');
   const framesFile = path.join(temp, 'frames.json');
   try {
     const args = ['--grade', path.resolve(file), `--cap=${cap}`];
+    if (process.env.LM_PROFILE) args.unshift('--profile');
     if (input) args.push(`--input=${input}`);
     if (expected) args.push(`--expected=${expected}`);
     if (isDisplay) {
@@ -48,6 +49,7 @@ const LM = path.join(lib.REPO, 'interp', 'target', 'release', 'lm');
     const output = execFileSync(LM, args, {
       encoding: 'utf8',
       maxBuffer: 256 * 1024 * 1024,
+      stdio: process.env.LM_PROFILE ? ['pipe', 'pipe', 'inherit'] : undefined,
     });
     const result = JSON.parse(output.trim());
     console.log(JSON.stringify({

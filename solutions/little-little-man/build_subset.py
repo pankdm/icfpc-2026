@@ -352,33 +352,37 @@ def build_program(
     swap = ports["ss"]
     # Place RAM and display below the controller, then route outside its bbox.
     cy = inp[1]
-    rox, roy = controller_code + 48, cy + 80
+    import os as _o
+    _DY = lambda k, d: int(_o.environ.get(k, d))
+    rox, roy = controller_code + 48, cy + _DY('LLM_RAM_DY', 80)
     ram = belt_ram.build(p, rox, roy, ram_size)
     # Input room.
-    p.input_room(inp[0] - 1, cy + 12)
-    p.pipe([(inp[0], cy + 11), (inp[0], cy)])
+    p.input_room(inp[0] - 1, cy + _DY('LLM_IN_DY', 12))
+    p.pipe([(inp[0], cy + _DY('LLM_IN_DY', 12) - 1), (inp[0], cy)])
     # One-value scratch echo used to stage a variable RAM address across payload
     # computation without nesting a RAM request inside a write transaction.
-    sy = cy + 28
+    sy = cy + _DY('LLM_SCRATCH_DY', 28)
     sx = controller_code + 18
     p.room(sx, sy, 8, 4)
     p.text(sx + 1, sy + 1, "@>rsv")
     p.put(sx + 5, sy + 2, "<"); p.put(sx + 2, sy + 2, "^")
-    p.pipe([(controller_code + 20, cy), (controller_code + 20, sy - 3),
+    sp_x = ports["sp"][0]
+    rp_x = ports["rp"][0]
+    p.pipe([(sp_x, cy), (sp_x, sy - 3),
             (sx + 3, sy - 3), (sx + 3, sy - 1)])
     p.pipe([(sx + 4, sy - 1), (sx + 4, sy - 3),
-            (controller_code + 30, sy - 3), (controller_code + 30, cy)])
+            (rp_x, sy - 3), (rp_x, cy)])
     # Command dog-legs around the RAM's left wall, then enters bottom-col2.
-    ram_cmd = ram["command"]
-    p.pipe([(ram_cmd[0], cy), (ram_cmd[0], roy - 3), (rox - 3, roy - 3),
-            (rox - 3, ram_cmd[1] + 3), (ram_cmd[0], ram_cmd[1] + 3), ram_cmd])
+    cmd_pt = ram["command"]
+    p.pipe([(cmd_pt[0], cy), (cmd_pt[0], roy - 3), (rox - 3, roy - 3),
+            (rox - 3, cmd_pt[1] + 3), (cmd_pt[0], cmd_pt[1] + 3), cmd_pt])
     read_reply = ram["reply"]
     p.pipe([(read_reply[0], read_reply[1]), (ram_reply[0], read_reply[1]),
             (ram_reply[0], cy)])
     if cell_ram_size is not None:
         cell_cmd = ports["cc"]
         cell_reply = ports["cr"]
-        crox, croy = controller_code + 148, cy + 100
+        crox, croy = controller_code + 148, cy + _DY('LLM_CELL_DY', 100)
         cell_ram = belt_ram.build(p, crox, croy, cell_ram_size)
         command = cell_ram["command"]
         p.pipe([
@@ -396,7 +400,7 @@ def build_program(
             (cell_reply[0], cy),
         ])
     # 16x16 display, DATA on left and SWAP on bottom.
-    dx, dy = controller_code + 110, cy + 45
+    dx, dy = controller_code + 110, cy + _DY('LLM_DISP_DY', 45)
     p.display(dx, dy, 18, 18)
     p.pipe([(data[0], cy), (data[0], dy - 3), (dx - 3, dy - 3),
             (dx - 3, dy + 8),

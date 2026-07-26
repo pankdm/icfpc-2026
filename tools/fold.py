@@ -42,6 +42,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "tools"))
 GRADER = REPO / "tools" / "grade_json.js"
+FAST_GRADER = REPO / "tools" / "grade_fast.py"
 
 import lift as LIFT  # noqa: E402
 
@@ -158,8 +159,9 @@ def render(rows):
 
 
 class Grader:
-    def __init__(self, slug, cap=None, cases=None):
+    def __init__(self, slug, cap=None, cases=None, engine="oracle"):
         self.slug, self.cap, self.cases = slug, cap, cases
+        self.engine = engine
         self.cache = {}
 
     def grade(self, text):
@@ -169,11 +171,17 @@ class Grader:
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as fh:
                 fh.write(text)
-            cmd = ["node", str(GRADER), self.slug, tmp, "--failfast"]
-            if self.cap:
-                cmd += ["--cap", str(self.cap)]
-            if self.cases:
-                cmd += ["--cases", str(self.cases)]
+            if self.engine == "fast":
+                # the WASM oracle OOMs on multi-million-tick programs (LLLM)
+                cmd = [sys.executable, str(FAST_GRADER), self.slug, tmp]
+                if self.cap:
+                    cmd += ["--cap", str(self.cap)]
+            else:
+                cmd = ["node", str(GRADER), self.slug, tmp, "--failfast"]
+                if self.cap:
+                    cmd += ["--cap", str(self.cap)]
+                if self.cases:
+                    cmd += ["--cases", str(self.cases)]
             p = subprocess.run(cmd, cwd=REPO, capture_output=True, text=True, timeout=7200)
             line = ""
             for ln in p.stdout.splitlines():
@@ -211,10 +219,12 @@ def main():
     ap.add_argument("--cases")
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--max-waves", type=int, default=8)
+    ap.add_argument("--engine", choices=("oracle", "fast"), default="oracle",
+                    help="fast = tools/grade_fast.py (Rust); needed where the WASM oracle OOMs")
     args = ap.parse_args()
 
     rows = load_rows(args.man)
-    g = Grader(args.slug, args.cap, args.cases)
+    g = Grader(args.slug, args.cap, args.cases, args.engine)
     base = None if args.dry_run else g.grade(render(rows))
     if base is not None:
         if not passed(base):

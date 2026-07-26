@@ -450,6 +450,19 @@ DISP_ROWS = [
     "            ^W        s< ",
 ]
 
+# The sentinel restore path in DISP_ROWS spends its sixth row only walking
+# west from the ring send back to the selected value in B.  At width 81 there
+# are four unused columns to the right of the narrow dispatcher.  Route that
+# cold path east instead, swap there, and return along the first row.  This
+# turns DISP from 26x8 into 30x7 without changing its ports or hot lookup loop.
+DISP_FOLDED_ROWS = [
+    "v@<<s<<<<<<<<              <",
+    ">`17`Mr  X^                 ",
+    " >`31`+^ -                  ",
+    "vX~`92`M+X+b >> mdrMs>rv    ",
+    ">rb          ^^sr<   ^sX sW^",
+]
+
 # Repeated /92 emits one least-significant stream symbol per feeder chunk.
 DECODER_ROWS = [
     ">W/WsWX@v",

@@ -637,6 +637,29 @@ impl World {
         // Horizontal literals: per row, backticks; between consecutive backticks the cells must
         // be digits or spaces. Vertical similarly per column.
         // For each closing backtick in a given travel direction, precompute the value.
+        // Pre-pass: which backticks participate in a valid vertical pair? A backtick that is
+        // the endpoint of a vertical literal routinely shares a row with unrelated horizontal
+        // literals (subset-sum's parallel workers); the reference does NOT reject the row when
+        // consecutive-row-pairing would span code across such a backtick. So when a horizontal
+        // pair has a non-digit between its ends, drop a vertically-paired endpoint and re-pair
+        // instead of erroring; only a dirty pair with no vertical excuse is a load error
+        // (the reference does reject a standalone `1x2`).
+        let mut v_paired: std::collections::HashSet<Pt> = std::collections::HashSet::new();
+        for x in 0..self.w {
+            let mut vt: Vec<i32> = vec![];
+            for y in 0..self.h { if self.at(x, y) == '`' { vt.push(y); } }
+            let mut i = 0;
+            while i + 1 < vt.len() {
+                let (a, b) = (vt[i], vt[i + 1]);
+                let mut clean = true;
+                for y in (a + 1)..b {
+                    let c = self.at(x, y);
+                    if c != ' ' && !c.is_ascii_digit() { clean = false; break; }
+                }
+                if clean { v_paired.insert((x, a)); v_paired.insert((x, b)); i += 2; }
+                else { i += 1; }
+            }
+        }
         // Horizontal.
         for y in 0..self.h {
             let mut ticks: Vec<i32> = vec![];
@@ -645,8 +668,16 @@ impl World {
             let mut i = 0;
             while i + 1 < ticks.len() {
                 let (a, b) = (ticks[i], ticks[i + 1]);
-                // Horizontal: a bad character between two backticks on one ROW is a genuine
-                // load error -- the reference rejects `1x2` outright.
+                let mut dirty = false;
+                for x in (a + 1)..b {
+                    let c = self.at(x, y);
+                    if c != ' ' && !c.is_ascii_digit() { dirty = true; break; }
+                }
+                if dirty {
+                    if v_paired.contains(&(a, y)) { ticks.remove(i); continue; }
+                    if v_paired.contains(&(b, y)) { ticks.remove(i + 1); continue; }
+                    return Err("non-digit in literal".into());
+                }
                 let mut digits = String::new();
                 for x in (a + 1)..b {
                     let c = self.at(x, y);

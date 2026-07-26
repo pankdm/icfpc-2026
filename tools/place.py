@@ -313,11 +313,23 @@ class Plan:
         # only usable by the pipe that attaches THERE, so the router never has to be told
         # afterwards that a legal-looking route grazes a wall it must not.
         graze = {}
-        if self.adjacency_ok_base:
-            for bi, (b, o) in enumerate(zip(self.blocks, offsets)):
-                for c in b.border(*o):
-                    for d in DIRS4:
-                        graze.setdefault((c[0] + d[0], c[1] + d[1]), set()).add(c)
+        for bi, (b, o) in enumerate(zip(self.blocks, offsets)):
+            # room borders are only protected when the original program itself respects
+            # the adjacency rule — but a DISPLAY border is protected unconditionally: a
+            # re-routed pipe running alongside a display reads as attached to it and the
+            # display STEALS the pipe's endpoint (seen on pathfinder — verify_topology
+            # catches it after the fact, but the router must not keep proposing it).
+            # route_guard (opt-in, e.g. smtplace): protect ALL borders for NEW routes
+            # even when the original program grazes walls — the original's grazes ride
+            # along inside REUSED routes (which skip this check), while a fresh route
+            # grazing a different room would silently steal its r/s/q bindings, which
+            # no model-level gate can see (resolution only knows endpoint attachments).
+            if not (self.adjacency_ok_base or getattr(self, "route_guard", False)) \
+                    and b.kind != "display":
+                continue
+            for c in b.border(*o):
+                for d in DIRS4:
+                    graze.setdefault((c[0] + d[0], c[1] + d[1]), set()).add(c)
         taken = set()
         paths = [None] * len(self.pipes)
         if order is None:
@@ -526,6 +538,12 @@ class Plan:
                 continue
             for nd in DIRS4:
                 if nd[0] == -d[0] and nd[1] == -d[1]:
+                    continue
+                # the SOURCE needs a two-cell straight stub: the loader derives the
+                # attachment from cells[0]'s move-direction (cells[0] - dirs[0] must be
+                # the source wall), so a route that turns on its very first cell parses
+                # as src-less — the pipe silently detaches (dashboard `src: -1`).
+                if ln == 1 and nd != d:
                     continue
                 nc = (cx + nd[0], cy + nd[1])
                 if not free(nc):

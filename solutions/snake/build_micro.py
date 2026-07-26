@@ -356,10 +356,10 @@ def build(save_to=None, CBOT=66, RING_PAD=0):
         return y_ops
 
     def endblock():
-        R.y = max(R.y, E.y + 2)
+        R.y = max(R.y, E.y + 1)
 
     def ret_dispatch():
-        goto(HW_RET)
+        goto(HW_RET, "^")                      # the dispatcher sits ABOVE every block
 
     def branch_row(col_in):
         """Move onto a fresh 3-row group and return (row, entry cursor)."""
@@ -381,10 +381,10 @@ def build(save_to=None, CBOT=66, RING_PAD=0):
                 E.wrap()                       # -> heading east
         raise RuntimeError("cannot face column %d" % col)
 
-    def goto(col):
+    def goto(col, ch="v"):
         face(col)
         glide(E, col)
-        L.put(col, E.y, "v")
+        L.put(col, E.y, ch)
 
     def arm(x, y, col, ch="v"):
         """Turn the branch outcome at (x,y) toward `col` and drop/rise there."""
@@ -407,6 +407,18 @@ def build(save_to=None, CBOT=66, RING_PAD=0):
         L.put(bx, yb, ch)
         return yprev, yb, ynext
 
+
+    # ═══ DISPATCH (first: every block returns UP to it) ══════════════════
+    block("DISP", HW_RET)
+    E.seq(["1", "M", "r:I", "-"])
+    _, yb, _ = branch("X")
+    yextra = rows()
+    arm(8, yb + 1, HW_TICK)        # op 0 -> tick
+    arm(8, yb - 1, HW_DIR)         # op>1 -> direction
+    L.put(7, yb, "v")                                    # op 1 -> spawn
+    assert _blank(L, 7, yb + 1)
+    arm(7, yextra, HW_SPAWN)
+    endblock()
 
     # ═══ INIT ════════════════════════════════════════════════════════════
     y = R.take()
@@ -560,18 +572,6 @@ def build(save_to=None, CBOT=66, RING_PAD=0):
            "r:S", "r:C", "s:S", "r:S", "s:S",
            "r:S", "s:S", "r:S", "s:S"])
     ret_dispatch()
-    endblock()
-
-    # ═══ DISPATCH (last: every return travels DOWN to it) ════════════════
-    block("DISP", HW_RET)
-    E.seq(["1", "M", "r:I", "-"])
-    _, yb, _ = branch("X")
-    yextra = rows()
-    arm(8, yb + 1, HW_TICK, "^")   # op 0 -> tick
-    arm(8, yb - 1, HW_DIR, "^")    # op>1 -> direction
-    L.put(7, yb, "v")                                    # op 1 -> spawn
-    assert _blank(L, 7, yb + 1)
-    arm(7, yextra, HW_SPAWN, "^")
     endblock()
 
     # ---- verification ---------------------------------------------------

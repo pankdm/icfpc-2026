@@ -64,6 +64,7 @@ def lay_cfg_controller(
     local_edges=False,
     direct_edges=False,
     pooled_edges=False,
+    tight_gaps=False,
 ):
     """Lay out *flow* and return its bounds and named external pipe ports.
 
@@ -102,7 +103,7 @@ def lay_cfg_controller(
             # the blank band immediately above the target allows every route
             # to turn directly into the target lane instead of detouring via
             # a channel below the entire controller.
-            y += incoming[label] + 2
+            y += incoming[label] + (1 if tight_gaps else 2)
         heads[label] = y
         put(code, y, "@" if block_index == 0 else ">")
         x = code + 1
@@ -154,7 +155,10 @@ def lay_cfg_controller(
                 x += 1
         # Rows after a block separate its branch exits from the next target's
         # incoming merge band.
-        y += 3 if (direct_edges or pooled_edges) else 6
+        if direct_edges or pooled_edges:
+            y += 2 if tight_gaps else 3
+        else:
+            y += 6
 
     target_col = {label: x0 + 2 + i for i, label in enumerate(flow.blocks)}
     right_highway = code + 150
@@ -216,7 +220,7 @@ def lay_cfg_controller(
                     put(source_x, edge_y, "<")
                 slot = target_slot[target]
                 target_slot[target] += 1
-                merge_y = heads[target] - 2 - slot
+                merge_y = heads[target] - (1 if tight_gaps else 2) - slot
                 pooled_routes.append(
                     (source_x, edge_y, target, merge_y, source_index)
                 )
@@ -238,7 +242,7 @@ def lay_cfg_controller(
             if direct_edges:
                 slot = target_slot[target]
                 target_slot[target] += 1
-                merge_y = heads[target] - 2 - slot
+                merge_y = heads[target] - (1 if tight_gaps else 2) - slot
                 target_x = target_col[target]
                 if merge_y != edge_y:
                     put(highway, edge_y, "v" if merge_y > edge_y else "^")

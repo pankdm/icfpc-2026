@@ -231,6 +231,9 @@ def build_program(
     fast_scalar_ram=False,
     scalar_belts=4,
     compact=False,
+    merge_pad=None,
+    block_gap=None,
+    boustrophedon=False,
 ):
     """Compile *flow* and attach the shared stateful-problem hardware."""
     if compact and not (fast_cell_ram and fast_scalar_ram):
@@ -253,6 +256,9 @@ def build_program(
         dedup_edges=dedup_edges,
         coalesce_targets=coalesce_targets,
         local_edges=True,
+        merge_pad=merge_pad,
+        block_gap=block_gap,
+        boustrophedon=boustrophedon,
     )
     ports = layout["ports"]
     bottom = layout["bottom"]

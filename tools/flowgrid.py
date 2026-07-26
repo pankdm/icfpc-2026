@@ -67,6 +67,9 @@ def lay_cfg_controller(
     tight_gaps=False,
     dedup_edges=False,
     coalesce_targets=False,
+    merge_pad=None,
+    block_gap=None,
+    boustrophedon=False,
 ):
     """Lay out *flow* and return its bounds and named external pipe ports.
 
@@ -111,10 +114,12 @@ def lay_cfg_controller(
             # the blank band immediately above the target allows every route
             # to turn directly into the target lane instead of detouring via
             # a channel below the entire controller.
-            y += incoming[label] + (1 if tight_gaps else 2)
+            pad = merge_pad if merge_pad is not None else (1 if tight_gaps else 2)
+            y += incoming[label] + pad
         heads[label] = y
         put(code, y, "@" if block_index == 0 else ">")
         x = code + 1
+        heading = 1
         for token in tokens:
             if isinstance(token, tuple):
                 if token[0] == "go":
@@ -127,6 +132,37 @@ def lay_cfg_controller(
                     y += 1
                     break
                 raise ValueError(f"unknown flow token: {token!r}")
+            if boustrophedon:
+                # A wrap turns down one row and keeps executing in the other
+                # direction: the shim corridor IS the next op row. Safe because
+                # X is always entered heading south via its v-drop, const_ops
+                # emits no backtick literals (which read reversed westward),
+                # and pipe bands depend on the op's column, not its heading.
+                if token in cols:
+                    zone_low, zone_high = zones[token]
+                    assert zone_low is not None, "boustrophedon needs zoned ports"
+                    if heading == 1 and x > zone_high:
+                        put(x, y, "v")
+                        y += 1
+                        put(x, y, "<")
+                        heading, x = -1, x - 1
+                    if heading == -1 and x < zone_low:
+                        put(x, y, "v")
+                        y += 1
+                        put(x, y, ">")
+                        heading, x = 1, x + 1
+                    x = max(x, zone_low) if heading == 1 else min(x, zone_high)
+                    put(x, y, glyphs[token])
+                    x += heading
+                else:
+                    if heading == -1 and x <= code:
+                        put(x, y, "v")
+                        y += 1
+                        put(x, y, ">")
+                        heading, x = 1, x + 1
+                    put(x, y, token)
+                    x += heading
+                continue
             if token in cols:
                 column = cols[token]
                 zone_low, zone_high = zones[token]
@@ -164,7 +200,7 @@ def lay_cfg_controller(
         # Rows after a block separate its branch exits from the next target's
         # incoming merge band.
         if direct_edges or pooled_edges:
-            y += 2 if tight_gaps else 3
+            y += block_gap if block_gap is not None else (2 if tight_gaps else 3)
         else:
             y += 6
 

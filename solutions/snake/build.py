@@ -160,6 +160,11 @@ VARIANTS = {
         scalar_size=16, code_x=45, compact=True, fast_cell_ram=True,
         cell_belts=8, fast_scalar_ram=True, scalar_belts=4,
     ),
+    # Boustrophedon controller: wrap shims become op rows, 347->313 tall.
+    "linked-bstr.man": dict(
+        scalar_size=16, code_x=45, compact=True, fast_cell_ram=True,
+        cell_belts=8, fast_scalar_ram=True, scalar_belts=4, boustrophedon=True,
+    ),
 }
 
 

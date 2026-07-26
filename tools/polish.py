@@ -239,6 +239,32 @@ def fmt(res: dict) -> str:
     )
 
 
+# ---------------------------------------------------------------- safety gate
+
+def rebinds(original_path: Path, candidate_text: str) -> bool:
+    """Would this candidate silently retarget a pipe operation?
+
+    `s`/`r`/`q` bind to the NEAREST pipe by Manhattan distance with reading-order ties, so
+    deleting a row or column between an op and its pipe can rebind it to a DIFFERENT pipe.
+    Nothing errors: the program loads, runs, and quietly computes the wrong thing. If the
+    public cases do not exercise that path it grades PASS and only fails on the private
+    cases, where it costs the entire problem. So a grade is not sufficient evidence here."""
+    tmp = None
+    try:
+        fd, tmp = tempfile.mkstemp(suffix=".man")
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(candidate_text)
+        out = subprocess.run(["python3", str(REPO / "tools" / "pipecheck.py"),
+                              str(original_path), tmp],
+                             capture_output=True, text=True, cwd=str(REPO), timeout=300)
+        return "REBOUND" in out.stdout
+    except (OSError, subprocess.SubprocessError):
+        return False          # checker unavailable: fall back to the grade gate alone
+    finally:
+        if tmp and os.path.exists(tmp):
+            os.unlink(tmp)
+
+
 # ---------------------------------------------------------------- output
 
 def _umask() -> int:
@@ -379,6 +405,9 @@ def main() -> int:
                 dc = dead_cols | (set() if d == "row" else {i})
                 cand = drop(rows, dr, dc)
                 r = g.grade(render(cand, trailing_nl))
+                if ok(r) and key(r) < key(best) and rebinds(src, render(cand, trailing_nl)):
+                    print(f"      x {kind} {d} {i}: REJECTED — silently rebinds a pipe op")
+                    continue
                 if ok(r) and key(r) < key(best):
                     gain = "" if r["score"] < best["score"] else "  [free re-flow, score unchanged]"
                     dead_rows, dead_cols = dr, dc

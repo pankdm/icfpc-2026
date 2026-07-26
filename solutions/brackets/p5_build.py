@@ -32,6 +32,24 @@ M_CELLS = [
 M_MAN = (6,1)
 M_W, M_H = 12, 11
 
+# Stage B: M interior re-laid on 9x9 (outer 11x11). Drain loop folded to cols 8-9
+# (spine v,r,M,*,X down col9; return ^^^,> up col8), send-1 path on col 7 (^,1,s,<)
+# with the quot/1 'W' swap moved to (5,1); offense entry via row 3; drain verdict
+# row 9 rejoins the shared col-4 return.
+M9_CELLS = [
+ (1,1,'>'),(2,1,'s'),(3,1,'v'),(4,1,'<'),(5,1,'W'),(7,1,'<'),
+ (1,2,'+'),(3,2,'M'),(7,2,'s'),(8,2,'>'),(9,2,'v'),
+ (1,3,'+'),(3,3,'r'),(6,3,'>'),(7,3,'1'),(8,3,'^'),(9,3,'r'),
+ (1,4,'^'),(2,4,'+'),(3,4,'X'),(4,4,'+'),(5,4,'M'),(6,4,'X'),(7,4,'^'),(8,4,'^'),(9,4,'M'),
+ (3,5,'W'),(6,5,'3'),(7,5,'d'),(8,5,'^'),(9,5,'*'),
+ (1,6,'v'),(2,6,'2'),(3,6,'X'),(6,6,'W'),(7,6,'b'),(8,6,'^'),(9,6,'X'),
+ (1,7,'N'),(3,7,'s'),(6,7,'/'),(7,7,'W'),
+ (1,8,'s'),(3,8,'>'),(4,8,'^'),(6,8,'>'),(7,8,'^'),
+ (1,9,'>'),(2,9,'0'),(3,9,'M'),(4,9,'^'),(5,9,'0'),(6,9,'s'),(7,9,'N'),(8,9,'2'),(9,9,'<'),
+]
+M9_MAN = (6,1)
+M9_W, M9_H = 11, 11
+
 # New P: interior 4x6. Spine col2 heading N (^ r X); trigger E (1,v,+,<,M);
 # balanced straight (s,>,0,v,M shared tail); offense W (^,1,+,>,s,0,v shared tail).
 P_CELLS = [
@@ -53,19 +71,28 @@ def block(p, ox, oy, w, h, cells, man):
         p.put(ox+x, oy+y, ch)
     p.man(ox+man[0], oy+man[1])
 
-def build(save):
+def build(save, stage='B'):
     p = lm.Program()
-    block(p, 0, 0, M_W, M_H, M_CELLS, M_MAN)      # M: cols0-11 rows0-10
-    block(p, 12, 0, P_W, P_H, P_CELLS, P_MAN)     # P: cols12-17 rows0-7 (touching M east)
-    p.put(12,8,'>'); p.put(13,8,'^')              # M->P: under P, into P south wall
-    p.output_room(15,8)                           # O: cols15-17 rows8-10
-    p.put(14,8,'v'); p.put(14,9,'>')              # P->O: from P south wall into O west wall
-    block(p, 6, 11, C_W, C_H, C_CELLS, C_MAN)     # C: cols6-17 rows11-16 (touching M south)
-    p.put(5,12,'<'); p.put(4,12,'^'); p.put(4,11,'^')   # C->M: around SW, into M south wall
-    p.input_room(1,13)                            # I: cols1-3 rows13-15
-    p.put(4,14,'>'); p.put(5,14,'>')              # I->C: into C west wall
+    if stage == 'A':
+        mw = M_W
+        block(p, 0, 0, M_W, M_H, M_CELLS, M_MAN)
+    else:
+        mw = M9_W
+        block(p, 0, 0, M9_W, M9_H, M9_CELLS, M9_MAN)
+    px = mw                                        # P west wall flush on M east wall
+    block(p, px, 0, P_W, P_H, P_CELLS, P_MAN)
+    p.put(px,8,'>'); p.put(px+1,8,'^')             # M->P: under P, into P south wall
+    p.output_room(px+3,8)                          # O: 3x3
+    p.put(px+2,8,'v'); p.put(px+2,9,'>')           # P->O: into O west wall
+    block(p, mw-6, 11, C_W, C_H, C_CELLS, C_MAN)   # C: flush under M, east-aligned
+    cx = mw-6
+    p.put(cx-1,12,'<'); p.put(cx-2,12,'^'); p.put(cx-2,11,'^')  # C->M around SW
+    p.input_room(cx-5,13)                          # I: 3x3
+    p.put(cx-2,14,'>'); p.put(cx-1,14,'>')         # I->C: into C west wall
     print('footprint', p.footprint())
     p.save(save)
 
 if __name__ == '__main__':
-    build(sys.argv[1] if len(sys.argv) > 1 else '/tmp/p5.man')
+    stage = 'A' if '--wide' in sys.argv else 'B'
+    args = [a for a in sys.argv[1:] if a != '--wide']
+    build(args[0] if args else '/tmp/p5.man', stage)

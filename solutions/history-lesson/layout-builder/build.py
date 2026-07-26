@@ -9,6 +9,7 @@ feeder/dictionary geometry before committing to pipe attachment locations.
 from __future__ import annotations
 
 import argparse
+import logging
 import os
 import sys
 from dataclasses import dataclass
@@ -31,6 +32,7 @@ DEFAULT_DICTIONARY_WORDS = 44
 MIN_DICTIONARY_WORDS = 38
 MAX_DICTIONARY_WORDS = 91
 ROOM_GAP = 1
+LOGGER = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -312,8 +314,16 @@ def build(
             f"{MIN_DICTIONARY_WORDS}..{MAX_DICTIONARY_WORDS}"
         )
 
+    LOGGER.info(
+        "building encoding for %d dictionary words",
+        dictionary_words,
+    )
     symbols, ring, candidate_bands = vertical.build_encoding(
         extra_phrases=dictionary_words - MIN_DICTIONARY_WORDS
+    )
+    LOGGER.info(
+        "optimizing feeder layout for width %d",
+        feeder_width,
     )
     bands = (
         candidate_bands
@@ -322,10 +332,19 @@ def build(
     )
     program = Program()
     feeder_rows = vertical.base.variable_feeder(program, bands, feeder_width)
+    LOGGER.info(
+        "placed feeder: %d columns, %d data rows",
+        feeder_width,
+        feeder_rows,
+    )
 
     tail_y = feeder_rows + 2
     dictionary_x = 0
     dictionary_values = [ring[position] for position in range(1, dictionary_words + 1)]
+    LOGGER.info(
+        "running dictionary packing DP for width %d",
+        dictionary_width,
+    )
     dictionary_bands = pack_dictionary(dictionary_values, dictionary_width)
     _, dictionary_height = place_dictionary(
         program,
@@ -334,11 +353,17 @@ def build(
         dictionary_width,
         dictionary_values,
     )
+    LOGGER.info(
+        "placed dictionary: %d bands, %d rows",
+        len(dictionary_bands),
+        dictionary_height,
+    )
 
     # Stack the remaining rooms down the feeder's right boundary. If a room
     # cannot fit between the dictionary and that boundary, put it immediately
     # after the dictionary and let it extend rightward. This makes overlap
     # impossible for every supported dictionary width.
+    LOGGER.info("placing right-side service-room stack")
     service_y = tail_y
     service_rooms = []
     for name, rows in [
@@ -374,6 +399,7 @@ def build(
         ("dispatcher", service_x, service_y, disp_width, disp_height)
     )
 
+    LOGGER.info("validating vertical literals and layout metadata")
     bad_ticks = vertical.base.audit_vertical_ticks(program)
     if bad_ticks:
         raise AssertionError(f"vertical tick audit failed: {bad_ticks[:4]}")
@@ -442,6 +468,10 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
+    logging.basicConfig(
+        level=logging.INFO,
+        format="[layout-builder] %(message)s",
+    )
     args = parse_args()
     try:
         program, metadata = build(
@@ -460,6 +490,7 @@ def main() -> None:
             f"-n{args.dictionary_words}.man"
         ),
     )
+    LOGGER.info("saving generated layout to %s", output)
     program.save(output)
     width, height, _ = program.footprint()
     dictionary = metadata["dictionary"]

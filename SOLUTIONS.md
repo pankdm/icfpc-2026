@@ -19,6 +19,13 @@ node tools/grade.js triangle solutions/triangle/p2.man
 # grade + rank every candidate for a problem:
 node tools/grade.js triangle
 
+# gate on the generated generality suite too (public cases + edge cases):
+node tools/grade_json.js sort-numbers solutions/sort-numbers/select-v5.man \
+     --cases tests/stress/sort-numbers.json
+
+# regenerate the suites (each reference is re-checked against every public case first):
+python3 tools/stress.py
+
 # submit to the real grader (needs API_KEY in .env):
 python3 tools/submit.py triangle solutions/triangle/p2.man
 
@@ -34,7 +41,9 @@ footprint-scored problems). **Lower score is better.**
 - **Private cases exist** (the public API hides the count; `status.py` shows the real
   total). Local PASS only covers public cases — make solutions *generalize*, never
   hardcode public answers, or you won't pass private cases (and you need ≥1 private
-  pass to score).
+  pass to score). `tests/stress/<slug>.json` holds generated edge cases (min/max sizes,
+  extremes, duplicates, multi-round streams) whose expected outputs come from a Python
+  reference that reproduces every public case exactly — gate timing changes on it.
 - **Score = `max(width,height)² × avg ticks`.** Make layouts square, not long/thin;
   keep pipes short; fewer ticks. A few problems are footprint-only.
 - **`Y` (fork) is released and safe to use** — the organizers' *"Y, precisely"* clarification

@@ -2,13 +2,18 @@
 """peep.py — strength reduction / peephole SUPEROPTIMIZATION of register-op runs.
 
 The optimizing compiler's middle end. `tools/lift.py` recovers the basic blocks of a
-`.man` program; this pass takes every maximal straight run of REGISTER-ONLY instruction
-cells inside those blocks and asks a superoptimizer for the SHORTEST instruction string
-with exactly the same effect on (A, B, BP). Historically the biggest hand-found wins in
-this repo were exactly this shape — the brackets bit-op classifier (1.75x) and the tcp
-`w & X` gadget (1.49x) — so it is worth doing mechanically.
+`.man` program; this pass takes every run of REGISTER-ONLY instruction cells along a
+man's path and asks a superoptimizer for the SHORTEST instruction string with exactly the
+same effect on (A, B, BP). Historically the biggest hand-found wins in this repo were
+exactly this shape — the brackets bit-op classifier (1.75x) and the tcp `w & X` gadget
+(1.49x) — so it is worth doing mechanically.
 
-Three things make it safe enough to run unattended:
+A run is not limited to one straight line. Turn glyphs have no effect on the registers, so
+a run CHAINS THROUGH them: the turns stay pinned exactly where they are (the path, the
+tick count and the walls are untouched) and only the op cells between them are rewritten.
+That is what lets the pass see `...M` `>` `1...` as the single string `M1` and collapse it.
+
+Four things make it safe enough to run unattended:
 
   1. THE SEMANTICS MODEL IS ORACLE-VALIDATED.  A peephole pass built on guessed semantics
      is worse than none, so `--validate` fuzzes the Python model in this file against the
@@ -20,14 +25,26 @@ Three things make it safe enough to run unattended:
      (0, +-1, small ints, powers of two, +-2^63, shift boundaries 0/63/64, random 64-bit
      values).  A rewrite that fixes A but clobbers BP is wrong, and this catches it.
 
-  3. EVERY CANDIDATE IS GRADE-GATED on the real oracle exactly like tools/polish.py:
+  3. THE ROOM/PIPE TOPOLOGY MUST NOT MOVE. `+`, `-` and `|` are ordinary instructions
+     inside a room, so a rewrite could in principle re-shape a room or invent a pipe;
+     every candidate is re-analysed by the reference loader and refused if its rooms or
+     pipes differ from the baseline's.
+
+  4. EVERY CANDIDATE IS GRADE-GATED on the real oracle exactly like tools/polish.py:
      accepted only if it still passes every public case and does not raise the score.
      The input .man is never modified; output goes to `<name>-peep.man`.
+
+Note that (2) is the load-bearing check, not (4). On sudoku-validity the naive rewrite at
+the site this pass found (just delete the redundant-looking cell) still passes 6/6 public
+cases while being plainly wrong on the registers — the public suite would have waved it
+through. Only the equivalence proof stops it.
 
 A shorter run does NOT by itself save ticks — the man still walks the same cells, the
 freed ones just become blanks (a no-op). What it buys is FREE CELLS, which is the raw
 material for `tools/fold.py` / `tools/place.py`, and, when the freed cells happen to line
 up, a deletable blank row/column (`--compact`) which does shrink the box and the walk.
+So the usual outcome is a score-neutral, verified rewrite: the file is only written when
+the score strictly drops, unless you pass `--allow-equal` to keep the freed cells.
 
   python3 tools/peep.py --validate                     oracle-check the semantics model
   python3 tools/peep.py --identities                   print the identity catalogue
@@ -364,25 +381,33 @@ class Table:
     def __init__(self, depth: int, alphabet: str = ALPHABET, quiet: bool = False):
         self.states = sig_states()
         self.depth = depth
-        self.best: dict[tuple, str] = {}
+        # keyed by HASH of the signature, not the signature itself: at depth 5 the table
+        # holds >1M behaviours and the full 32-state signatures would not fit in memory.
+        # A hash collision can only ever propose a bad rewrite, and `equivalent()` on the
+        # big state set plus the oracle grade-gate both stand behind it.
+        self.best: dict[int, str] = {}
         ident = tuple(self.states)
-        self.best[ident] = ""
-        frontier = {ident: ""}
+        self.best[hash(ident)] = ""
+        frontier = [(ident, "")]
         total = 1
         for d in range(1, depth + 1):
-            nxt: dict[tuple, str] = {}
-            for sig, s in frontier.items():
+            last = d == depth           # the deepest level is never extended: keep no sigs
+            nxt: list[tuple[tuple, str]] = []
+            fresh = 0
+            for sig, s in frontier:
                 for op in alphabet:
                     nsig = tuple(_step(op, *st) for st in sig)
-                    if nsig in self.best or nsig in nxt:
+                    h = hash(nsig)
+                    if h in self.best:
                         continue
-                    nxt[nsig] = s + op
-            for sig, s in nxt.items():
-                self.best[sig] = s
+                    self.best[h] = s + op
+                    fresh += 1
+                    if not last:
+                        nxt.append((nsig, s + op))
             frontier = nxt
-            total += len(nxt)
+            total += fresh
             if not quiet:
-                print(f"   depth {d}: {len(nxt):>8,} new behaviours "
+                print(f"   depth {d}: {fresh:>9,} new behaviours "
                       f"({total:,} total)", flush=True)
 
     def signature(self, s: str) -> tuple:
@@ -390,7 +415,7 @@ class Table:
 
     def lookup(self, s: str) -> str | None:
         """The shortest known string with the same behaviour on the sample, if shorter."""
-        cand = self.best.get(self.signature(s))
+        cand = self.best.get(hash(self.signature(s)))
         if cand is None or len(cand) >= len(s):
             return None
         return cand
@@ -416,12 +441,64 @@ def read_grid(path: Path) -> tuple[list[str], bool]:
 
 
 def render(rows: list[str], trailing_nl: bool) -> str:
-    return "\n".join(rows) + ("\n" if trailing_nl else "")
+    # trailing blanks are never content (the loader pads short lines anyway), and stripping
+    # them keeps the diff against the input readable
+    return "\n".join(r.rstrip() for r in rows) + ("\n" if trailing_nl else "")
 
 
 def pad_rows(rows: list[str]) -> list[str]:
     w = max((len(r) for r in rows), default=0)
     return [r.ljust(w) for r in rows]
+
+
+ANALYZE_JS = r"""
+const { boot } = require(process.argv[1] + '/sim/harness.js');
+const grids = JSON.parse(require('fs').readFileSync(process.argv[2], 'utf8'));
+(async () => {
+  const w = await boot();
+  const out = grids.map(rows => { try { return w.analyze(rows); }
+                                  catch (e) { return JSON.stringify({ error: String(e) }); } });
+  require('fs').writeFileSync(process.argv[3], JSON.stringify(out));
+  process.exit(0);
+})().catch(e => {
+  require('fs').writeFileSync(process.argv[3], JSON.stringify([String(e)]));
+  process.exit(1);
+});
+"""
+
+
+def topologies(grids: list[list[str]]) -> list[str]:
+    """The reference loader's room/pipe view of each grid, as a comparable string.
+
+    `+`, `-` and `|` are ordinary instructions inside a room, so blanking one (or writing
+    one into a freed cell) could in principle re-shape a room or invent a pipe. Any
+    candidate whose topology differs from the baseline's is refused outright rather than
+    left to the public tests, which might not notice.
+    """
+    fd_in, tmp_in = tempfile.mkstemp(suffix=".json")
+    fd_out, tmp_out = tempfile.mkstemp(suffix=".json")
+    os.close(fd_out)
+    try:
+        with os.fdopen(fd_in, "w") as fh:
+            json.dump(grids, fh)
+        p = subprocess.run(["node", "-e", ANALYZE_JS, str(REPO), tmp_in, tmp_out],
+                           cwd=str(REPO), capture_output=True, text=True, timeout=1800)
+        raw = Path(tmp_out).read_text() if os.path.getsize(tmp_out) else ""
+        if not raw:
+            raise RuntimeError(f"analyze failed: {(p.stderr or p.stdout)[:300]}")
+        out = json.loads(raw)
+        res = []
+        for t in out:
+            d = json.loads(t) if isinstance(t, str) else t
+            res.append(json.dumps([d.get("rooms"), d.get("pipes"), d.get("type"),
+                                   d.get("message")], sort_keys=True))
+        return res
+    finally:
+        for t in (tmp_in, tmp_out):
+            try:
+                os.unlink(t)
+            except OSError:
+                pass
 
 
 def lift_json(path: Path) -> dict:
@@ -440,8 +517,8 @@ CW = {(1, 0): (0, 1), (0, 1): (-1, 0), (-1, 0): (0, -1), (0, -1): (1, 0)}
 CCW = {v: k for k, v in CW.items()}
 
 
-def traversal_map(rows: list[str], rooms: list[dict]) -> tuple[dict, dict]:
-    """cell -> set of headings it is entered with, and cell -> set of predecessor cells.
+def traversal_map(rows: list[str], rooms: list[dict]) -> tuple[dict, dict, dict]:
+    """cell -> headings it is entered with, cell -> predecessors, cell -> successors.
 
     Same movement rules as lift.py, plus the two extra men a `Y` spawns beside itself —
     lift.py only walks from `@`, so a grid containing `Y` has paths it never sees. A run
@@ -462,6 +539,7 @@ def traversal_map(rows: list[str], rooms: list[dict]) -> tuple[dict, dict]:
 
     heads: dict[tuple, set] = {}
     preds: dict[tuple, set] = {}
+    succs: dict[tuple, set] = {}
     stack = [((x, y), (1, 0)) for y in range(h) for x in range(len(rows[y]))
              if rows[y][x] == "@"]
     seen = set()
@@ -487,13 +565,15 @@ def traversal_map(rows: list[str], rooms: list[dict]) -> tuple[dict, dict]:
             for nd in (CW[d], CCW[d]):
                 nxt = (x + nd[0], y + nd[1])
                 preds.setdefault(nxt, set()).add(pos)
+                succs.setdefault(pos, set()).add(nxt)
                 stack.append((nxt, d))     # a copy is born on the side cell, same heading
                 stack.append((nxt, nd))    # ...and be conservative about its heading too
         for nd in outs:
             nxt = (x + nd[0], y + nd[1])
             preds.setdefault(nxt, set()).add(pos)
+            succs.setdefault(pos, set()).add(nxt)
             stack.append((nxt, nd))
-    return heads, preds
+    return heads, preds, succs
 
 
 # ---------------------------------------------------------------- literal cells
@@ -527,74 +607,103 @@ def literal_cells(rows: list[str]) -> set[tuple[int, int]]:
 # ---------------------------------------------------------------- run extraction
 
 class Run:
-    __slots__ = ("cells", "text", "man", "dirn")
+    """A rewritable stretch of a man's path.
 
-    def __init__(self, cells, text, man, dirn):
-        self.cells, self.text, self.man, self.dirn = cells, text, man, dirn
+    `slots` are the cells that hold register ops (or blanks, which are free slots); the
+    turn glyphs that may sit between them are PINNED and never move, so the path — and
+    therefore the tick count and the room geometry — is bit-for-bit unchanged. `text` is
+    the op string the machine actually executes along the stretch, i.e. the slots' glyphs
+    concatenated in traversal order with the turns skipped, because a turn has no effect
+    on (A, B, BP).
+
+    Straight runs are the special case with no pinned turns; allowing the turns is what
+    lets the pass see `...M` `>` `M...` as the string `MM` and collapse it.
+    """
+
+    __slots__ = ("slots", "text", "pinned", "head")
+
+    def __init__(self, slots, text, pinned, head):
+        self.slots, self.text, self.pinned, self.head = slots, text, pinned, head
 
     def __repr__(self):
-        return f"Run(man{self.man} {self.cells[0]}->{self.cells[-1]} {self.text!r})"
+        return f"Run({self.head} {self.text!r} +{len(self.pinned)} turns)"
 
 
-def extract_runs(rows: list[str], ir: dict, verbose: bool = False) -> tuple[list[Run], dict]:
-    """Maximal straight runs of register-only cells, from lift.py's basic blocks."""
+def extract_runs(rows: list[str], ir: dict, chains: bool = True,
+                 verbose: bool = False) -> tuple[list[Run], dict]:
+    """Maximal rewritable stretches of every man's path.
+
+    A cell may join a stretch only if it is an ordinary register op / blank / turn glyph
+    inside a room, is entered on exactly ONE heading, is not part of a literal, and — for
+    every cell after the first — has exactly ONE predecessor, so that nobody can jump into
+    the middle of a stretch with different registers.  Branches (X d a x), pipe ops, `Y`,
+    `H`, `@` and literals all terminate a stretch; they are never touched.
+    """
+    rows = pad_rows(rows)
     rooms = ir.get("rooms") or []
-    heads, preds = traversal_map(rows, rooms)
+    heads, preds, succs = traversal_map(rows, rooms)
     lits = literal_cells(rows)
-    # A cell claimed by more than one man's blocks is shared: leave it alone.
-    owners: dict[tuple, int] = {}
-    for mi, man in enumerate(ir["men"]):
-        for blk in man["blocks"]:
-            for (x, y), _ch in blk:
-                owners[(x, y)] = owners.get((x, y), 0) + 1
+    lifted_ops = set()
+    for man in ir["men"]:
+        for k in man["op_cells"]:
+            x, y = k.split(",")
+            lifted_ops.add((int(x), int(y)))
+
+    def glyph(pos):
+        x, y = pos
+        return rows[y][x] if 0 <= y < len(rows) and 0 <= x < len(rows[y]) else " "
+
+    stats = {"visited": len(heads), "eligible": 0, "runs": 0, "slots": 0,
+             "not_lifted": 0, "reject_glyph": 0, "reject_literal": 0,
+             "reject_multihead": 0, "reject_fanout": 0}
+
+    def eligible(pos):
+        ch = glyph(pos)
+        if ch not in RUN_GLYPHS and not (chains and ch in TURNS):
+            stats["reject_glyph"] += 1
+            return False
+        if pos in lits:
+            stats["reject_literal"] += 1
+            return False
+        if len(heads.get(pos, ())) != 1:
+            stats["reject_multihead"] += 1
+            return False
+        if len(succs.get(pos, ())) != 1:
+            stats["reject_fanout"] += 1
+            return False
+        return True
+
+    elig = {p for p in heads if eligible(p)}
+    stats["eligible"] = len(elig)
+
+    # chain heads: an eligible cell whose single predecessor is not an eligible cell that
+    # flows only into it (i.e. anything that can be entered from elsewhere starts a chain)
+    def linked(a, b):
+        return a in elig and b in elig and succs.get(a) == {b} and preds.get(b) == {a}
 
     runs: list[Run] = []
-    stats = {"blocks": 0, "cells": 0, "runs": 0, "rejected_shared": 0,
-             "rejected_literal": 0, "rejected_multihead": 0, "rejected_joined": 0}
-    for mi, man in enumerate(ir["men"]):
-        for blk in man["blocks"]:
-            stats["blocks"] += 1
-            cur: list[tuple[tuple[int, int], str]] = []
-            seq: list[list] = []
-            for (x, y), ch in blk:
-                pos = (x, y)
-                stats["cells"] += 1
-                ok = ch in RUN_GLYPHS
-                if ok and pos in lits:
-                    stats["rejected_literal"] += 1
-                    ok = False
-                if ok and owners.get(pos, 0) != 1:
-                    stats["rejected_shared"] += 1
-                    ok = False
-                if ok and len(heads.get(pos, ())) != 1:
-                    stats["rejected_multihead"] += 1
-                    ok = False
-                if ok and cur:
-                    px, py = cur[-1][0]
-                    step = (x - px, y - py)
-                    if step not in ((1, 0), (-1, 0), (0, 1), (0, -1)):
-                        seq.append(cur)
-                        cur = []
-                    elif preds.get(pos, set()) - {(px, py)}:
-                        # somebody else can enter this cell: the run must break here
-                        stats["rejected_joined"] += 1
-                        seq.append(cur)
-                        cur = []
-                if ok:
-                    cur.append((pos, ch))
-                else:
-                    if cur:
-                        seq.append(cur)
-                    cur = []
-            if cur:
-                seq.append(cur)
-            for run in seq:
-                if len(run) < 2:
-                    continue
-                cells = [p for p, _ in run]
-                text = "".join(c for _, c in run)
-                d = (cells[1][0] - cells[0][0], cells[1][1] - cells[0][1])
-                runs.append(Run(cells, text, mi, d))
+    used: set = set()
+    for pos in sorted(elig, key=lambda p: (p[1], p[0])):
+        if pos in used:
+            continue
+        prev = next(iter(preds.get(pos, ())), None)
+        if prev is not None and linked(prev, pos) and prev not in used:
+            continue                       # not a head; it will be reached from `prev`
+        chain, cur = [], pos
+        while cur is not None and cur not in used:
+            used.add(cur)
+            chain.append(cur)
+            nxt = next(iter(succs.get(cur, ())), None)
+            cur = nxt if (nxt is not None and linked(cur, nxt) and nxt not in used) else None
+        slots = [c for c in chain if glyph(c) not in TURNS]
+        pinned = [c for c in chain if glyph(c) in TURNS]
+        text = "".join(glyph(c) for c in slots)
+        if len(slots) < 2 or text.strip() == "":
+            continue
+        stats["not_lifted"] += sum(1 for c in slots
+                                   if glyph(c) in REG_OPS and c not in lifted_ops)
+        stats["slots"] += len(slots)
+        runs.append(Run(slots, text, pinned, chain[0]))
     stats["runs"] = len(runs)
     return runs, stats
 
@@ -645,11 +754,16 @@ def find_rewrites(runs: list[Run], table: Table, states, verbose=False):
 
 def apply_rewrite(rows: list[str], r: Run, i: int, ln: int, cand: str,
                   align: str = "end") -> list[str]:
-    """Splice the shorter string into the run's cells; the freed cells become blanks."""
+    """Splice the shorter string into the window's slots; freed slots become blanks.
+
+    Only the slot cells change. Pinned turn glyphs stay exactly where they are, so the
+    man's path, his tick count and the room walls are untouched — a blank is a no-op he
+    walks over, and the freed cells are what fold.py / place.py get to reclaim.
+    """
     new = list(rows)
     filled = cand.ljust(ln) if align == "end" else cand.rjust(ln)
     for k, ch in enumerate(filled):
-        x, y = r.cells[i + k]
+        x, y = r.slots[i + k]
         row = new[y].ljust(max(len(new[y]), x + 1))
         new[y] = row[:x] + ch + row[x + 1:]
     return new
@@ -765,12 +879,8 @@ def drop(rows: list[str], dr: set[int], dc: set[int]) -> list[str]:
 
 def identity_report(table: Table, states, top: int = 40) -> None:
     """Human-readable strength-reduction identities the table proves."""
-    print("== identities (each LHS is replaced by the strictly shorter RHS)")
-    seen = set()
-    shown = 0
-    for sig, short in sorted(table.best.items(), key=lambda kv: len(kv[1])):
-        pass
-    # enumerate short strings and report the interesting collisions
+    print("== identities: every op string of length 2-3 that a SHORTER string replaces")
+    print("   (verified on the full adversarial state set, on all three registers)")
     cands = []
     for ln in (2, 3):
         stack = [""]
@@ -780,17 +890,30 @@ def identity_report(table: Table, states, top: int = 40) -> None:
             r = table.lookup(s)
             if r is not None and equivalent(s, r, states):
                 cands.append((len(s) - len(r), s, r))
-    cands.sort(key=lambda t: (-t[0], t[1]))
-    for gain, s, r in cands:
-        key = (s, r)
-        if key in seen:
-            continue
-        seen.add(key)
-        print(f"   {s!r:>8}  ==  {r!r:<8}  (saves {gain} cell{'s' if gain > 1 else ''})")
-        shown += 1
-        if shown >= top:
-            break
-    print(f"   ... {len(cands)} shortenings of length<=3 strings in total")
+    def is_subseq(short: str, long: str) -> bool:
+        it = iter(long)
+        return all(c in it for c in short)
+
+    # Most shortenings are structural — a dead store ('05' == '5') or a cancellation
+    # ('WW' == '', '+-' == '') — and you can see those by deleting characters. The ones
+    # worth knowing are where the replacement uses a DIFFERENT op: real strength reduction.
+    dead = [(g, s, r) for g, s, r in cands if is_subseq(r, s)]
+    real = [(g, s, r) for g, s, r in cands if not is_subseq(r, s)]
+    print(f"\n   {len(dead)} are structural (dead store / cancellation: the RHS is the LHS "
+          f"with cells deleted)")
+    print(f"   {len(real)} are genuine strength reductions — the RHS uses a different op:")
+    by_gain: dict[int, list] = {}
+    for gain, s, r in real:
+        by_gain.setdefault(gain, []).append((s, r))
+    for gain in sorted(by_gain, reverse=True):
+        group = by_gain[gain]
+        print(f"\n   -- saves {gain} cell{'s' if gain > 1 else ''}: {len(group)} identities")
+        for s, r in group[:top]:
+            print(f"      {s!r:>7}  ==  {r!r}")
+        if len(group) > top:
+            print(f"      ... and {len(group) - top} more")
+    print(f"\n   {len(cands)} shortenings among the "
+          f"{len(ALPHABET) ** 2 + len(ALPHABET) ** 3:,} strings of length 2-3")
 
 
 # ---------------------------------------------------------------- main
@@ -812,6 +935,8 @@ def main() -> int:
     ap.add_argument("--out", default=None)
     ap.add_argument("--align", choices=["end", "start"], default="end",
                     help="put the freed blank cells at the end (default) or start of the run")
+    ap.add_argument("--no-chains", action="store_true",
+                    help="only rewrite straight runs; do not chain across turn glyphs")
     ap.add_argument("--no-compact", action="store_true",
                     help="do not try to delete rows/columns the rewrites blanked out")
     ap.add_argument("--allow-equal", action="store_true",
@@ -846,15 +971,24 @@ def main() -> int:
     rows = pad_rows(rows)
     print(f"== peep {src.name}  [{args.slug}]")
     ir = lift_json(src)
-    runs, stats = extract_runs(rows, ir, args.verbose)
-    n_cells = sum(len(r.cells) for r in runs)
-    print(f"   lift: {len(ir['men'])} men, {stats['blocks']} blocks, {stats['cells']} block cells")
-    print(f"   register-only runs: {len(runs)} covering {n_cells} cells "
-          f"(rejected: {stats['rejected_literal']} literal, {stats['rejected_shared']} shared, "
-          f"{stats['rejected_multihead']} multi-heading, {stats['rejected_joined']} joined)")
+    n_blocks = sum(len(m["blocks"]) for m in ir["men"])
+    runs, stats = extract_runs(rows, ir, chains=not args.no_chains, verbose=args.verbose)
+    n_slots = sum(len(r.slots) for r in runs)
+    n_ops = sum(sum(1 for c in r.text if c != " ") for r in runs)
+    print(f"   lift: {len(ir['men'])} men, {n_blocks} blocks, "
+          f"{sum(m['ops'] for m in ir['men'])} instruction cells")
+    print(f"   rewritable runs: {len(runs)} ({n_slots} slots, {n_ops} live ops"
+          f"{'' if args.no_chains else ', turns pinned in place'})")
+    print(f"   cells refused: {stats['reject_literal']} literal, "
+          f"{stats['reject_multihead']} multi-heading, {stats['reject_fanout']} branching, "
+          f"{stats['reject_glyph']} non-register")
+    if stats["not_lifted"]:
+        print(f"   note: {stats['not_lifted']} op cell(s) in these runs are NOT in lift.py's "
+              f"op set (expected only for grids with `Y`)")
     if args.verbose:
         for r in runs:
-            print(f"      man{r.man} {r.cells[0]} dir{r.dirn} {r.text!r}")
+            print(f"      {r.head} {r.text!r}"
+                  + (f"  [{len(r.pinned)} pinned turns]" if r.pinned else ""))
 
     print(f"   building superoptimizer table to depth {args.depth} "
           f"(verification set: {len(states)} states)")
@@ -865,8 +999,8 @@ def main() -> int:
     rw = find_rewrites(runs, table, states, args.verbose)
     print(f"   shortenings found: {len(rw)} run(s), {sum(x[4] for x in rw)} cell(s) freed")
     for r, i, ln, cand, gain in rw:
-        print(f"      man{r.man} @{r.cells[i]} dir{r.dirn}: {r.text[i:i+ln]!r} -> {cand!r} "
-              f"(-{gain})   [run {r.text!r}]")
+        print(f"      {r.slots[i]}: {r.text[i:i+ln]!r} -> {cand!r} "
+              f"(-{gain} cells)   [run {r.text!r}]")
     if not rw:
         print("   NOTHING TO DO: every register-op run is already as short as the "
               f"superoptimizer can prove (depth {args.depth}).")
@@ -888,8 +1022,17 @@ def main() -> int:
         g.cache[render(rows, trailing_nl)] = base
 
         # screen every rewrite on its own, in parallel
-        texts = [render(apply_rewrite(rows, *x[:4], align=args.align), trailing_nl)
-                 for x in rw]
+        grids = [apply_rewrite(rows, *x[:4], align=args.align) for x in rw]
+        texts = [render(gr, trailing_nl) for gr in grids]
+        topo = topologies([rows] + grids)
+        for x, t in zip(rw, topo[1:]):
+            if t != topo[0]:
+                print(f"      x rejected {x[3]!r}: it changes the room/pipe topology")
+        rw = [x for x, t in zip(rw, topo[1:]) if t == topo[0]]
+        texts = [t for t, tp in zip(texts, topo[1:]) if tp == topo[0]]
+        if not rw:
+            print("   every candidate changed the room/pipe topology; nothing to do")
+            return 0
         res = g.grade_many(texts)
         good = []
         for x, r in zip(rw, res):
@@ -907,6 +1050,9 @@ def main() -> int:
         applied = []
         for x in good:
             cand = apply_rewrite(cur, *x[:4], align=args.align)
+            if topologies([cand])[0] != topo[0]:
+                print(f"      x cumulative re-apply of {x[3]!r} changes the topology")
+                continue
             r = g.grade(render(cand, trailing_nl))
             if ok(r) and r["score"] <= best["score"]:
                 cur, best = cand, r

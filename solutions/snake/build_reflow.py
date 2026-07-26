@@ -41,7 +41,14 @@ def alias_empty_gotos(flow):
     return flow
 
 
-def build(code_x=10, op_slack=0, verify=True):
+def build(
+    code_x=10,
+    op_slack=0,
+    scalar_size=snake.SCALAR_RAM_N,
+    scalar_belts=4,
+    cell_belts=8,
+    verify=True,
+):
     flow = alias_empty_gotos(snake.build_flow())
     layout = {}
 
@@ -58,13 +65,13 @@ def build(code_x=10, op_slack=0, verify=True):
 
     program = stateflow.build_program(
         flow,
-        scalar_size=snake.SCALAR_RAM_N,
+        scalar_size=scalar_size,
         code_x=code_x,
         compact=True,
         fast_cell_ram=True,
-        cell_belts=8,
+        cell_belts=cell_belts,
         fast_scalar_ram=True,
-        scalar_belts=4,
+        scalar_belts=scalar_belts,
         lay_fn=lay,
     )
     if verify:
@@ -76,16 +83,24 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--code-x", type=int, default=10)
     parser.add_argument("--op-slack", type=int, default=0)
+    parser.add_argument("--scalar-size", type=int, default=snake.SCALAR_RAM_N)
+    parser.add_argument("--scalar-belts", type=int, default=4)
+    parser.add_argument("--cell-belts", type=int, default=8)
     parser.add_argument("--out")
     parser.add_argument("--no-verify", action="store_true")
     args = parser.parse_args()
     output = args.out or os.path.join(
         HERE,
-        f"linked-compact-reflow-cx{args.code_x}-o{args.op_slack}.man",
+        "linked-compact-reflow-"
+        f"s{args.scalar_size}-sb{args.scalar_belts}-cb{args.cell_belts}-"
+        f"cx{args.code_x}-o{args.op_slack}.man",
     )
     program, layout = build(
         args.code_x,
         args.op_slack,
+        scalar_size=args.scalar_size,
+        scalar_belts=args.scalar_belts,
+        cell_belts=args.cell_belts,
         verify=not args.no_verify,
     )
     program.save(output)

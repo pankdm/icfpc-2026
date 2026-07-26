@@ -1,15 +1,15 @@
 # History Lesson — ring dictionary build
 
-`best/81x81.man` is the checked-in champion for this problem.  It has an
-**81×81** non-space footprint, so its footprint-only score is **6,561**.
-`build_ring.py` reproduces it byte-for-byte; the `.man` file is not a
-hand-maintained second source of truth.  It also still reproduces the previous
-`best/82x82.man` (`--legacy 82`).
+`best/81x81.man` is the checked-in champion.  It has an **81×81** non-space
+footprint, so its footprint-only score is **6,561**.  The default builder
+invocation reproduces it; `--legacy 82` and `--narrow` still reproduce the
+previous champion and the constant-tail candidate byte-for-byte.
 
 | Candidate | Footprint | Score |
 | --- | ---: | ---: |
-| `best/81x81.man` | 81×81 | 6,561 |
+| `best/81x81.man` | 81×81 | **6,561** |
 | `best/82x82.man` | 82×82 | 6,724 |
+| `candidates/81x82.man` | 81×82 | 6,724 |
 | `history-ring-p1west-82x80.man` | 82×80 | 6,724 |
 | `history-ring.man` | 83×83 | 6,889 |
 | `history-lesson-with-year.man` | 84×84 | 7,056 |
@@ -108,6 +108,50 @@ Two details are intentional rather than cosmetic:
   so that Littleman's direction-sensitive backtick literals retain the same
   numeric value.
 
+## The 81x81 tail (`west_first`)
+
+Two independent lines of work reached width 81.  `--narrow` keeps the 10-row
+P1 and buys its feeder rows with three extra dictionary entries carried in the
+pump rows; it lands at 81×82.  The champion instead takes three folds that
+together remove a row from each of the feeder, P1, and the ring's column
+budget, landing at 81×81.  The two are alternatives, not composable: the
+margin pump needs the very rows the constant tail uses.
+
+- **An odd feeder.**  The feeder is walked in two-row bands because both rows
+  of a band must put their backticks in the same columns.  The *last* band may
+  be a single eastbound row: the oracle only constrains what sits between two
+  backticks in a column, so a lone trailing tick merely opens a literal that
+  is never closed, and earlier bands are unaffected because the odd row is
+  last.  `optimize_feeder` now scores rows rather than bands.  At width 81 the
+  baseline stream needs 64 rows in whole bands but only 63 with a half band.
+- **The pump in P1's margin.**  Walking P1 west-first makes its last data row
+  end on the right, so the pump becomes a six-cell loop in the two columns
+  between the turn column and the right wall instead of two rows of its own.
+  P1 goes from 10 rows to 8.
+- **A trimmed DISP and a shifted band.**  DISP's last inner column is entirely
+  blank, so the room needs 26 columns.  With every service room slid one
+  column left, that trim widens the strip east of DISP to the five columns the
+  ring's 35 cells need, while still leaving DISP → YEAR a two-column gap — a
+  one-cell pipe is rejected by the loader, verified directly against the
+  oracle.  Each room keeps its position *relative* to its own attachments, so
+  DISP's nearest-pipe bindings are unchanged.
+
+That is 65 feeder rows + 8 service + 8 P1 = 81, with the ring at 26+13 = 39
+cells against a 35-word floor.
+
+Measured dead ends, recorded so they are not retried:
+
+- Rooms may not share a wall row; a two-room probe crashes with reason
+  `wall`.
+- Dropping the YEAR room costs more than it saves.  The `; YYYY: ` prefixes go
+  from 27 single symbols to inline text: 2,042 → 2,140 symbols, and the feeder
+  at width 81 goes 64 → 66 rows.  It frees 29 *columns* but no rows, because
+  DISP, not YEAR, sets the service band's height.
+- Re-selecting phrases for symbol count rather than grid cells is worse
+  (2,035–2,061 vs 2,042) once P1's width cap is enforced.  2,010 symbols would
+  buy 62 feeder rows; the constrained search plateaus well above that, which
+  is what `--narrow` sidesteps by adding entries instead.
+
 ## Runtime pipeline
 
 ```text
@@ -137,30 +181,10 @@ DECODER ── repeated divmod 92 ──► DISP ──► YEAR ──► UNPACK
 6. **UNPACK** repeatedly divides every packed value by 128.  Its remainders are
    the raw ASCII bytes sent to the output room.
 
-The physical layout uses 63 feeder rows plus its two borders, puts all five
-service rooms in the eight rows directly beneath the feeder, and places P1 in
-the final eight.  The P1/DISP loop closes through a five-column strip east of
-DISP.  The layout is square on purpose: the problem scores only
-`max(width, height)^2`.
-
-Three things make 81 rows and 81 columns fit where 82×82 did before.
-
-- **An odd feeder.**  The feeder is walked in two-row bands because both rows
-  of a band must put their backticks in the same columns.  The *last* band may
-  be a single eastbound row: nothing pairs its backticks vertically, and the
-  oracle only constrains what sits between two backticks in a column, so a
-  lone trailing tick merely opens a literal that is never closed.  Earlier
-  bands are unaffected because the odd row is last.  That is worth one row —
-  at width 81 the stream needs 64 rows in whole bands but only 63 with a half
-  band, and no reachable encoding fits 62 (see below).
-- **The pump in P1's margin.**  Walking P1 west-first makes its last data row
-  end on the right, so the pump is a six-cell loop in the two columns between
-  the turn column and the right wall instead of two rows of its own.
-- **A trimmed DISP.**  DISP's last inner column is entirely blank, so the room
-  needs 26 columns, not 27.  That column is what widens the ring strip east of
-  DISP to the five columns its 35 cells need while still leaving DISP → YEAR a
-  two-column gap — a one-cell pipe is rejected by the loader, which was
-  verified directly against the oracle.
+The physical layout uses 62 feeder rows plus its two borders, puts all five
+service rooms directly beneath the feeder, and places P1 in the final ten
+rows.  Two slim vertical pipes at the right close the P1/DISP loop.  The
+layout is square on purpose: the problem scores only `max(width, height)^2`.
 
 ## Pipe-length requirements
 
@@ -217,11 +241,9 @@ Capacity-only interpreter tests confirm the boundary:
 - all five ordinary links shortened to two cells at once still passed when the
   ring was `2+33`.
 
-The 82×82 ring had `2+33=35` cells: exactly the semantic capacity floor, with
-no slack.  The 81×81 ring snakes both legs through the five-column strip east
-of DISP for `26+13=39`, which clears the floor with a little slack.  Moving
-either ring attachment or shortening either route still requires keeping the
-sum at or above 35.
+The current ring has `2+33=35` cells: exactly the semantic capacity floor,
+with no slack.  Moving either ring attachment or shortening either route
+therefore requires lengthening the other leg by the same amount.
 
 These are *semantic* minima.  A concrete route may need to be longer because
 its endpoints are farther apart or because it must avoid rooms and other
@@ -251,34 +273,54 @@ At width 82 the optimized feeder takes 62 rows instead of the fixed feeder's
 64.  The intermediate `history-ring-variable-82.man` was 82×83.  The champion
 keeps that feeder byte-for-byte, then manually folds the service tail from 19
 rows to 18 and tightens the dictionary ring from `12+71` cells to its `2+33`
-minimum.  That final fold reaches 82×82.  The 81×81 champion then takes the
-three steps described under "Runtime pipeline" above.
+minimum.  That final fold reaches 82×82.
 
 For the encoding-only analysis of adding more dictionary entries, using
 multiword entries, and minimizing feeder literal count independently of
 layout, see [`FEEDER-DICTIONARY.md`](FEEDER-DICTIONARY.md).
+
+## Narrow constant-tail variant
+
+`candidates/81x82.man` uses the two old pump rows twice:
+
+- the steady `>>rsv` / ` ^<<<` pump is moved to the far right;
+- the first pump row preloads `Baltim`, `iotis, `, and `, Italy`, followed by
+  the ring sentinel;
+- aligned, unsent zero literals on the second row preserve vertical backtick
+  pairing.
+
+Those three phrases are the unique best remaining choices by immediate
+base-92 symbol reduction: each occurs twice and replaces six tokens with an
+escape pair, saving eight symbols.  Together they reduce the stream from
+2,042 to 2,018 symbols.  The width-81 feeder DP then fits in the same 62 rows,
+using 294 literals rather than the old width-82 plan's 304.
+
+The P1 room shrinks from 80 to 79 columns.  DISP drops its unused rightmost
+interior column, which frees the two-cell P1→DISP return pipe at x=77.  The
+other ring leg folds down a second time above P1: it has 45 cells, so the two
+legs provide 47 cells of capacity for the 38 dictionary entries plus sentinel.
+The organizer WASM passes the complete public output in 255,288 ticks.
 
 ## Reproducing the champion
 
 From the repository root:
 
 ```bash
+python3 solutions/history-lesson/build_ring.py --narrow
+git diff --exit-code -- solutions/history-lesson/candidates/81x82.man
 python3 solutions/history-lesson/build_ring.py
-python3 solutions/history-lesson/build_ring.py --legacy 82
-git diff --exit-code -- solutions/history-lesson/best/
+git diff --exit-code -- solutions/history-lesson/best/82x82.man
 python3 scratchpad/history-ring/test_rooms.py
 python3 scratchpad/history-ring/test_year.py
 python3 scratchpad/history-ring/test_disp.py
-node tools/grade_json.js history-lesson solutions/history-lesson/best/81x81.man \
+node tools/grade_json.js history-lesson solutions/history-lesson/candidates/81x82.man \
   --cases tests/history-lesson.json --failfast
 ```
 
-The first command deterministically runs the variable-width feeder DP and
-overwrites `best/81x81.man` and the second `best/82x82.man`.  The third is the
-strict reproduction
-gate: no output and exit status zero means the generated file is byte-identical
-to the checked-in champion.  Generation takes roughly 30 seconds on the
-contest machine.
+The two builder commands deterministically run the variable-width feeder DP.
+Each following `git diff` is a strict reproduction gate: no output and exit
+status zero means the generated file is byte-identical to the checked-in
+artifact.  Each generation takes roughly 30 seconds on the contest machine.
 
 Two DSL details are load-bearing:
 

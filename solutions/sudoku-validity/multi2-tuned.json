@@ -1,0 +1,15 @@
+{
+ "slug": "sudoku-validity",
+ "target": "solutions/sudoku-validity/multi2.man",
+ "builder": "solutions/sudoku-validity/multi2_build.py",
+ "baseline_score": 33483953.999999996,
+ "best_score": 31906780.833333332,
+ "accepted": [
+  {
+   "knob": "DX",
+   "from": 16,
+   "to": 15,
+   "score": 31906780.833333332
+  }
+ ]
+}

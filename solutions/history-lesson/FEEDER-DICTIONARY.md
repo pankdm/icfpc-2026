@@ -75,6 +75,23 @@ that “add more words” is worth pursuing before changing the runtime protocol
 under the current one-word entry format, the estimated opportunity is about
 30 feeder literals.
 
+### Implemented width-81 step
+
+`candidates/81x82.man` implements the first three extra escape entries:
+`Baltim`, `, Italy`, and `iotis, `.  They are the unique tied leaders under
+the immediate symbol-saving objective, at eight symbols saved apiece.
+
+This changes the measured encoding as follows:
+
+| Encoding | Symbols | Standalone minimum chunks | Paired feeder |
+| --- | ---: | ---: | ---: |
+| Original 82-column build | 2,042 | 228 | 304 literals / 62 rows |
+| Three added entries | 2,018 | 225 | 294 literals / 62 rows at width 81 |
+
+Only one of the three phrases was necessary for the width-81 DP to find a
+62-row plan.  All three fit in the relocated constant/pump rows and provide
+additional boundary slack without changing the room height.
+
 ## Can dictionary words be bigger?
 
 ### Within the current runtime: only up to one packed i64

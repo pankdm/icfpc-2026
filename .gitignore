@@ -228,3 +228,6 @@ solutions/history-lesson/proposed-input-grid.txt
 # (the findings live in tests/autotune-report.json)
 .autotune-cache.json
 tests/autotune-logs/
+
+# autotune stdout-fallback artifacts (a builder that only print()s has no .man name)
+<stdout>-tuned.*

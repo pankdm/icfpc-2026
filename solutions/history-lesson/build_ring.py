@@ -14,7 +14,9 @@ sentinel -1 and full-rotation restore).
 Rooms were unit-verified in scratchpad/history-ring/ (roomsim + tests).
 
 Usage:
-  python3 build_ring.py                         # reproduce best/82x82.man
+  python3 build_ring.py                         # reproduce best/81x81.man
+  python3 build_ring.py --legacy 82             # reproduce best/82x82.man
+  python3 build_ring.py --narrow                # build candidates/81x82.man
   python3 build_ring.py --legacy                # reproduce history-ring.man
   python3 build_ring.py --legacy 82 --variable  # reproduce 82x83 intermediate
 """
@@ -40,6 +42,7 @@ TEXT = open(os.path.join(HERE, "icfp-history.txt"), "rb").read()
 
 STEP = B2 ** 5
 CORR = B2 ** 4 - 10 * B2 ** 5
+NARROW_EXTRA_PAIRS = 3
 
 
 # ---------------------------------------------------------------- encoder --
@@ -159,8 +162,60 @@ def choose_phrases(stream):
     return stream, phrases
 
 
-def build_encoding(table_budget=None, west_first=False):
+def add_best_pair_phrases(stream, phrases, count):
+    """Add escape-pair phrases ranked only by symbol-stream reduction.
+
+    The main dictionary optimizer charges P1 source cells.  The narrow build
+    has already made room for ``count`` more constants, so their relevant
+    objective is `(tokens - 2) * occurrences`.  Recompute after every choice
+    because candidates overlap.
+    """
+    forbidden = set(STOLEN) | {0, ESC}
+    chosen = []
+    for _ in range(count):
+        candidates = []
+        n = len(stream)
+        for m in range(3, 10):
+            local = Counter()
+            for i in range(n - m + 1):
+                seg = tuple(stream[i:i + m])
+                if any((s in forbidden) or s < 1 for s in seg):
+                    continue
+                if len(phrase_bytes(seg)) > 9:
+                    continue
+                packed = pack128(phrase_bytes(seg))
+                if not fits_literal(packed) or len(str(packed)) > 18:
+                    continue
+                local[seg] += 1
+            for seg, occurrences in local.items():
+                if occurrences < 2:
+                    continue
+                hits = count_nonoverlap(stream, seg)
+                saving = (m - 2) * hits
+                if saving > 0:
+                    # Prefer a shorter preload literal after symbol saving.
+                    digits = len(str(pack128(phrase_bytes(seg))))
+                    candidates.append(
+                        (saving, -digits, m, hits, phrase_bytes(seg), seg)
+                    )
+        if not candidates:
+            raise ValueError(f"only found {len(chosen)} extra pair phrases")
+        _, _, _, _, _, seg = max(candidates)
+        stream = replace_nonoverlap(stream, seg, [-len(phrases) - 1])
+        phrases.append((seg, False))
+        chosen.append(phrase_bytes(seg))
+    return stream, chosen
+
+
+def build_encoding(table_budget=None, extra_pair_count=0, tail_constants=False,
+                   west_first=False):
     stream, phrases = choose_phrases(tokenize(TEXT))
+    if extra_pair_count:
+        stream, chosen = add_best_pair_phrases(
+            stream, phrases, extra_pair_count
+        )
+        if extra_pair_count == NARROW_EXTRA_PAIRS:
+            assert set(chosen) == {b"Baltim", b", Italy", b"iotis, "}
 
     def table_cells(phr):
         # entries + identities + placeholders + sentinel, in preload cells
@@ -215,10 +270,25 @@ def build_encoding(table_budget=None, west_first=False):
     # --- template layout for P1 group B (pairs), 4 rows x nB slots ---
     # Assign pair values to a grid so every column's backtick count is even
     # and spans stay digit/space-only (oracle vertical-literal rule).
-    pair_vals = [pack128(phrase_bytes(phrases[i][0])) for i in pairs]
+    if tail_constants:
+        # Keep the original 19-entry four-row grid.  Its old sentinel cell
+        # becomes an unsent filler, while all new constants and the one real
+        # sentinel move to the first pump row.
+        grid_pairs = pairs[:19]
+        tail_pairs = pairs[19:]
+        assert len(grid_pairs) == 19
+        assert len(tail_pairs) == extra_pair_count
+    else:
+        grid_pairs = pairs
+        tail_pairs = []
+    pair_vals = [pack128(phrase_bytes(phrases[i][0])) for i in grid_pairs]
     order = sorted(range(len(pair_vals)),
                    key=lambda i: -len(str(pair_vals[i])))
-    nB = -(-(len(pair_vals) + 1) // 4)           # +1 for the zero sentinel
+    nB = (
+        -(-len(pair_vals) // 4)
+        if tail_constants
+        else -(-(len(pair_vals) + 1) // 4)       # +1 for the zero sentinel
+    )
     grid = [[None] * nB for _ in range(4)]       # rows 0..3 = P1 rows 3..6
     # widest chunk goes to the physically-last slot; sentinel to slot 0
     chunks_desc = [order[i * 4:(i + 1) * 4] for i in range(nB)]
@@ -227,7 +297,7 @@ def build_encoding(table_budget=None, west_first=False):
         widths.append(max(len(str(pair_vals[i])) for i in chunk))
     # physical slot order puts the narrow slot where the sentinel lands, so
     # that row's tail leaves room for the pump: slot 0 for the east-first
-    # layout, slot nB-1 for the west-first one.
+    # layouts, slot nB-1 for the west-first one.
     phys = sorted(range(nB), key=lambda j: -widths[j] if west_first
                   else widths[j])
     TB = [widths[j] for j in phys]
@@ -236,10 +306,10 @@ def build_encoding(table_budget=None, west_first=False):
     for j, chunk in enumerate(chunks_desc):
         pj = phys.index(j)
         for r, i in enumerate(chunk):
-            cellgrid[r][pj] = pairs[i]
+            cellgrid[r][pj] = grid_pairs[i]
 
-    # position numbering follows the preload walk: row-major, and within a
-    # row the direction the little man actually travels.
+    # Position numbering follows the preload walk: row-major, and within a row
+    # the direction the little man actually travels.
     def walk(r):
         westward = (r % 2 == 0) if west_first else (r % 2 == 1)
         return range(nB - 1, -1, -1) if westward else range(nB)
@@ -254,16 +324,16 @@ def build_encoding(table_budget=None, west_first=False):
                 posmap[idx] = pos
                 ring[pos] = pack128(phrase_bytes(phrases[idx][0]))
                 pos += 1
-        return posmap
+        return posmap, pos
 
-    posmap = number(ring)
-    # The sentinel (0) belongs at the very last preload position: the final
-    # cell of row 3 in walk order.  Ensure that cell is free; if occupied,
-    # move its entry to a free cell and renumber.
-    last = list(walk(3))[-1]
-    if cellgrid[3][last] is not None:
+    posmap, pos = number(ring)
+    # In the legacy layout the sentinel belongs at the very last preload
+    # position: the final cell of row 3 in walk order.  The narrow layout
+    # fills that slot and emits its sentinel on the extra eastbound row.
+    last_cell = list(walk(3))[-1]
+    if not tail_constants and cellgrid[3][last_cell] is not None:
         # find a free cell and move the occupant there
-        moved = cellgrid[3][last]
+        moved = cellgrid[3][last_cell]
         done = False
         for r in range(4):
             for pj in range(nB):
@@ -272,14 +342,19 @@ def build_encoding(table_budget=None, west_first=False):
                     cellgrid[r][pj] = moved
                     done = True
         assert done, "no free cell for sentinel"
-        cellgrid[3][last] = None
+        cellgrid[3][last_cell] = None
         ring = {k: v for k, v in ring.items() if k <= 16}
-        posmap = number(ring)
+        posmap, pos = number(ring)
+    for i in tail_pairs:
+        posmap[i] = pos
+        ring[pos] = pack128(phrase_bytes(phrases[i][0]))
+        pos += 1
     for i in pairs:
         slot_of[i] = ("pair", posmap[i])
     layout = dict(TB=TB, cellgrid=cellgrid,
                   val_of={i: pack128(phrase_bytes(phrases[i][0]))
-                          for i in pairs})
+                          for i in pairs},
+                  tail_pairs=tail_pairs)
 
     symbols = []
     for t in stream:
@@ -375,6 +450,19 @@ DISP_ROWS = [
     "vX~`92`M+X+b >> mdrMs>rv ",
     ">rb          ^^sr<   ^sX ",
     "            ^W        s< ",
+]
+
+# The sentinel restore path in DISP_ROWS spends its sixth row only walking
+# west from the ring send back to the selected value in B.  At width 81 there
+# are four unused columns to the right of the narrow dispatcher.  Route that
+# cold path east instead, swap there, and return along the first row.  This
+# turns DISP from 26x8 into 30x7 without changing its ports or hot lookup loop.
+DISP_FOLDED_ROWS = [
+    "v@<<s<<<<<<<<              <",
+    ">`17`Mr  X^                 ",
+    " >`31`+^ -                  ",
+    "vX~`92`M+X+b >> mdrMs>rv    ",
+    ">rb          ^^sr<   ^sX sW^",
 ]
 
 # Repeated /92 emits one least-significant stream symbol per feeder chunk.
@@ -542,30 +630,36 @@ def p1_slot_cells(v, width, east):
 
 def p1_room(program, x0, y0, width, ring, layout, west_first=False):
     """Template preload room: 2 group-A rows (smalls 1..16, 8 slots) and
-    4 group-B rows (pairs grid + zero sentinel), all slot-aligned so every
-    column's backtick count is even.
+    4 group-B rows, all slot-aligned so every column's backtick count is
+    even.  The baseline puts its zero sentinel in group B and its pump at the
+    lower left.  The narrow variant fills group B, sends tail constants plus
+    the sentinel on row 7, and moves the pump to the lower right.
 
-    East-first (the 10-row form) walks E,W,E,W,E,W and ends bottom-left, so
-    the pump needs two rows of its own below the data.  West-first walks
-    W,E,W,E,W,E and ends bottom-*right*, which lets the pump be a six-cell
-    loop in the two columns between the turn column and the right wall --
-    two rows cheaper for the same work."""
+    ``west_first`` walks W,E,W,E,W,E instead of E,W,E,W,E,W, so the last data
+    row ends bottom-*right*.  That lets the pump be a six-cell loop in the two
+    columns between the turn column and the right wall rather than two rows of
+    its own -- an 8-row room instead of 10.  It is incompatible with
+    ``tail_constants``, which needs those rows to carry extra entries."""
+    assert not (west_first and layout["tail_pairs"])
     smalls = [ring[v] for v in range(1, 17)]
     szA = [len(str(v)) for v in smalls]
     TA = [max(szA[j], szA[15 - j]) for j in range(8)]
     TB = layout["TB"]
     cellgrid = layout["cellgrid"]
+    tail_pairs = layout["tail_pairs"]
     nB = len(TB)
     inner = width - 4
     assert sum(TA) + 3 * 8 <= inner, (sum(TA) + 24, inner)
-    assert sum(TB) + 3 * nB + 4 <= inner + 1, (sum(TB) + 3 * nB, inner)
-    # Both bands share one turn column, one past the wider band's last cell
-    # (an eastbound row's final 's' sits on that cell, a westbound row's does
-    # not, so the eastbound span is the one to clear).
-    turn = x0 + 3 + max(sum(w + 3 for w in TA), sum(w + 3 for w in TB))
-    if west_first:
-        # turn column, two pump columns, right wall
-        assert turn + 3 <= x0 + width - 1, (turn, width)
+    if tail_pairs:
+        assert sum(TB) + 3 * nB <= inner - 2, (
+            sum(TB) + 3 * nB,
+            inner,
+        )
+    else:
+        assert sum(TB) + 3 * nB + 4 <= inner + 1, (
+            sum(TB) + 3 * nB,
+            inner,
+        )
 
     def place_row(y, vals, widths, east):
         # feeder-style alignment: slot pitch w+3; east cells at start+1,
@@ -577,29 +671,46 @@ def p1_room(program, x0, y0, width, ring, layout, west_first=False):
             acc += w + 3
         endx = acc
         for j, (v, w) in enumerate(zip(vals, widths)):
-            cells = p1_slot_cells(v, w, east)
+            if v is None:
+                cells = (
+                    ["`", *("0" * w), "`", " "]
+                    if east
+                    else [" ", "`", *("0" * w), "`"]
+                )
+            else:
+                cells = p1_slot_cells(v, w, east)
             x = starts[j] + 1 if east else starts[j]
             put_row(program, x, y, cells)
         return endx
 
+    # Both bands share one turn column, one past the wider band's last cell
+    # (an eastbound row's final 's' sits on that cell, a westbound row's does
+    # not, so the eastbound span is the one to clear).
+    turn = x0 + 3 + max(sum(w + 3 for w in TA), sum(w + 3 for w in TB))
+    if west_first:
+        # turn column, two pump columns, right wall
+        assert turn + 3 <= x0 + width - 1, (turn, width)
+
     # Group A rows carry ring positions 1..16.  The row walked first holds
-    # 1..8; a westbound row is visited slot nB-1 first, so its values sit
+    # 1..8; a westbound row is visited slot 7 first, so its values sit
     # reversed to keep preload order ascending.
     if west_first:
-        # slot j now pairs smalls[7-j] with smalls[8+j], so the widths run
-        # the other way too
+        # slot j now pairs smalls[7-j] with smalls[8+j], so the widths run the
+        # other way too
         rows_spec = [(smalls[0:8][::-1], TA[::-1], False),
                      (smalls[8:16], TA[::-1], True)]
     else:
         rows_spec = [(smalls[0:8], TA, True), (smalls[8:16][::-1], TA, False)]
-    # Group B contains the multi-symbol phrase entries.  Its last zero is the
-    # sentinel observed by DISP after one full lookup rotation.
+    # Group B contains the multi-symbol phrase entries.  In the baseline its
+    # last zero is the sentinel observed by DISP after one full rotation.
     for r in range(4):
         vals = []
         for pj in range(nB):
             idx = cellgrid[r][pj]
             if idx is None:
-                vals.append(0)          # zero sentinel / filler
+                # Baseline: the sole empty cell is the sentinel.  Narrow
+                # variant: it is an unsent vertical-literal filler.
+                vals.append(None if tail_pairs else 0)
             else:
                 vals.append(layout["val_of"][idx])
         rows_spec.append((vals, TB, (r % 2 == 1) if west_first else (r % 2 == 0)))
@@ -617,7 +728,8 @@ def p1_room(program, x0, y0, width, ring, layout, west_first=False):
             if last:
                 assert west_first
                 # Walk on past the turn column into the pump loop: '^' r '>'
-                # up the first spare column, 'v' s '<' down the second.
+                # up the first spare column, 'v' s '<' down the second, so the
+                # first instruction executed on entry is the 'r'.
                 program.put(right, y, ">")
                 put_row(program, right + 1, y - 2, [">", "v"])
                 put_row(program, right + 1, y - 1, ["r", "s"])
@@ -627,10 +739,39 @@ def p1_room(program, x0, y0, width, ring, layout, west_first=False):
         else:
             program.put(right, y, "<")
             program.put(x0 + 1, y, "v")
-            if last:
+            if last and not tail_pairs:
                 # descend to the pump rows below the data
                 put_row(program, x0 + 1, y + 1, [">", ">", "r", "s", "v"])
                 put_row(program, x0 + 1, y + 2, [" ", "^", "<", "<", "<"])
+    if tail_pairs:
+        # The last data row already descends at the left.  Send the remaining
+        # constants eastbound on the first pump row, followed by the sentinel.
+        # Matching unsent zero literals below preserve vertical backtick
+        # pairing.  The steady `r,s` pump occupies the rightmost five interior
+        # cells, leaving the entire preceding span available to constants.
+        values = [layout["val_of"][i] for i in tail_pairs] + [0]
+        widths = [len(str(v)) for v in values]
+        starts = []
+        acc = x0 + 2
+        for w in widths:
+            starts.append(acc)
+            acc += w + 3
+        pump_x = x0 + width - 6
+        assert acc + 1 <= pump_x, (acc, pump_x)
+        extra_y = y0 + 1 + nrows
+        dummy_y = extra_y + 1
+        program.put(x0 + 1, extra_y, ">")
+        for start, value, slot_width in zip(starts, values, widths):
+            put_row(
+                program,
+                start + 1,
+                extra_y,
+                p1_slot_cells(value, slot_width, True),
+            )
+            dummy = ["`", *("0" * slot_width), "`", " "]
+            put_row(program, start + 1, dummy_y, dummy)
+        put_row(program, pump_x, extra_y, [">", ">", "r", "s", "v"])
+        put_row(program, pump_x, dummy_y, [" ", "^", "<", "<", "<"])
     if west_first:
         # A man spawns facing east, so start him one cell west of the turn
         # column: he steps onto its '<', turns, and walks back over '@'.
@@ -667,11 +808,24 @@ def audit_vertical_ticks(program):
     return bad
 
 
-def build(W=83, variable=False, compact_tail=False, west_first=False):
-    assert W >= (81 if variable else 83)
-    if compact_tail and (W not in (81, 82) or not variable):
-        raise ValueError("the compact tail requires W=81 or 82 and variable=True")
-    symbols, ring, layout = build_encoding(west_first=west_first)
+def build(W=83, variable=False, compact_tail=False, narrow=False,
+          west_first=False):
+    assert W >= (81 if (narrow or west_first) else (82 if variable else 83))
+    if narrow or west_first:
+        if (W, variable, compact_tail) != (81, True, True):
+            raise ValueError(
+                "the narrow/west-first tails require W=81, variable=True, "
+                "compact_tail=True"
+            )
+        if narrow and west_first:
+            raise ValueError("narrow and west_first are alternative tails")
+    elif compact_tail and (W != 82 or not variable):
+        raise ValueError("the compact 82x82 tail requires W=82 and variable=True")
+    symbols, ring, layout = build_encoding(
+        extra_pair_count=NARROW_EXTRA_PAIRS if narrow else 0,
+        tail_constants=narrow,
+        west_first=west_first,
+    )
     if variable:
         bands = optimize_feeder(symbols, W)
         chunks = [chunk.value for band in bands for chunk in band.chunks]
@@ -683,8 +837,10 @@ def build(W=83, variable=False, compact_tail=False, west_first=False):
         bands = None
     assert verify(chunks, ring), "encoding does not reproduce the text"
     if compact_tail:
-        program = build_compact_once(W, chunks, ring, layout, bands,
-                                     west_first=west_first)
+        program = build_compact_once(
+            W, chunks, ring, layout, bands, narrow=narrow,
+            west_first=west_first,
+        )
     else:
         program = build_once(W, chunks, dw, ring, layout, bands=bands)
     bad = audit_vertical_ticks(program)
@@ -706,32 +862,38 @@ def build_82x82():
     return program
 
 
-def build_compact_once(W, chunks, ring, layout, bands, west_first=False):
+def build_narrow():
+    """Build the constant-tail 81x82 variant."""
+    program = build(81, variable=True, compact_tail=True, narrow=True)
+    assert program.footprint() == (81, 82, 6724)
+    return program
+
+
+def build_compact_once(W, chunks, ring, layout, bands, narrow=False,
+                       west_first=False):
     """Place the optimized feeder and the hand-folded service tail.
 
-    ``west_first`` uses the 8-row P1 (pump in the margin instead of two rows
-    of its own), which drops the tail from 18 rows to 16.
-
-    P1 needs 80 columns whatever the box is, so at W=81 the single column left
-    beside it is a dead end for the ring (it cannot turn back).  All 35 ring
-    cells therefore have to live in the service band, which means widening the
-    free strip east of DISP from 3 columns to 5: the left group slides one
-    column left and DISP two.  Every room keeps its position *relative* to its
-    pipe attachments, so DISP's nearest-pipe bindings are unchanged."""
+    ``west_first`` is the 81x81 tail.  P1 needs 80 columns once its pump moves
+    into the margin, so the single column left beside it is a dead end for the
+    ring (a pipe cannot turn back in it).  All 35 ring cells therefore live in
+    the service band, which means widening the strip east of DISP to five
+    columns: every room slides one column left and DISP is trimmed to 26.
+    Each room keeps its position *relative* to its own pipe attachments, so
+    DISP's nearest-pipe bindings are unchanged."""
     program = Program()
     feeder_rows = variable_feeder(program, bands, W)
-    assert feeder_rows == (63 if W == 81 else 62)
+    assert feeder_rows == (63 if west_first else 62)
     tail_top = feeder_rows + 2
-    assert tail_top == (65 if W == 81 else 64)
-    narrow = W == 81
-    # Room left edges.  At W=81 every room slides one column left, and DISP is
-    # also trimmed: its last inner column is entirely blank, so the room needs
-    # only 26 columns.  That trim is what pays for the layout -- it widens the
-    # ring strip east of DISP from three columns to the five its 35 cells need,
-    # while leaving DISP -> YEAR the two-column gap it needs (the loader
-    # rejects a one-cell pipe, verified against the oracle).
-    xu, xo, xy, xd, xp = ((1, 16, 19, 3, 50) if narrow else (2, 17, 20, 4, 51))
-    dw = 26 if narrow else 27
+    assert tail_top == (65 if west_first else 64)
+
+    # Room left edges, and DISP's width.  DISP's last inner column is entirely
+    # blank, so 26 columns suffice; that trim is what pays for both narrow
+    # layouts.  For west_first it buys the five-column ring strip while still
+    # leaving DISP -> YEAR a two-column gap (the loader rejects a one-cell
+    # pipe, verified against the oracle).
+    xu, xo, xy, xd, xp = ((1, 16, 19, 3, 50) if west_first
+                          else (2, 17, 20, 4, 51))
+    disp_width = 26 if (narrow or west_first) else None
 
     # Service rooms occupy the top eight rows of the tail.  P1 is below them,
     # rather than above them as in build_once(), which removes the old gap rows.
@@ -739,11 +901,11 @@ def build_compact_once(W, chunks, ring, layout, bands, west_first=False):
     program.output_room(xo, tail_top)
     yw, yh = paste_room(program, xy, tail_top, year_rows())
     assert (yw, yh) == (29, 7)
-    dwid, dh = paste_room(program, xp, tail_top, DISP_ROWS, w=dw)
-    assert (dwid, dh) == (dw, 8)
+    dwid, dh = paste_room(program, xp, tail_top, DISP_ROWS, w=disp_width)
+    assert (dwid, dh) == ((26 if (narrow or west_first) else 27), 8)
     paste_room(program, xd, tail_top + 4, DECODER_ROWS)
-    p1h = p1_room(program, 0, tail_top + 8, 80, ring, layout,
-                  west_first=west_first)
+    p1h = p1_room(program, 0, tail_top + 8, W - 1 if west_first else W - 2,
+                  ring, layout, west_first=west_first)
     assert p1h == (8 if west_first else 10)
 
     # feeder -> DECODER
@@ -761,26 +923,22 @@ def build_compact_once(W, chunks, ring, layout, bands, west_first=False):
         (xu + 12, tail_top + 2),
     ])
     # DECODER -> DISP.  Its last cell is a north-to-east corner into DISP.
-    # At W=81 it shares the gap column with DISP -> YEAR, so it climbs only to
-    # row +3 and leaves row +1 to that pipe.
+    # In the west_first tail it shares the gap column with DISP -> YEAR, so it
+    # climbs only to row +3 and leaves row +1 to that pipe.
     program.pipe(
         [
             (xd + 11, tail_top + 5),
             (xd + 12, tail_top + 5),
             (xd + 12, tail_top + 7),
             (xp - 1, tail_top + 7),
-            (xp - 1, tail_top + (3 if narrow else 2)),
+            (xp - 1, tail_top + (3 if west_first else 2)),
         ],
         end_direction="E",
     )
 
-    # Dictionary ring.  Its two legs together must hold at least
-    # (entries + sentinel - 1) = 35 words, so the forward leg is deliberately
-    # snaked rather than taken straight down.  The last cell turns south into
-    # P1's top border.
-    if narrow:
-        # W=81: both legs snake inside the 5-column strip east of DISP.
-        # 26 + 13 = 39 cells, comfortably over the 35-word floor.
+    if west_first:
+        # Both legs snake inside the five-column strip east of DISP:
+        # 26 + 13 = 39 cells, over the 35-word capacity floor.
         program.pipe(
             [
                 (76, tail_top),
@@ -802,22 +960,34 @@ def build_compact_once(W, chunks, ring, layout, bands, west_first=False):
             ],
             end_direction="W",
         )
-    elif west_first:
-        # P1 is two rows shorter, so the outer columns no longer reach far
-        # enough on their own: fold the leg back up column 80 and down 79.
+        return program
+
+    if narrow:
+        # The 38-entry narrow dictionary plus sentinel needs at least 38
+        # combined ring cells.  This folded leg has 45 cells: after returning
+        # up x79 it folds down x78 above P1, staying inside columns 0..80.
         program.pipe(
             [
-                (78, tail_top),
-                (81, tail_top),
-                (81, tail_top + 15),
-                (80, tail_top + 15),
-                (80, tail_top + 1),
+                (77, tail_top),
+                (80, tail_top),
+                (80, tail_top + 17),
+                (79, tail_top + 17),
                 (79, tail_top + 1),
-                (79, tail_top + 7),
+                (78, tail_top + 1),
+                (78, tail_top + 7),
             ],
             end_direction="S",
         )
+        # Shrinking DISP by its unused rightmost interior column frees x77 for
+        # the minimum return pipe from P1.
+        program.pipe(
+            [(77, tail_top + 7), (77, tail_top + 6)],
+            end_direction="W",
+        )
     else:
+        # Dictionary ring, at its exact semantic capacity floor: 2 + 33 = 35.
+        # DISP -> P1 takes the two outer columns down and back up.  The last
+        # cell turns south into P1's top border.
         program.pipe(
             [
                 (78, tail_top),
@@ -829,7 +999,6 @@ def build_compact_once(W, chunks, ring, layout, bands, west_first=False):
             ],
             end_direction="S",
         )
-    if not narrow:
         # P1 -> DISP is the minimum two-cell return; its final cell turns west.
         program.pipe(
             [(78, tail_top + 7), (78, tail_top + 6)],
@@ -898,14 +1067,20 @@ def build_once(W, chunks, dw, ring, layout, bands=None):
 def main():
     legacy = "--legacy" in sys.argv
     variable = "--variable" in sys.argv
+    narrow = "--narrow" in sys.argv
     positional = [
         arg for arg in sys.argv[1:]
-        if arg not in ("--legacy", "--variable")
+        if arg not in ("--legacy", "--variable", "--narrow")
     ]
-    if legacy:
+    if narrow:
+        if legacy or variable or positional:
+            raise SystemExit("--narrow does not accept other modes or a width")
+        program = build_narrow()
+        name = os.path.join("candidates", "81x82.man")
+    elif legacy:
         if positional == ["82"] and not variable:
             program, name = build_82x82(), os.path.join("best", "82x82.man")
-            legacy = False          # best/ files are stored without a final NL
+            legacy = False      # best/ files are stored without a final NL
         else:
             W = int(positional[0]) if positional else 83
             program = build(W, variable=variable)
@@ -914,8 +1089,9 @@ def main():
     else:
         if positional or variable:
             raise SystemExit(
-                "default build is best/81x81.man; use --legacy [W] [--variable] "
-                "for an older layout, or --legacy 82 for the 82x82 champion"
+                "default build is best/81x81.man; use --legacy 82 for the "
+                "previous champion, --narrow for the constant-tail candidate, "
+                "or --legacy [W] [--variable] for an older layout"
             )
         program = build_champion()
         name = os.path.join("best", "81x81.man")

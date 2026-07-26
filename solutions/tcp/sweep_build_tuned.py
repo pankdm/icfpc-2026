@@ -157,7 +157,7 @@ def emit_checker(L, cx, cy):
     L.put(x(11), y(0), 'v')                # down to DP merge (11,1)
     L.room(cx, cy, 17, 11)            # rows cy..cy+10 ; interior y(0)..y(8) = cy+1..cy+9
     # seq -> WEST wall; drain -> NORTH or EAST wall; output -> SOUTH wall.
-    return {'seqW': (cx - 1, y(4)), 'drainN': (x(12), cy - 1),
+    return {'seqW': (cx - 1, y(1)), 'drainN': (x(12), cy - 1),
             'drainE': (x(17), y(2)), 'outS': (x(8), cy + 11)}
 
 
@@ -331,12 +331,9 @@ def build_full2():
 if __name__ == '__main__' and '--full2' in sys.argv:
     L = build_full2()
     print('FOOT', L.footprint())
-    # Save by default: tools/autotune.py names its outputs after the .man the builder
-    # emits, and falls back to <stdout> (which it then refuses to write) if there is
-    # none. The save is sandboxed during a sweep — autotune copies solutions/<slug>/ and
-    # _REPO resolves inside that copy — and a manual run rewrites the champion with a
-    # byte-identical file. Use --no-save if you want to be sure.
-    if '--no-save' not in sys.argv:
+    if '--save' in sys.argv:
         L.save(_REPO + '/solutions/tcp/tcp-sweep2.man')
         print('saved tcp-sweep2.man')
-    print(L.render())                              # stdout fallback for the tuner
+    # Always print the grid: tools/autotune.py parses stdout as its fallback, so the
+    # builder stays reachable without writing into the real tree on every probe.
+    print(L.render())

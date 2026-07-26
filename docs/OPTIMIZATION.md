@@ -79,14 +79,23 @@ Read the three numbers this gives you:
    greedy as an exact evaluator (snake −7%).
 6. **fold.py / polish.py / compact_man.py** — mechanical row/col deletion.
 7. **autotune.py** — single-literal perturbation; read `tools/AUTOTUNE.md`.
-   Wasted on hand-folded champions, useful on fresh builders.
+   Wasted on hand-folded champions, useful on fresh builders. Set
+   `AUTOTUNE_ENGINE=rust` on heavy problems (wasm OOMs), and check
+   `--tick-factor` covers the dominant case (default 4x capped subset-sum's
+   813k-tick case at 518k — every candidate "failed" until factor 10).
 8. **Algorithm rewrites** (bit-op classifiers, linked-list scans instead of
    full-range scans) — historically the biggest wins (1.5–2x) but manual;
    prototype in `scratchpad/` first.
 
 What does NOT pay (measured zeros, don't redo): DCE on champions (0 dead
 cells), instruction scheduling to cut stalls (steady-state stallers aren't the
-bottleneck), peephole shortening without re-laying the path.
+bottleneck), peephole shortening without re-laying the path. And SERIAL
+single-controller redesigns of problems already solved by parallel worker
+arrays: subset-sum's correct MITM machine graded 908B vs the array's 47B —
+one split-RAM round trip costs ~200-320 ticks and hot loops need 5-8 of
+them, so the substrate rewards spatial parallelism (measured floor for the
+serial design ~100-150B; see build_mitm.py header and STREAMED_MITM.md for
+the comparator-field idea that could change this).
 
 ## 3. Gates — every one is load-bearing
 

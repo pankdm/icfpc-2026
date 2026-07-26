@@ -86,6 +86,14 @@ a fanout rule for setup/controller streams: every branch must drain every
 broadcast token, even if it discards most of them, or a short unused branch
 fills and backpressures the broadcaster.
 
+An alternative, more modular topology is proven by
+`scratchpad/pathfinder_stage_ring.py`: the shrinking UNVIS word travels through
+four U→R→D→L rooms. Each stage accepts its direction's candidate, emits the
+accepted subset, and forwards the reduced word. This gives every direction its
+own output namespace and avoids lowercase-read multiplexing entirely. The
+unfolded proof is 104×28 and reaches correct UNVIS/NEXT state in 88 ticks; it
+should be folded 2×2 for the real four-lane floorplan.
+
 ## Round reset
 
 OPEN sends its word to UNVIS. Parent workers receive zero. FRONT receives the

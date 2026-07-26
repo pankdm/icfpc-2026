@@ -218,3 +218,75 @@ On reflowed `grand tour`, controller room 0 executes about 13.18M receives and
 bound than geometry-latency bound.  Another layout pass should target the
 remaining 1137-row box; another tick pass must reduce RAM transactions or
 their latency.
+
+## LLLM application and the limit of greedy reflow
+
+LLLM already had a specialized whole-floor reflow:
+
+```text
+live-149x1469.man       149x1469, avg 4.510M, score 9.73T
+reflow-250x251.man      250x251,  avg 3.688M, score 232.36B
+```
+
+The reflow moved hot pipe attachments to the outside of their direction's
+ordering, widened their Voronoi bands, folded two exact-length 400-cell pipes,
+and packed the controller boustrophedonically.  Release Rust reconfirmed 10/10.
+
+The dominant `victory lap` profile is now:
+
+```text
+total ticks        9.465M
+room-0 sends       4.917M
+room-0 receives    2.692M
+room-0 blanks      0.978M
+```
+
+Only about 10% of the critical room is blank travel, so the current 250x251
+layout has limited tick headroom.  Its remaining opportunity is footprint.
+Sweeping room-0 widths gave these controller shapes:
+
+```text
+width parameter 200 -> room0 203x222
+width parameter 210 -> room0 213x208
+width parameter 220 -> room0 223x197
+width parameter 230 -> room0 233x189
+width parameter 247 -> room0 250x178
+```
+
+The current fixed satellite stack makes 247 optimal at 250x251.  The first
+attachment-aware SMT model selects the 233x189 room-0 variant and packs the
+known satellites into 233x235.  This is a reproducible lower bound in
+`solutions/little-little-little-man/smt-layout.json`, not yet a `.man`
+candidate.  The missing gate is collision-free routing of two non-crossing
+400-cell pipes at exactly preserved lengths inside that box.
+
+## SMT layout optimization
+
+`tools/smt_layout.py` implements the coarse stage of a hierarchical optimizer
+using the installed Z3 binary and plain SMT-LIB:
+
+- choose component position and rotation;
+- choose among equivalent geometry variants;
+- carry named attachment pins through the selected variant;
+- enforce non-overlap, relative order, and attachment-distance bounds;
+- minimize max dimension, then weighted wire cost, then perimeter.
+
+Do not encode the entire `.man` grid or tick-by-tick execution in one SMT
+model.  Use three stages:
+
+1. Z3 chooses component variants, order, placement, and coarse corridors.
+2. The exact router materializes man paths and pipes, preserving capacity and
+   exact lengths where required.
+3. Binding validation and release-Rust grading accept or reject the model;
+   routing failures return no-good constraints to Z3.
+
+A logical component should own a verified template library.  Each template
+records dimensions, named pins, legal transforms, capacity/latency metadata,
+and a protocol identity.  Wide/short and tall/narrow RAMs, folded FIFOs, and
+alternate controller block shapes can then compete in the global optimization
+without weakening semantic verification.
+
+The first deterministic tests cover rotation, packing, relative order,
+attachment length, and choosing between wide/tall memory variants via named
+pins.  Center-to-center distance is useful only as a heuristic; pipe
+feasibility must use actual attachment coordinates.

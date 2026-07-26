@@ -25,6 +25,7 @@ from collections import Counter
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, "..", "..", "tools"))
 from littleman import Program
+from optimize_feeder import Band, optimize_feeder
 
 B1 = 92
 B2 = 128
@@ -476,6 +477,56 @@ def feeder(program, chunks, digit_widths, width):
     return rows
 
 
+def variable_feeder(program, bands: list[Band], width: int):
+    """Render a DP-optimized feeder whose slot widths vary by two-row band."""
+    left = 1
+    content_left = 2
+    right = width - 2
+    for band_index, band in enumerate(bands):
+        starts = []
+        x = content_left
+        for digits in band.widths:
+            starts.append(x)
+            x += digits + 3
+        assert x + 3 <= width, (x + 3, width)
+
+        for parity, chunks in enumerate((band.top, band.bottom)):
+            row = 2 * band_index + parity
+            y = row + 1
+            east = parity == 0
+            for logical_slot, chunk in enumerate(chunks):
+                physical_slot = (
+                    logical_slot if east else len(band.widths) - 1 - logical_slot
+                )
+                digits = band.widths[physical_slot]
+                decimal = (
+                    str(chunk.value).zfill(digits) if chunk is not None else "0" * digits
+                )
+                send = "s" if chunk is not None else " "
+                if east:
+                    slot_x = starts[physical_slot] + 1
+                    cells = ["`", *decimal, "`", send]
+                else:
+                    slot_x = starts[physical_slot]
+                    cells = [send, "`", *decimal[::-1], "`"]
+                put_row(program, slot_x, y, cells)
+            if east:
+                if row:
+                    program.put(left, y, ">")
+                program.put(right, y, "v")
+            else:
+                program.put(right, y, "<")
+                program.put(
+                    left,
+                    y,
+                    "H" if band_index == len(bands) - 1 else "v",
+                )
+    program.put(left, 1, "@")
+    rows = 2 * len(bands)
+    program.room(0, 0, width, rows + 2)
+    return rows
+
+
 def p1_slot_cells(v, width, east):
     """Standard slot rendering: value zfilled to slot width."""
     d = str(v).zfill(width)
@@ -571,22 +622,32 @@ def audit_vertical_ticks(program):
     return bad
 
 
-def build(W=83):
-    assert W >= 83
+def build(W=83, variable=False):
+    assert W >= (82 if variable else 83)
     symbols, ring, layout = build_encoding()
-    dw = (18, 18, 18, W - 17 - 54)
-    assert dw[3] >= 4
-    chunks = pack_chunks(symbols, dw)
+    if variable:
+        bands = optimize_feeder(symbols, W)
+        chunks = [chunk.value for band in bands for chunk in band.chunks]
+        dw = None
+    else:
+        dw = (18, 18, 18, W - 17 - 54)
+        assert dw[3] >= 4
+        chunks = pack_chunks(symbols, dw)
+        bands = None
     assert verify(chunks, ring), "encoding does not reproduce the text"
-    program = build_once(W, chunks, dw, ring, layout)
+    program = build_once(W, chunks, dw, ring, layout, bands=bands)
     bad = audit_vertical_ticks(program)
     assert not bad, f"vertical tick audit failed: {bad[:4]}"
     return program
 
 
-def build_once(W, chunks, dw, ring, layout):
+def build_once(W, chunks, dw, ring, layout, bands=None):
     program = Program()
-    R1 = feeder(program, chunks, dw, W)
+    R1 = (
+        variable_feeder(program, bands, W)
+        if bands is not None
+        else feeder(program, chunks, dw, W)
+    )
     yf = R1 + 1
 
     p1y = yf + 1
@@ -638,9 +699,12 @@ def build_once(W, chunks, dw, ring, layout):
 
 
 def main():
-    W = int(sys.argv[1]) if len(sys.argv) > 1 else 83
-    program = build(W)
-    out = os.path.join(HERE, "history-ring.man")
+    variable = "--variable" in sys.argv
+    positional = [arg for arg in sys.argv[1:] if arg != "--variable"]
+    W = int(positional[0]) if positional else 83
+    program = build(W, variable=variable)
+    name = f"history-ring-variable-{W}.man" if variable else "history-ring.man"
+    out = os.path.join(HERE, name)
     with open(out, "w") as f:
         f.write(program.render() + "\n")
     w, h, score = program.footprint()

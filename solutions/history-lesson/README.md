@@ -140,10 +140,28 @@ year, unpacker, and output in the lower bands.  Two slim vertical pipes at the
 right close the P1/DISP loop.  The layout is square on purpose: the problem
 scores only `max(width, height)^2`.
 
+## Variable-width feeder experiment
+
+`optimize_feeder.py` replaces the feeder's one fixed slot-width tuple with a
+different tuple for each two-row band.  Backtick columns still match within
+each adjacent row pair, as required by the literal parser, but need not match
+between pairs.  It uses an interval dynamic program to choose chunk boundaries
+and paired decimal widths, then a shortest-path dynamic program to minimize
+the number of row pairs.
+
+At width 82 the optimized feeder takes 62 rows instead of the fixed feeder's
+64.  The resulting `history-ring-variable-82.man` is 82×83 and passes the
+public oracle case.  It has the same 6,889 score as the 83×83 champion because
+the unchanged decoder/dictionary tail still makes the total height 83.  The
+exhaustive slot-count search did not find a 60-row feeder at width 82, so
+variable chunks alone do not cross the next scoring boundary.
+
 ## Rebuild and verify
 
 ```bash
 python3 solutions/history-lesson/build_ring.py
+python3 solutions/history-lesson/optimize_feeder.py 82 83
+python3 solutions/history-lesson/build_ring.py 82 --variable
 python3 scratchpad/history-ring/test_rooms.py
 python3 scratchpad/history-ring/test_year.py
 python3 scratchpad/history-ring/test_disp.py

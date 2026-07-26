@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""LLM interpreter with multi-room scheduling and target pipe s/r semantics."""
+"""All-public LLM interpreter with separate scalar and cell RAM belts."""
+
 import os
 
 import build_multi as multi
@@ -7,25 +8,29 @@ import build_multi as multi
 
 HERE = os.path.dirname(__file__)
 RAM_N = multi.PIPE_IO_RAM_N
+SCALAR_RAM_N = RAM_N - (multi.DESC0 - 32)
+CELL_RAM_N = 256
+BANKED = True
 
 
 def build_flow():
-    return multi.build_flow(enable_io=True)
+    return multi.build_flow(enable_io=True, banked=True)
 
 
 def build():
     return multi.subset.build_program(
         build_flow(),
-        RAM_N,
+        SCALAR_RAM_N,
         display_addr=True,
-        controller_code=340,
+        controller_code=380,
         port_profile="compact",
-        local_edges=True,
+        pooled_edges=True,
+        cell_ram_size=CELL_RAM_N,
     )
 
 
 if __name__ == "__main__":
     program = build()
-    output = os.path.join(HERE, "pipe-io.man")
+    output = os.path.join(HERE, "pipe-io-banked.man")
     program.save(output)
     print("saved", output, "footprint", program.footprint())

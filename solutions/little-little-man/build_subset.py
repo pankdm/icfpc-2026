@@ -243,29 +243,93 @@ def build_flow():
 CTRL_CODE = 300
 
 
-def lay_controller(p, flow, x0=0, y0=0, code_x=CTRL_CODE):
-    spec = {
-        "ri": (10, "r"),
-        "sp": (20, "s"),
-        "rp": (30, "r"),
-        "sc": (50, "s"),
-        "rr": (74, "r"),
-        "sd": (80, "s"),
-        "sa": (118, "s"),
-        "ss": (140, "s"),
-    }
+def lay_controller(
+    p,
+    flow,
+    x0=0,
+    y0=0,
+    code_x=CTRL_CODE,
+    port_profile="wide",
+    local_edges=False,
+    direct_edges=False,
+    banked=False,
+    pooled_edges=False,
+):
+    if port_profile == "compact" and banked:
+        spec = {
+            "ri": (10, "r", 1, 19),
+            "rp": (30, "r", 21, 51),
+            "rr": (74, "r", 53, 113),
+            "cr": (230, "r", 115, 240),
+            "sp": (20, "s", 1, 34),
+            "sc": (50, "s", 36, 64),
+            "sd": (80, "s", 66, 98),
+            "sa": (118, "s", 100, 133),
+            "ss": (180, "s", 135, 189),
+            "cc": (200, "s", 191, 240),
+        }
+    elif port_profile == "compact":
+        # Each operation may be placed anywhere in its attachment's strict
+        # nearest-pipe Voronoi zone. This lets repeated RAM sends continue on
+        # one row instead of returning to the code column after every value.
+        spec = {
+            "ri": (10, "r", 1, 19),
+            "rp": (30, "r", 21, 51),
+            "rr": (74, "r", 53, 145),
+            "sp": (20, "s", 1, 34),
+            "sc": (50, "s", 36, 64),
+            "sd": (80, "s", 66, 98),
+            "sa": (118, "s", 100, 128),
+            "ss": (140, "s", 130, 145),
+        }
+    else:
+        spec = {
+            "ri": (10, "r"),
+            "sp": (20, "s"),
+            "rp": (30, "r"),
+            "sc": (50, "s"),
+            "rr": (74, "r"),
+            "sd": (80, "s"),
+            "sa": (118, "s"),
+            "ss": (140, "s"),
+        }
     layout = flowgrid.lay_cfg_controller(
-        p, flow, spec, code_x=code_x, x0=x0, y0=y0
+        p,
+        flow,
+        spec,
+        code_x=code_x,
+        x0=x0,
+        y0=y0,
+        local_edges=local_edges,
+        direct_edges=direct_edges,
+        pooled_edges=pooled_edges,
     )
     return layout["ports"]
 
 
 def build_program(
-    flow, ram_size, display_addr=False, controller_code=CTRL_CODE
+    flow,
+    ram_size,
+    display_addr=False,
+    controller_code=CTRL_CODE,
+    port_profile="wide",
+    local_edges=False,
+    direct_edges=False,
+    cell_ram_size=None,
+    pooled_edges=False,
 ):
     """Attach a compiled Flow to the shared input/RAM/scratch/display hardware."""
     p = lm.Program()
-    ports = lay_controller(p, flow, code_x=controller_code)
+    ports = lay_controller(
+        p,
+        flow,
+        code_x=controller_code,
+        port_profile=port_profile,
+        local_edges=local_edges,
+        direct_edges=direct_edges,
+        banked=cell_ram_size is not None,
+        pooled_edges=pooled_edges,
+    )
     inp = ports["ri"]
     ram_reply = ports["rr"]
     ram_cmd = ports["sc"]
@@ -296,6 +360,26 @@ def build_program(
     read_reply = ram["reply"]
     p.pipe([(read_reply[0], read_reply[1]), (ram_reply[0], read_reply[1]),
             (ram_reply[0], cy)])
+    if cell_ram_size is not None:
+        cell_cmd = ports["cc"]
+        cell_reply = ports["cr"]
+        crox, croy = controller_code + 148, cy + 100
+        cell_ram = belt_ram.build(p, crox, croy, cell_ram_size)
+        command = cell_ram["command"]
+        p.pipe([
+            (cell_cmd[0], cy),
+            (cell_cmd[0], croy - 3),
+            (crox - 3, croy - 3),
+            (crox - 3, command[1] + 3),
+            (command[0], command[1] + 3),
+            command,
+        ])
+        reply = cell_ram["reply"]
+        p.pipe([
+            (reply[0], reply[1]),
+            (cell_reply[0], reply[1]),
+            (cell_reply[0], cy),
+        ])
     # 16x16 display, DATA on left and SWAP on bottom.
     dx, dy = controller_code + 110, cy + 45
     p.display(dx, dy, 18, 18)

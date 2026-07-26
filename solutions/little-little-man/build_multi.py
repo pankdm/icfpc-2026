@@ -42,6 +42,16 @@ PIPE_IO_RAM_N = 320
 class Flow(subset.Flow):
     """Flow macros with safe access to synthesized and dynamic RAM addresses."""
 
+    def __init__(self, banked=False):
+        super().__init__()
+        self.banked = banked
+
+    def scalar_addr(self, addr):
+        """Map sparse logical metadata addresses into the short scalar belt."""
+        if self.banked and addr >= DESC0:
+            return addr - (DESC0 - 32)
+        return addr
+
     def loadv(self):
         """A := RAM[A]."""
         return self.e("M").const(0).e("sc", "W", "sc", "rr")
@@ -68,16 +78,31 @@ class Flow(subset.Flow):
         return self.store(STAGE).state_addr(field).e("M").load(STAGE).storev()
 
     def cell_addr(self, index_addr):
+        if self.banked:
+            return self.load(index_addr)
+        return self.load(index_addr).e("sp").const(CELL0).e("M", "rp", "+")
+
+    def cell_loadv(self):
+        if not self.banked:
+            return self.loadv()
+        return self.e("M").const(0).e("cc", "W", "cc", "cr")
+
+    def cell_storev(self):
+        if not self.banked:
+            return self.storev()
         return (
-            self.load(index_addr).e("sp")
-            .const(CELL0).e("M", "rp", "+")
+            self.e("W", "sp", "W", "sp")
+            .const(1).e("cc", "rp", "cc", "rp", "cc")
         )
 
     def cell_load(self, index_addr):
-        return self.cell_addr(index_addr).loadv()
+        return self.cell_addr(index_addr).cell_loadv()
 
     def cell_store(self, index_addr):
-        return self.store(STAGE).cell_addr(index_addr).e("M").load(STAGE).storev()
+        return (
+            self.store(STAGE).cell_addr(index_addr)
+            .e("M").load(STAGE).cell_storev()
+        )
 
     def cell_low(self, index_addr):
         return (
@@ -103,7 +128,7 @@ class Flow(subset.Flow):
     def array_addr(self, base, index_addr):
         return (
             self.load(index_addr).e("sp")
-            .const(base).e("M", "rp", "+")
+            .const(self.scalar_addr(base)).e("M", "rp", "+")
         )
 
     def array_store(self, base, index_addr):
@@ -117,7 +142,7 @@ class Flow(subset.Flow):
         return (
             self.e("sp")
             .const(1).e("sc")
-            .const(addr).e("sc", "rp", "sc")
+            .const(self.scalar_addr(addr)).e("sc", "rp", "sc")
         )
 
     def load_far(self, addr):
@@ -125,7 +150,7 @@ class Flow(subset.Flow):
         return (
             self.e("W", "sp", "W")
             .const(0).e("sc")
-            .const(addr).e("sc", "rr", "M", "rp", "W")
+            .const(self.scalar_addr(addr)).e("sc", "rr", "M", "rp", "W")
         )
 
     def far_field(self, addr, shift, mask):
@@ -141,7 +166,7 @@ class Flow(subset.Flow):
     def array_addr_far(self, base, index_addr):
         return (
             self.load_far(index_addr).e("sp")
-            .const(base).e("M", "rp", "+")
+            .const(self.scalar_addr(base)).e("M", "rp", "+")
         )
 
     def raw(self, index_addr=None):
@@ -295,10 +320,10 @@ def emit_endpoint_selection(f, prefix, incoming, success_label, none_label):
     )
 
 
-def build_flow(enable_pipes=False, enable_io=False):
+def build_flow(enable_pipes=False, enable_io=False, banked=False):
     if enable_io:
         enable_pipes = True
-    f = Flow()
+    f = Flow(banked=banked)
     f.at("START").inp().store(W).inp().store(HH)
     for addr in (IX, IY, NMAN, MID, DEAD, K):
         f.const(0).store(addr)

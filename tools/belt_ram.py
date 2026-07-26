@@ -15,10 +15,14 @@ def build(program, ox, oy, size):
     """
     put, text = program.put, program.text
     # OFF encoding makes the belt's seed sentinel distinguishable by sign.
+    # Keep the seed literal at least three columns wide. Besides stabilizing
+    # component geometry, this prevents a short literal's closing backtick
+    # from accidentally pairing vertically with a later horizontal literal.
+    size_text = str(size).zfill(3)
     put(ox + 1, oy + 1, "@")
-    text(ox + 2, oy + 1, "`" + str(size) + "`")
-    put(ox + 2 + len(str(size)) + 2, oy + 1, "b")
-    x = ox + 2 + len(str(size)) + 3
+    text(ox + 2, oy + 1, "`" + size_text + "`")
+    put(ox + 2 + len(size_text) + 2, oy + 1, "b")
+    x = ox + 2 + len(size_text) + 3
     text(x, oy + 1, "`2000000`")
     put(x + 9, oy + 1, "v")
 

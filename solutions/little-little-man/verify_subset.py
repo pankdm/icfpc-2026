@@ -28,12 +28,15 @@ def run_flow(
     builder=build,
     return_ram=False,
     frame_hook=None,
+    token_hook=None,
 ):
     blocks = builder.build_flow().blocks
     input_values = deque(int(value) for rnd in rounds for value in rnd["in"])
     ram = [0] * builder.RAM_N
     ram_cmd = []
     ram_replies = deque()
+    cell_cmd = []
+    cell_replies = deque()
     scratch = deque()
     frames = []
     next_pixels = [0] * 256
@@ -49,6 +52,8 @@ def run_flow(
             )
         token = blocks[label][pc]
         pc += 1
+        if token_hook is not None:
+            token_hook(label, token)
 
         if isinstance(token, tuple):
             if token[0] == "go":
@@ -97,6 +102,8 @@ def run_flow(
             ram_cmd.append(a)
             if len(ram_cmd) >= 2:
                 op, addr = ram_cmd[:2]
+                if getattr(builder, "BANKED", False) and addr >= 32:
+                    addr += 256
                 if op == 0:
                     if not 0 <= addr < len(ram):
                         raise AssertionError(
@@ -115,6 +122,23 @@ def run_flow(
                     ram_cmd.clear()
         elif token == "rr":
             a = ram_replies.popleft()
+        elif token == "cc":
+            cell_cmd.append(a)
+            if len(cell_cmd) >= 2:
+                op, addr = cell_cmd[:2]
+                logical_addr = build.CELL0 + addr
+                if op == 0:
+                    if not 0 <= addr < 256:
+                        raise AssertionError(f"cell RAM read address {addr} out of range")
+                    cell_replies.append(ram[logical_addr])
+                    cell_cmd.clear()
+                elif len(cell_cmd) == 3:
+                    if not 0 <= addr < 256:
+                        raise AssertionError(f"cell RAM write address {addr} out of range")
+                    ram[logical_addr] = cell_cmd[2]
+                    cell_cmd.clear()
+        elif token == "cr":
+            a = cell_replies.popleft()
         elif token == "sd":
             if not 0 <= a <= 15:
                 raise AssertionError(f"display color {a} out of range")

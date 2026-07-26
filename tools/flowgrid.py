@@ -54,7 +54,17 @@ class Flow:
         return self.e(("br", positive, zero, negative))
 
 
-def lay_cfg_controller(program, flow, pipe_columns, code_x=300, x0=0, y0=0):
+def lay_cfg_controller(
+    program,
+    flow,
+    pipe_columns,
+    code_x=300,
+    x0=0,
+    y0=0,
+    local_edges=False,
+    direct_edges=False,
+    pooled_edges=False,
+):
     """Lay out *flow* and return its bounds and named external pipe ports.
 
     ``pipe_columns`` maps each symbolic token to ``(x_offset, glyph)`` where the
@@ -65,7 +75,20 @@ def lay_cfg_controller(program, flow, pipe_columns, code_x=300, x0=0, y0=0):
     code = x0 + code_x
     cols = {name: code + spec[0] for name, spec in pipe_columns.items()}
     glyphs = {name: spec[1] for name, spec in pipe_columns.items()}
+    zones = {
+        name: (
+            code + spec[2] if len(spec) >= 4 else None,
+            code + spec[3] if len(spec) >= 4 else None,
+        )
+        for name, spec in pipe_columns.items()
+    }
     heads, pending = {}, []
+    incoming = {label: 0 for label in flow.blocks}
+    if direct_edges or pooled_edges:
+        for tokens in flow.blocks.values():
+            if tokens and isinstance(tokens[-1], tuple):
+                for target in tokens[-1][1:]:
+                    incoming[target] += 1
     y = y0 + 3
 
     def put(x, yy, ch):
@@ -74,23 +97,43 @@ def lay_cfg_controller(program, flow, pipe_columns, code_x=300, x0=0, y0=0):
         program.put(x, yy, ch)
 
     for block_index, (label, tokens) in enumerate(flow.blocks.items()):
+        if direct_edges or pooled_edges:
+            # One private merge row per incoming edge. Keeping all merges in
+            # the blank band immediately above the target allows every route
+            # to turn directly into the target lane instead of detouring via
+            # a channel below the entire controller.
+            y += incoming[label] + 2
         heads[label] = y
         put(code, y, "@" if block_index == 0 else ">")
         x = code + 1
         for token in tokens:
             if isinstance(token, tuple):
                 if token[0] == "go":
-                    pending.append(("go", (x, y), token[1:]))
+                    pending.append(("go", (x, y), token[1:], block_index))
                     break
                 if token[0] == "br":
                     put(x, y, "v")
                     put(x, y + 1, "X")
-                    pending.append(("br", (x, y + 1), token[1:]))
+                    pending.append(("br", (x, y + 1), token[1:], block_index))
                     y += 1
                     break
                 raise ValueError(f"unknown flow token: {token!r}")
             if token in cols:
                 column = cols[token]
+                zone_low, zone_high = zones[token]
+                if zone_low is not None:
+                    if x > zone_high:
+                        put(x, y, "v")
+                        put(x, y + 1, "<")
+                        put(code, y + 1, "v")
+                        y += 2
+                        put(code, y, ">")
+                        x = code + 1
+                    if x < zone_low:
+                        x = zone_low
+                    put(x, y, glyphs[token])
+                    x += 1
+                    continue
                 if x > column:
                     put(x, y, "v")
                     put(x, y + 1, "<")
@@ -109,14 +152,39 @@ def lay_cfg_controller(program, flow, pipe_columns, code_x=300, x0=0, y0=0):
             else:
                 put(x, y, token)
                 x += 1
-        # These rows are reserved for incoming control-flow merges.
-        y += 6
+        # Rows after a block separate its branch exits from the next target's
+        # incoming merge band.
+        y += 3 if (direct_edges or pooled_edges) else 6
 
     target_col = {label: x0 + 2 + i for i, label in enumerate(flow.blocks)}
     right_highway = code + 150
     left_highway = code - 2
     routes = []
-    for kind, (x, source_y), targets in pending:
+    pooled_routes = []
+    target_slot = {label: 0 for label in flow.blocks}
+    block_labels = list(flow.blocks)
+    for kind, (x, source_y), targets, source_index in pending:
+        if (
+            local_edges
+            and kind == "go"
+            and source_index + 1 < len(block_labels)
+            and targets[0] == block_labels[source_index + 1]
+        ):
+            target_y = heads[targets[0]]
+            merge_y = target_y - 2
+            local_cells = (
+                [(x, yy) for yy in range(source_y, merge_y + 1)]
+                + [(xx, merge_y) for xx in range(code - 1, x + 1)]
+                + [(code - 1, yy) for yy in range(merge_y, target_y + 1)]
+            )
+            if source_y < merge_y and all(
+                program.get(xx, yy) == " " for xx, yy in local_cells
+            ):
+                put(x, source_y, "v")
+                put(x, merge_y, "<")
+                put(code - 1, merge_y, "v")
+                put(code - 1, target_y, ">")
+                continue
         if kind == "go":
             edges = [((x, source_y), "E", targets[0])]
         else:
@@ -129,6 +197,28 @@ def lay_cfg_controller(program, flow, pipe_columns, code_x=300, x0=0, y0=0):
         for (source_x, edge_y), direction, target in edges:
             if target not in target_col:
                 raise ValueError(f"edge targets unknown block {target!r}")
+            if pooled_edges:
+                if direction == "W":
+                    put(source_x, edge_y, "<")
+                elif direction == "E":
+                    put(source_x, edge_y, "v")
+                    edge_y += 1
+                    if kind == "br":
+                        # The zero arm uses the first row below X. Keep the
+                        # negative arm one row lower so their westbound paths
+                        # cannot encounter each other's highway turn glyphs.
+                        put(source_x, edge_y, "v")
+                        edge_y += 1
+                    put(source_x, edge_y, "<")
+                else:
+                    # The zero branch has already moved south from X into this
+                    # cell; turn it west immediately.
+                    put(source_x, edge_y, "<")
+                slot = target_slot[target]
+                target_slot[target] += 1
+                merge_y = heads[target] - 2 - slot
+                pooled_routes.append((source_x, edge_y, target, merge_y))
+                continue
             if direction == "W":
                 highway = left_highway
                 left_highway -= 1
@@ -143,21 +233,70 @@ def lay_cfg_controller(program, flow, pipe_columns, code_x=300, x0=0, y0=0):
                 put(source_x, edge_y, "v")
                 edge_y += 1
                 put(source_x, edge_y, ">")
-            put(highway, edge_y, "v")
-            routes.append((highway, target))
+            if direct_edges:
+                slot = target_slot[target]
+                target_slot[target] += 1
+                merge_y = heads[target] - 2 - slot
+                target_x = target_col[target]
+                if merge_y != edge_y:
+                    put(highway, edge_y, "v" if merge_y > edge_y else "^")
+                    put(highway, merge_y, "<" if target_x < highway else ">")
+                else:
+                    put(highway, edge_y, "<" if target_x < highway else ">")
+                put(target_x, merge_y, "v")
+                put(target_x, heads[target], ">")
+            else:
+                put(highway, edge_y, "v")
+                routes.append((highway, target))
 
-    if left_highway <= max(target_col.values(), default=x0):
+    if pooled_edges:
+        # Color vertical route intervals. Disjoint intervals safely share a
+        # highway because their only direction glyphs are at the two ends.
+        lanes = []
+        assigned = []
+        for route in sorted(
+            pooled_routes,
+            key=lambda item: (min(item[1], item[3]), max(item[1], item[3])),
+        ):
+            lo, hi = sorted((route[1], route[3]))
+            lane = next(
+                (index for index, end in enumerate(lanes) if end < lo),
+                None,
+            )
+            if lane is None:
+                lane = len(lanes)
+                lanes.append(hi)
+            else:
+                lanes[lane] = hi
+            assigned.append((route, lane))
+        for (source_x, edge_y, target, merge_y), lane in assigned:
+            highway = code - 2 - lane
+            target_x = target_col[target]
+            put(highway, edge_y, "v" if merge_y > edge_y else "^")
+            put(highway, merge_y, "<")
+            put(target_x, merge_y, "v")
+            put(target_x, heads[target], ">")
+        if code - 2 - len(lanes) <= max(target_col.values(), default=x0):
+            raise ValueError(
+                f"pooled routes need {len(lanes)} lanes; increase code_x"
+            )
+    elif not direct_edges and left_highway <= max(target_col.values(), default=x0):
         raise ValueError("code_x leaves too little room for target lanes and west edges")
 
     channel_y = y + 3
-    for highway, target in routes:
-        target_x = target_col[target]
-        put(highway, channel_y, "<")
-        put(target_x, channel_y, "^")
-        put(target_x, heads[target], ">")
-        channel_y += 1
+    if not direct_edges:
+        for highway, target in routes:
+            target_x = target_col[target]
+            put(highway, channel_y, "<")
+            put(target_x, channel_y, "^")
+            put(target_x, heads[target], ">")
+            channel_y += 1
 
-    width = right_highway - x0 + 3
+    if pooled_edges:
+        max_used_x = max(max(xx for xx, _ in program.cells), max(cols.values()))
+        width = max_used_x - x0 + 2
+    else:
+        width = right_highway - x0 + 3
     height = channel_y - y0 + 2
     program.room(x0, y0, width, height)
     bottom = y0 + height

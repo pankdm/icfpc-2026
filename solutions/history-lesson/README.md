@@ -1,13 +1,16 @@
 # History Lesson — ring dictionary build
 
-`best/82x82.man` is the checked-in champion for this problem.  It has an
-**82×82** non-space footprint, so its footprint-only score is **6,724**.
+`best/81x81.man` is the checked-in champion for this problem.  It has an
+**81×81** non-space footprint, so its footprint-only score is **6,561**.
 `build_ring.py` reproduces it byte-for-byte; the `.man` file is not a
-hand-maintained second source of truth.
+hand-maintained second source of truth.  It also still reproduces the previous
+`best/82x82.man` (`--legacy 82`).
 
 | Candidate | Footprint | Score |
 | --- | ---: | ---: |
+| `best/81x81.man` | 81×81 | 6,561 |
 | `best/82x82.man` | 82×82 | 6,724 |
+| `history-ring-p1west-82x80.man` | 82×80 | 6,724 |
 | `history-ring.man` | 83×83 | 6,889 |
 | `history-lesson-with-year.man` | 84×84 | 7,056 |
 | `history-lesson-v3.man` / `v4.man` | 85×85 / 85×84 | 7,225 |
@@ -20,7 +23,7 @@ do not affect this problem's score.
 
 ## Encoding
 
-`build_ring.py` is the source of truth for `best/82x82.man`.  It transforms the
+`build_ring.py` is the source of truth for `best/81x81.man`.  It transforms the
 target text into a compact stream with these base-92 symbols:
 
 | Symbol | Meaning |
@@ -134,10 +137,30 @@ DECODER ── repeated divmod 92 ──► DISP ──► YEAR ──► UNPACK
 6. **UNPACK** repeatedly divides every packed value by 128.  Its remainders are
    the raw ASCII bytes sent to the output room.
 
-The physical layout uses 62 feeder rows plus its two borders, puts all five
-service rooms directly beneath the feeder, and places P1 in the final ten
-rows.  Two slim vertical pipes at the right close the P1/DISP loop.  The
-layout is square on purpose: the problem scores only `max(width, height)^2`.
+The physical layout uses 63 feeder rows plus its two borders, puts all five
+service rooms in the eight rows directly beneath the feeder, and places P1 in
+the final eight.  The P1/DISP loop closes through a five-column strip east of
+DISP.  The layout is square on purpose: the problem scores only
+`max(width, height)^2`.
+
+Three things make 81 rows and 81 columns fit where 82×82 did before.
+
+- **An odd feeder.**  The feeder is walked in two-row bands because both rows
+  of a band must put their backticks in the same columns.  The *last* band may
+  be a single eastbound row: nothing pairs its backticks vertically, and the
+  oracle only constrains what sits between two backticks in a column, so a
+  lone trailing tick merely opens a literal that is never closed.  Earlier
+  bands are unaffected because the odd row is last.  That is worth one row —
+  at width 81 the stream needs 64 rows in whole bands but only 63 with a half
+  band, and no reachable encoding fits 62 (see below).
+- **The pump in P1's margin.**  Walking P1 west-first makes its last data row
+  end on the right, so the pump is a six-cell loop in the two columns between
+  the turn column and the right wall instead of two rows of its own.
+- **A trimmed DISP.**  DISP's last inner column is entirely blank, so the room
+  needs 26 columns, not 27.  That column is what widens the ring strip east of
+  DISP to the five columns its 35 cells need while still leaving DISP → YEAR a
+  two-column gap — a one-cell pipe is rejected by the loader, which was
+  verified directly against the oracle.
 
 ## Pipe-length requirements
 
@@ -194,9 +217,11 @@ Capacity-only interpreter tests confirm the boundary:
 - all five ordinary links shortened to two cells at once still passed when the
   ring was `2+33`.
 
-The current ring has `2+33=35` cells: exactly the semantic capacity floor,
-with no slack.  Moving either ring attachment or shortening either route
-therefore requires lengthening the other leg by the same amount.
+The 82×82 ring had `2+33=35` cells: exactly the semantic capacity floor, with
+no slack.  The 81×81 ring snakes both legs through the five-column strip east
+of DISP for `26+13=39`, which clears the floor with a little slack.  Moving
+either ring attachment or shortening either route still requires keeping the
+sum at or above 35.
 
 These are *semantic* minima.  A concrete route may need to be longer because
 its endpoints are farther apart or because it must avoid rooms and other
@@ -226,7 +251,8 @@ At width 82 the optimized feeder takes 62 rows instead of the fixed feeder's
 64.  The intermediate `history-ring-variable-82.man` was 82×83.  The champion
 keeps that feeder byte-for-byte, then manually folds the service tail from 19
 rows to 18 and tightens the dictionary ring from `12+71` cells to its `2+33`
-minimum.  That final fold reaches 82×82.
+minimum.  That final fold reaches 82×82.  The 81×81 champion then takes the
+three steps described under "Runtime pipeline" above.
 
 For the encoding-only analysis of adding more dictionary entries, using
 multiword entries, and minimizing feeder literal count independently of
@@ -238,16 +264,18 @@ From the repository root:
 
 ```bash
 python3 solutions/history-lesson/build_ring.py
-git diff --exit-code -- solutions/history-lesson/best/82x82.man
+python3 solutions/history-lesson/build_ring.py --legacy 82
+git diff --exit-code -- solutions/history-lesson/best/
 python3 scratchpad/history-ring/test_rooms.py
 python3 scratchpad/history-ring/test_year.py
 python3 scratchpad/history-ring/test_disp.py
-node tools/grade_json.js history-lesson solutions/history-lesson/best/82x82.man \
+node tools/grade_json.js history-lesson solutions/history-lesson/best/81x81.man \
   --cases tests/history-lesson.json --failfast
 ```
 
 The first command deterministically runs the variable-width feeder DP and
-overwrites `best/82x82.man`.  The second command is the strict reproduction
+overwrites `best/81x81.man` and the second `best/82x82.man`.  The third is the
+strict reproduction
 gate: no output and exit status zero means the generated file is byte-identical
 to the checked-in champion.  Generation takes roughly 30 seconds on the
 contest machine.

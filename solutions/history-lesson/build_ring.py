@@ -485,6 +485,7 @@ def variable_feeder(program, bands: list[Band], width: int):
     left = 1
     content_left = 2
     right = width - 2
+    row_base = 0
     for band_index, band in enumerate(bands):
         starts = []
         x = content_left
@@ -493,8 +494,9 @@ def variable_feeder(program, bands: list[Band], width: int):
             x += digits + 3
         assert x + 3 <= width, (x + 3, width)
 
-        for parity, chunks in enumerate((band.top, band.bottom)):
-            row = 2 * band_index + parity
+        halves = (band.top,) if band.rows == 1 else (band.top, band.bottom)
+        for parity, chunks in enumerate(halves):
+            row = row_base + parity
             y = row + 1
             east = parity == 0
             for logical_slot, chunk in enumerate(chunks):
@@ -516,7 +518,8 @@ def variable_feeder(program, bands: list[Band], width: int):
             if east:
                 if row:
                     program.put(left, y, ">")
-                program.put(right, y, "v")
+                # a lone final row runs out east, so it halts on the right
+                program.put(right, y, "H" if band.rows == 1 else "v")
             else:
                 program.put(right, y, "<")
                 program.put(
@@ -524,8 +527,9 @@ def variable_feeder(program, bands: list[Band], width: int):
                     y,
                     "H" if band_index == len(bands) - 1 else "v",
                 )
+        row_base += band.rows
     program.put(left, 1, "@")
-    rows = 2 * len(bands)
+    rows = row_base
     program.room(0, 0, width, rows + 2)
     return rows
 
@@ -664,9 +668,9 @@ def audit_vertical_ticks(program):
 
 
 def build(W=83, variable=False, compact_tail=False, west_first=False):
-    assert W >= (82 if variable else 83)
-    if compact_tail and (W != 82 or not variable):
-        raise ValueError("the compact 82x82 tail requires W=82 and variable=True")
+    assert W >= (81 if variable else 83)
+    if compact_tail and (W not in (81, 82) or not variable):
+        raise ValueError("the compact tail requires W=81 or 82 and variable=True")
     symbols, ring, layout = build_encoding(west_first=west_first)
     if variable:
         bands = optimize_feeder(symbols, W)
@@ -689,7 +693,14 @@ def build(W=83, variable=False, compact_tail=False, west_first=False):
 
 
 def build_champion():
-    """Build the checked-in 82x82 champion."""
+    """Build the checked-in 81x81 champion."""
+    program = build(81, variable=True, compact_tail=True, west_first=True)
+    assert program.footprint() == (81, 81, 6561)
+    return program
+
+
+def build_82x82():
+    """Build the previous 82x82 champion (still reproduced byte-for-byte)."""
     program = build(82, variable=True, compact_tail=True)
     assert program.footprint() == (82, 82, 6724)
     return program
@@ -699,47 +710,66 @@ def build_compact_once(W, chunks, ring, layout, bands, west_first=False):
     """Place the optimized feeder and the hand-folded service tail.
 
     ``west_first`` uses the 8-row P1 (pump in the margin instead of two rows
-    of its own), which drops the tail from 18 rows to 16."""
+    of its own), which drops the tail from 18 rows to 16.
+
+    P1 needs 80 columns whatever the box is, so at W=81 the single column left
+    beside it is a dead end for the ring (it cannot turn back).  All 35 ring
+    cells therefore have to live in the service band, which means widening the
+    free strip east of DISP from 3 columns to 5: the left group slides one
+    column left and DISP two.  Every room keeps its position *relative* to its
+    pipe attachments, so DISP's nearest-pipe bindings are unchanged."""
     program = Program()
     feeder_rows = variable_feeder(program, bands, W)
-    assert feeder_rows == 62
+    assert feeder_rows == (63 if W == 81 else 62)
     tail_top = feeder_rows + 2
-    assert tail_top == 64
+    assert tail_top == (65 if W == 81 else 64)
+    narrow = W == 81
+    # Room left edges.  At W=81 every room slides one column left, and DISP is
+    # also trimmed: its last inner column is entirely blank, so the room needs
+    # only 26 columns.  That trim is what pays for the layout -- it widens the
+    # ring strip east of DISP from three columns to the five its 35 cells need,
+    # while leaving DISP -> YEAR the two-column gap it needs (the loader
+    # rejects a one-cell pipe, verified against the oracle).
+    xu, xo, xy, xd, xp = ((1, 16, 19, 3, 50) if narrow else (2, 17, 20, 4, 51))
+    dw = 26 if narrow else 27
 
     # Service rooms occupy the top eight rows of the tail.  P1 is below them,
     # rather than above them as in build_once(), which removes the old gap rows.
-    paste_room(program, 2, tail_top, UNPACK_ROWS)
-    program.output_room(17, tail_top)
-    yw, yh = paste_room(program, 20, tail_top, year_rows())
+    paste_room(program, xu, tail_top, UNPACK_ROWS)
+    program.output_room(xo, tail_top)
+    yw, yh = paste_room(program, xy, tail_top, year_rows())
     assert (yw, yh) == (29, 7)
-    dwid, dh = paste_room(program, 51, tail_top, DISP_ROWS)
-    assert (dwid, dh) == (27, 8)
-    paste_room(program, 4, tail_top + 4, DECODER_ROWS)
+    dwid, dh = paste_room(program, xp, tail_top, DISP_ROWS, w=dw)
+    assert (dwid, dh) == (dw, 8)
+    paste_room(program, xd, tail_top + 4, DECODER_ROWS)
     p1h = p1_room(program, 0, tail_top + 8, 80, ring, layout,
                   west_first=west_first)
     assert p1h == (8 if west_first else 10)
 
     # feeder -> DECODER
-    program.pipe([(1, tail_top), (1, tail_top + 5), (3, tail_top + 5)])
+    program.pipe([(xd - 3, tail_top), (xd - 3, tail_top + 5),
+                  (xd - 1, tail_top + 5)])
     # UNPACK -> O
-    program.pipe([(14, tail_top + 1), (16, tail_top + 1)])
+    program.pipe([(xu + 12, tail_top + 1), (xo - 1, tail_top + 1)])
     # DISP -> YEAR
-    program.pipe([(50, tail_top + 1), (49, tail_top + 1)])
-    # YEAR -> UNPACK.  The two adjacent bends at x15 are intentional.
+    program.pipe([(xp - 1, tail_top + 1), (xy + 29, tail_top + 1)])
+    # YEAR -> UNPACK.  The two adjacent bends are intentional.
     program.pipe([
-        (19, tail_top + 3),
-        (15, tail_top + 3),
-        (15, tail_top + 2),
-        (14, tail_top + 2),
+        (xy - 1, tail_top + 3),
+        (xu + 13, tail_top + 3),
+        (xu + 13, tail_top + 2),
+        (xu + 12, tail_top + 2),
     ])
     # DECODER -> DISP.  Its last cell is a north-to-east corner into DISP.
+    # At W=81 it shares the gap column with DISP -> YEAR, so it climbs only to
+    # row +3 and leaves row +1 to that pipe.
     program.pipe(
         [
-            (15, tail_top + 5),
-            (16, tail_top + 5),
-            (16, tail_top + 7),
-            (50, tail_top + 7),
-            (50, tail_top + 2),
+            (xd + 11, tail_top + 5),
+            (xd + 12, tail_top + 5),
+            (xd + 12, tail_top + 7),
+            (xp - 1, tail_top + 7),
+            (xp - 1, tail_top + (3 if narrow else 2)),
         ],
         end_direction="E",
     )
@@ -748,7 +778,31 @@ def build_compact_once(W, chunks, ring, layout, bands, west_first=False):
     # (entries + sentinel - 1) = 35 words, so the forward leg is deliberately
     # snaked rather than taken straight down.  The last cell turns south into
     # P1's top border.
-    if west_first:
+    if narrow:
+        # W=81: both legs snake inside the 5-column strip east of DISP.
+        # 26 + 13 = 39 cells, comfortably over the 35-word floor.
+        program.pipe(
+            [
+                (76, tail_top),
+                (80, tail_top),
+                (80, tail_top + 7),
+                (79, tail_top + 7),
+                (79, tail_top + 1),
+                (78, tail_top + 1),
+                (78, tail_top + 7),
+            ],
+            end_direction="S",
+        )
+        program.pipe(
+            [
+                (77, tail_top + 7),
+                (77, tail_top + 1),
+                (76, tail_top + 1),
+                (76, tail_top + 6),
+            ],
+            end_direction="W",
+        )
+    elif west_first:
         # P1 is two rows shorter, so the outer columns no longer reach far
         # enough on their own: fold the leg back up column 80 and down 79.
         program.pipe(
@@ -775,11 +829,12 @@ def build_compact_once(W, chunks, ring, layout, bands, west_first=False):
             ],
             end_direction="S",
         )
-    # P1 -> DISP is the minimum two-cell return; its final cell turns west.
-    program.pipe(
-        [(78, tail_top + 7), (78, tail_top + 6)],
-        end_direction="W",
-    )
+    if not narrow:
+        # P1 -> DISP is the minimum two-cell return; its final cell turns west.
+        program.pipe(
+            [(78, tail_top + 7), (78, tail_top + 6)],
+            end_direction="W",
+        )
     return program
 
 
@@ -848,17 +903,22 @@ def main():
         if arg not in ("--legacy", "--variable")
     ]
     if legacy:
-        W = int(positional[0]) if positional else 83
-        program = build(W, variable=variable)
-        name = f"history-ring-variable-{W}.man" if variable else "history-ring.man"
+        if positional == ["82"] and not variable:
+            program, name = build_82x82(), os.path.join("best", "82x82.man")
+            legacy = False          # best/ files are stored without a final NL
+        else:
+            W = int(positional[0]) if positional else 83
+            program = build(W, variable=variable)
+            name = (f"history-ring-variable-{W}.man" if variable
+                    else "history-ring.man")
     else:
         if positional or variable:
             raise SystemExit(
-                "default build is best/82x82.man; use --legacy [W] [--variable] "
-                "for an older layout"
+                "default build is best/81x81.man; use --legacy [W] [--variable] "
+                "for an older layout, or --legacy 82 for the 82x82 champion"
             )
         program = build_champion()
-        name = os.path.join("best", "82x82.man")
+        name = os.path.join("best", "81x81.man")
     out = os.path.join(HERE, name)
     os.makedirs(os.path.dirname(out), exist_ok=True)
     with open(out, "w") as f:

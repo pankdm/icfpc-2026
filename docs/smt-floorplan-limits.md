@@ -79,3 +79,11 @@ replica scheme would require. Do not attempt the smtrows->boustro port.
 **false**: `python3 tools/submissions.py --download <dir>` recovers the exact submitted
 bytes for every problem through the dashboard cookie. Six live champions existed nowhere
 in git until `bc50cb5`.
+
+## Provenance of the files measured here
+
+`solutions/little-little-man/live-394x921.man` is byte-identical (sha256
+`9ef1bb7cbbb54071d349237ab237f7c9d7dcc3d5c2c06ee2afe8c100eb2a17a9`) to
+submission **3c902927**, the live LLM champion. Every LLM number in this
+document — the 347x876 room, the 913-row controller, the 507-row ideal, the
+2.78x ceiling — was measured against that exact program.

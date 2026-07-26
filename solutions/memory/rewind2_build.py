@@ -24,9 +24,17 @@ Every pipe instruction below is placed to satisfy that, with the margin noted.
 Moving any of these columns silently re-binds instructions -- re-check before
 touching them.
 
-STATUS: 7/7 public + 34/34 fuzz streams (scratchpad/rewind/fuzz.py).
-        box 1764 (32x42), avgTicks 5351, local 9.44M  (~4.18x -> ~39M server).
+STATUS: 7/7 public + 69/69 fuzz streams (scratchpad/rewind/fuzz.py 60).
+        box 1764 (42x42), avgTicks 3984.0, local 7,027,776.
+        SUBMITTED and CONFIRMED 24/24, server score 28,186,515
+        (the lineage's previous best submission was 34,896,183).
         Champion addr-compare is 3.96M local / 15.92M server; leader 9.55M.
+
+WHERE THE REMAINING VALUE IS.  Ticks are now 3984 and the box is untouched at
+1764, so the whole gap to the champion is GEOMETRY.  Fold this to 27x27 (729)
+at the current tick count and it lands at 2.90M local, roughly 11.6M server --
+that BEATS the champion's 15.92M and gets within striking distance of the
+9.55M leader.  Nothing about the engine needs to change to collect that.
 
 WHAT STEP (1) DID AND DID NOT BUY -- measured, don't re-litigate:
   * box 2500 -> 1764 came ENTIRELY from shortening the belt (235 -> 117 cells).
@@ -114,15 +122,40 @@ MEM is packed.
    2-wide loop needs ~13 rows: about 4x15, or 5x11 if laid 3 wide. Either is
    <= 8 wide and both beat the current 10x9=90.
 
-MEASURED DUAL-PUMP (from the primitives agent; adopt in the rings):
-  1 man = 0.500 val/tick, 2 men = 1.000, 3 men WORSE than 2 (strict ascending-id
-  contention starves the third). Birth cell must be non-blank -- a blank one
-  lets the clone fly into a wall. Order is preserved because 'r' immediately
-  followed by 's' forces send == receive + 1.
-  NOTE the 1.0 figure is for a straight rsrs chain. In a RING it is
-  2/(2 + 6/nrelay) = 0.727 at nrelay=8, since the lap still pays 'm', 'd' and
-  three turns; rotation ~143 -> ~69 t/op, i.e. ~166 t/op overall. HOP must be
-  pumped too or it becomes the limiter at 0.35 val/tick.
+*** DUAL-PUMP: DONE, AND THE RECEIVED WISDOM ABOUT IT WAS WRONG. ***
+The note this replaces said "1 man = 0.500 val/tick, 2 men = 1.000, 3 men
+worse".  Those numbers come from an isolated rig with an unconstrained source
+and sink.  In a CLOSED TWO-STATION BELT they do not hold, and building to them
+costs you the program:
+
+  * NEVER PUT TWO MEN IN ONE RING.  Pipe contention is strict ascending-man-id.
+    Whenever both men are parked on `r` for the same pipe the OLDER one takes
+    every value -- relays, walks on, blocks, wins again -- and the younger
+    never moves at all.  The older then laps the ring and walks into him, and
+    "a mover entering a blocked man's cell halts BOTH" (docs/multi-man-
+    interactions.md 4b).  Non-fatal, silent, and terminal: a shared 14x5 HOP
+    ring lost both men inside a few thousand ticks and every multi-op case
+    timed out with EMPTY OUTPUT (not a wrong answer -- a stall).
+    This is not tunable.  Whichever station is not the belt's bottleneck is
+    starved by definition, and priority-by-id makes that starvation one-sided.
+
+  * TWO MEN, TWO SEPARATE RINGS.  Rings that share no cells cannot collide, so
+    a starved man merely parks (free and indefinite) and the pair degrades
+    gracefully to one man.  That is what both stations do now.
+
+  * WHO MAY BE MULTI-MANNED.  The 100 values queue immediately upstream of the
+    SLOWEST station, so the bottleneck station's input is always full and its
+    output always drained -- it is the one station that never blocks.  Keep MEM
+    the bottleneck (0.571 val/tick) and HOP comfortably faster (~0.85) and MEM's
+    men never block on either side.
+
+  * BELT FIFO SAFETY.  Two men invert order only when both are blocked holding
+    values (again ascending-id, not receive order).  Keeping |p2| > 100 keeps
+    the standing queue off p2's source cell, so HOP's `s` never blocks; keeping
+    HOP faster than MEM keeps p1 drained, so MEM's `s` never blocks.
+
+  * Birth cells must be non-blank -- a copy executes its birth cell while still
+    carrying the parent's heading, so a blank one walks it into a wall.
 
 NEXT STEP -- NARROW MEM TO 17 WIDE, THEN FOLD TO 27x27. Fully derived, and it
 is the ONLY thing standing between here and beating the champion:

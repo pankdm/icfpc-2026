@@ -15,16 +15,24 @@ WHAT IS AND IS NOT FREE TO MOVE (measured, and the reason this is tractable):
   * a backtick literal is rigid: it reads reversed westward and a corner backtick opens
     overlapping H+V literals, so a literal run is never re-headed or split.
 
-WHAT THE PASS DOES. It finds the hot CYCLES of the critical man's control-flow graph
-(static walk x dynamic visit counts), and re-lays each one out as a tight rectangle that
-still satisfies every op's band, then rewires the cycle's entry and exits back into the
-untouched remainder of the program. A cycle is the right unit because its cost is
-multiplied by its trip count: `gradebook`'s belt-align loop walked 72 cells per rotation
-to execute 3 instructions.
+THE PASSES (each is a .man -> .man rewrite; each refuses rather than guesses):
 
-  python3 tools/walkfold.py map   <file.man> [--man N]        static CFG + free-cell map
-  python3 tools/walkfold.py hot   <file.man> <slug> <case>    hot cycles, ranked
-  python3 tools/walkfold.py apply <file.man> <plan.json> <out.man>
+  map    <man>                  rooms, per-pipe COLUMN BANDS, CFG size — start here
+  lift   <man> <out>            slide a serpentine U-turn toward the ops it must cover
+  pull   <man> <out>            merge a row whose only purpose was to step down
+  fuse   <man> <out>            append a code row to the previous row of the same heading
+  norm   <man> <out>            drop turn glyphs that never turn
+  squash <man> <out>            delete glyph-free interior rows (this is the BOX win)
+  patch  <man> <plan.json> <out>  apply a hand-designed cycle re-layout
+
+Every pass keeps the executed instruction SEQUENCE identical and only changes where the
+cells sit, so `tools/pipecheck.py before after` and a grade are a complete gate.
+
+THE CEILING, measured. `fuse` is what would halve the height, and where it fails it fails
+for one reason: a strictly-increasing in-band column assignment does not exist. `gradebook`
+reads the input pipe (columns 1-5) at the start of most logical lines, so two such lines
+can never share a row — the second read has nowhere west of it to go. Widening that band
+means moving the pipe ATTACHMENT, which is the floorplanner's job, not this pass's.
 """
 import argparse
 import json

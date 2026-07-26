@@ -489,6 +489,15 @@ MAIN_LO = 35
 STRIP = {("in", 8): (6, 10), ("in", 3): (11, 34),
          ("out", 1): (6, 12), ("out", 2): (13, 34)}
 
+# build2 --west: the hot pair pulls in to 44/46 (room3 moves under them at x=43, the
+# scroll pipe re-routes down column 41 between the display and room3), which slides the
+# hot/cold Voronoi boundary from 35 to 30 — five more columns for every hot row.
+ATTACH_W = {("in", 8): 8, ("out", 1): 10, ("in", 3): 13,
+            ("out", 2): 15, ("out", 0): 44, ("in", 5): 46}
+MAIN_LO_W = 30
+STRIP_W = {("in", 8): (6, 10), ("in", 3): (11, 29),
+           ("out", 1): (6, 12), ("out", 2): (13, 29)}
+
 
 def emit_room0(blocks, main_hi):
     corridor, _default = corridors_for(blocks)
@@ -647,6 +656,76 @@ def cmd_build(args):
     return max(w, h) ** 2
 
 
+# ============================================================ room0 emitter v2
+
+def emit_room0_v2(blocks, main_hi):
+    """emit_room0 with branch terminators folded into the corridor columns.
+
+    v1 gave every branch a dedicated row: entered heading SOUTH so clockwise=west, taken
+    gliding west along that row to the corridor. v2 places the glyph IN the corridor column
+    with the man heading WEST, so clockwise is NORTH and the taken edge starts already on
+    its corridor — the glyph row is the last ops row (0 extra rows when the walk happens to
+    head west; 1 when it must turn), and the per-iteration taken glide across the room
+    disappears. Column 1 is the shared fall-through lane: `v` then `>` drop the not-taken
+    walk onto a fresh full east-heading row. Corridor colours therefore shift to columns
+    2..4; opmin stays 6, so every band and attachment is unchanged.
+
+    The X's counter-clockwise leg becomes a southward corridor glide instead of v1's
+    east-into-the-wall walk; both are unreachable (the submitted original dies on that leg,
+    so no grading case takes it)."""
+    colour, _default = corridors_for(blocks)
+    col_of = {b: c + 1 for b, c in colour.items()}
+    FT = 1
+    lay = Layout(MAIN_LO, main_hi)
+    entry = {}
+    band = dict(STRIP)
+    band[("in", 5)] = band[("out", 0)] = (MAIN_LO, main_hi)
+    merges = set()
+    for b in blocks:
+        t = b["term"]
+        tgt = t[2] if t[0] == "branch" else (t[1] if t[0] == "goto" else None)
+        if tgt is not None and tgt <= b["id"]:
+            merges.add(tgt)
+    expect = {}
+    for i, b in enumerate(blocks):
+        if i == 0:
+            lay.put(6, 1, "@")
+            lay.x, lay.y, lay.d = 6, 1, E
+            entry[0] = 1
+        for ch, key in b["ops"]:
+            lo, hi = band.get(key, (lay.opmin, main_hi))
+            lay.place(ch, lo, hi)
+            if key is not None:
+                expect[(lay.x, lay.y)] = key
+        term = b["term"]
+        if term[0] == "branch":
+            _k, glyph, taken, ft = term
+            if taken not in entry:
+                raise RuntimeError(f"branch target {taken} has no entry `>` yet")
+            if ft in merges:
+                raise RuntimeError("branch fall-through into a merge is unsupported")
+            if lay.d == E:
+                lay.newline()
+            lay.put(col_of[taken], lay.y, glyph)
+            lay.put(FT, lay.y, "v")
+            lay.put(FT, lay.y + 1, ">")
+            lay.x, lay.y, lay.d = FT, lay.y + 1, E
+            entry.setdefault(ft, lay.y)
+        elif term[0] == "goto":
+            tgt = term[1]
+            up = tgt in entry
+            if up and i + 1 < len(blocks):
+                raise RuntimeError("up-goto before the last block leaves a stale cursor")
+            if lay.d == E:
+                lay.newline()
+            lay.put(col_of[tgt], lay.y, "^" if up else "v")
+            if not up:
+                entry[tgt] = lay.y + 1
+                lay.put(col_of[tgt], lay.y + 1, ">")
+                lay.x, lay.y, lay.d = col_of[tgt], lay.y + 1, E
+    return lay, entry, expect
+
+
 # ============================================================ band v2 assembly
 
 def cmd_build2(args):
@@ -681,8 +760,13 @@ def cmd_build2(args):
             return ("out", nearest(sites["out"], cell))
         return None
 
+    global ATTACH, MAIN_LO, STRIP
+    if getattr(args, "west", False):
+        ATTACH, MAIN_LO, STRIP = ATTACH_W, MAIN_LO_W, STRIP_W
+
     blocks = blockify(src, topo, band_of)
-    lay, _entry, expect = emit_room0(blocks, args.width)
+    emit = emit_room0_v2 if getattr(args, "emit2", False) else emit_room0
+    lay, _entry, expect = emit(blocks, args.width)
     XI, H = lay.bbox()
     XW = XI + 1
     A = H + 2
@@ -706,20 +790,37 @@ def cmd_build2(args):
 
     a = ATTACH
     R4X = 115                                   # room4's west wall
-    # pipe1's serpentine teeth (5 teeth x depth 16 = +160 over the straight route)
-    wp1 = [(10, A), (10, A + 53), (90, A + 53), (90, A + 22)]
-    x = 91
-    for _ in range(5):
-        wp1 += [(x, A + 22), (x, A + 6), (x + 1, A + 6), (x + 1, A + 22)]
-        x += 4
-    wp1 += [(164, A + 22), (164, A + 24)]
-    # pipe8's teeth (8 teeth x depth 9 = +144)
-    wp8 = [(181, A + 28), (181, A + 55)]
-    x = 176
-    for _ in range(8):
-        wp8 += [(x, A + 55), (x, A + 46), (x - 1, A + 46), (x - 1, A + 55)]
-        x -= 4
-    wp8 += [(8, A + 55), (8, A - 1)]
+    west = getattr(args, "west", False)
+    if west:
+        # legs tucked to A+52/A+53 (pipe-pipe adjacency is legal), teeth re-solved to 400
+        wp1 = [(10, A), (10, A + 52), (90, A + 52), (90, A + 22)]
+        x = 91
+        for _ in range(5):
+            wp1 += [(x, A + 22), (x, A + 6), (x + 1, A + 6), (x + 1, A + 22)]
+            x += 4
+        wp1 += [(166, A + 22), (166, A + 24)]
+        wp8 = [(181, A + 28), (181, A + 35), (183, A + 35), (183, A + 37),
+               (181, A + 37), (181, A + 53)]
+        x = 150
+        for _ in range(6):
+            wp8 += [(x, A + 53), (x, A + 41), (x - 1, A + 41), (x - 1, A + 53)]
+            x -= 4
+        wp8 += [(8, A + 53), (8, A - 1)]
+    else:
+        # pipe1's serpentine teeth (5 teeth x depth 16 = +160 over the straight route)
+        wp1 = [(10, A), (10, A + 53), (90, A + 53), (90, A + 22)]
+        x = 91
+        for _ in range(5):
+            wp1 += [(x, A + 22), (x, A + 6), (x + 1, A + 6), (x + 1, A + 22)]
+            x += 4
+        wp1 += [(164, A + 22), (164, A + 24)]
+        # pipe8's teeth (8 teeth x depth 9 = +144)
+        wp8 = [(181, A + 28), (181, A + 55)]
+        x = 176
+        for _ in range(8):
+            wp8 += [(x, A + 55), (x, A + 46), (x - 1, A + 46), (x - 1, A + 55)]
+            x -= 4
+        wp8 += [(8, A + 55), (8, A - 1)]
     pipes = {
         3: [(a[("in", 3)], A + 2), (a[("in", 3)], A - 1)],
         0: [(a[("out", 0)], A), (a[("out", 0)], A + 18)],
@@ -727,14 +828,19 @@ def cmd_build2(args):
         2: [(a[("out", 2)], A), (a[("out", 2)], A + 20), (18, A + 20)],
         1: wp1,
         8: wp8,
-        # sa: room2 bottom wall -> display top wall, the 4 cells that pin the display
+        # sa: room2 bottom wall -> display top wall, the 4 cells that pin the display.
+        # The LAST MOVE must also be perpendicular into the wall — the loader derives
+        # the attachment side from the approach direction, not the arrowhead glyph.
         7: [(26, A + 29), (26, A + 30), (25, A + 30), (25, A + 31), (25, A + 32)],
         # sd: room2 bottom wall -> display west wall
         6: [(20, A + 29), (20, A + 39), (22, A + 39)],
-        # ss: room2 top wall -> around the east -> display bottom wall (one +4 detour).
+        # ss: room2 top wall -> around the east -> display bottom wall.
         # The first step must leave the wall PERPENDICULAR or the loader records src -1.
-        4: [(28, A + 2), (28, A + 1), (43, A + 1), (43, A + 8), (41, A + 8),
-            (41, A + 11), (43, A + 11), (43, A + 51), (26, A + 51), (26, A + 49)],
+        4: ([(28, A + 2), (28, A + 1), (41, A + 1), (41, A + 30), (43, A + 30),
+             (43, A + 32), (41, A + 32), (41, A + 35), (43, A + 35), (43, A + 37),
+             (41, A + 37), (41, A + 51), (26, A + 51), (26, A + 49)] if west else
+            [(28, A + 2), (28, A + 1), (43, A + 1), (43, A + 8), (41, A + 8),
+             (41, A + 11), (43, A + 11), (43, A + 51), (26, A + 51), (26, A + 49)]),
     }
     want = {0: 18, 1: 400, 2: 23, 3: 3, 5: 18, 8: 400, 4: 89, 6: 12, 7: 4}
     for pi, wps in pipes.items():
@@ -748,7 +854,7 @@ def cmd_build2(args):
 
     # room1 (input), room3 (fast rotator), room4 (92-slot), room2, display — verbatim
     blit(12, A + 3, [src[y][21:24] for y in range(1068, 1071)])
-    blit(45, A + 18, [src[y][41:58] for y in range(1083, 1087)])
+    blit(43 if west else 45, A + 18, [src[y][41:58] for y in range(1083, 1087)])
     blit(R4X, A + 24, [src[y][1:95] for y in range(1465, 1469)])
     blit(18, A + 3, [src[y][122:138] for y in range(1070, 1096)])
     blit(22, A + 32, [src[y][128:146] for y in range(1100, 1118)])
@@ -793,6 +899,10 @@ def main():
     c2.add_argument("man")
     c2.add_argument("out")
     c2.add_argument("--width", type=int, default=247)
+    c2.add_argument("--emit2", action="store_true",
+                    help="corridor-column branches (emit_room0_v2)")
+    c2.add_argument("--west", action="store_true",
+                    help="hot attachments at 44/46 (MAIN_LO 30) + tucked delay legs")
     c2.set_defaults(fn=cmd_build2)
     args = ap.parse_args()
     args.fn(args)

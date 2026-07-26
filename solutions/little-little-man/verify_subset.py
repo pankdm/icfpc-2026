@@ -29,6 +29,7 @@ def run_flow(
     return_ram=False,
     frame_hook=None,
     token_hook=None,
+    expected_frames=None,
 ):
     blocks = builder.build_flow().blocks
     input_values = deque(int(value) for rnd in rounds for value in rnd["in"])
@@ -157,7 +158,8 @@ def run_flow(
                 raise AssertionError(f"display swap value {a} is not 0 or 1")
             if frame_hook is not None:
                 frame_hook(len(frames), ram, next_pixels)
-            if len(frames) == len(rounds):
+            target_frames = len(rounds) if expected_frames is None else expected_frames
+            if len(frames) == target_frames:
                 if return_ram:
                     return frames, steps, ram
                 return frames, steps

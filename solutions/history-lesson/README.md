@@ -301,6 +301,73 @@ other ring leg folds down a second time above P1: it has 45 cells, so the two
 legs provide 47 cells of capacity for the 38 dictionary entries plus sentinel.
 The organizer WASM passes the complete public output in 255,288 ticks.
 
+## Vertical-P1 line, and its compacted dispatcher
+
+`build_vertical_p1.py` is a different tail experiment: it drops the YEAR room
+entirely (the year prefixes become ordinary stream text, spelled by two
+repurposed dictionary slots and raw shifted ASCII digits) and stands P1 up as a
+tall 52×20 preload room instead of a wide one.  It produces
+`candidates/81x90-vertical-p1.man`.  At 81×90 it is **not** competitive with
+the 81×81 champion — the point of the line is that a shorter, squarer service
+tail becomes reachable once YEAR is gone.
+
+`build_vertical_p2.py` rebuilds one block of that program and nothing else: the
+dispatcher room, the one holding the `17`, `31` and `92` literals.  It goes
+from **25×11 (275 cells) to 23×7 (161 cells)**, a 41% cut, and the whole
+program still passes the sole public case on the organizer WASM.  The footprint
+is unchanged at 81×90 — DISP sits inside P1's row span and is not on either
+critical dimension — so this is headroom, not score.
+
+Three independent things paid for the shrink.
+
+- **The 81-lap countdown was not load-bearing.**  P1's top three rows in the p1
+  build are a pure delay loop, added on the theory that DISP must not start
+  rotating before P1 finishes its (slower, vertical) preload.  It isn't so: the
+  two ring legs carry 118 cells against a 44-entry dictionary plus sentinel, far
+  above the `entries + sentinel − 1` capacity floor, so DISP simply blocks on
+  `r` until P1 catches up.  Deleting the loop passes and is ~800 ticks faster.
+  Three rows, for free.
+- **`b` moved up into the classifier head.**  The head now reads
+  `` > `17` M r b - v ``: stash the raw symbol in `BP` *before* subtracting 17.
+  The `v ≤ 16` branch then already holds its rotation count, which deletes the
+  `-` cell that needed its own row and the `+`/`b` pair that used to rebuild the
+  count from `v − 17`.  Two columns.
+- **The sentinel return folded into a riser column.**  The old grid spent a
+  whole sixth row walking west from the ring send back to the `W` swap.  Putting
+  the drain loop's `X` *before* its turn lets the 0 sentinel fall out of the loop
+  travelling east, so `s` (send the sentinel) and `W` (lift the saved entry back
+  into `A`) stack vertically in the last column and rejoin the ordinary return
+  corridor on row 0.  One row.
+
+The resulting 21×5 interior, with the ring machinery annotated:
+
+```text
+        row 0  v@< s     <         <     return corridor; x=4 is the only UNPACK send
+        row 1  >`17`Mrb-v          W     head: B=17, A=sym, BP=sym, A=sym-17, drop
+        row 2   >`31`+   ^         s     +31 for raw ASCII; sentinel riser
+        row 3  vX~`92`M+X> mdrMs>rX^     ESC test (`92` reads back 29 westward)
+        row 4  >rb       ^sr<   ^s<      ESC's second read; underside of both loops
+
+        x=10..13  rotate BP-1 times   > _ m d  /  ^ s r <
+        x=14..16  take the entry, keep it in B, put it straight back on the ring
+        x=17..19  drain the rest until the 0 sentinel   > r X  /  ^ s <
+        x=20      riser: send the sentinel, W the entry into A, walk home
+```
+
+Two port columns had to move with it, because `s` and `r` bind to the
+*nearest* pipe and the room got narrower under them: DISP → UNPACK from x=74 to
+x=76, and DISP → P1 from x=78 to x=77.  With those, every send and receive wins
+its contest by at least one cell.  `scratchpad/history-disp/test_disp_p2.py`
+checks the old and new grids side by side on a scripted stream and ring, with
+the same nearest-pipe tie-break the interpreter uses, so a future port move that
+flips a binding fails there rather than in a 274k-tick oracle run.
+
+Still on the table for this block: the `+31` path and the ESC path each still
+need their own row, which is what holds the interior at five rows rather than
+four.  More usefully, the four rows DISP gave back sit directly above the four
+rows of ring routing at y=86..89; re-anchoring DISP at y=75 and routing both
+ring legs through y=82..85 would take the whole program to 81×86 (score 7,396).
+
 ## Reproducing the champion
 
 From the repository root:
@@ -315,6 +382,17 @@ python3 scratchpad/history-ring/test_year.py
 python3 scratchpad/history-ring/test_disp.py
 node tools/grade_json.js history-lesson solutions/history-lesson/candidates/81x82.man \
   --cases tests/history-lesson.json --failfast
+```
+
+The vertical-P1 line reproduces the same way:
+
+```bash
+python3 solutions/history-lesson/build_vertical_p1.py
+git diff --exit-code -- solutions/history-lesson/candidates/81x90-vertical-p1.man
+python3 solutions/history-lesson/build_vertical_p2.py
+git diff --exit-code -- solutions/history-lesson/candidates/81x90-vertical-p2.man
+python3 scratchpad/history-disp/test_disp_p2.py
+node tools/grade.js history-lesson solutions/history-lesson/candidates/81x90-vertical-p2.man
 ```
 
 The two builder commands deterministically run the variable-width feeder DP.

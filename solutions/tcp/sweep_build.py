@@ -234,7 +234,16 @@ def build_full():
 
 if __name__ == '__main__':
     import sys
-    if '--full' in sys.argv:
+    # NOTE: this file has a SECOND __main__ block at the bottom, which is where --full2
+    # is handled (build_full2 is defined below this point, so it cannot be dispatched
+    # from here). Without the --full2 arm just below, `--full2` fell through to
+    # build_test() and died with `layout.Collision at (3,21)`: build_test is the stage-1
+    # prototype, its leaf return rail writes '<' across EVERY leaf column, and leaf slot
+    # 12 lands on column 3 — the column the loop-entry riser needs for '^'. That crash is
+    # what made tcp untunable; the tuner never reached build_full2 at all.
+    if '--full2' in sys.argv:
+        pass                                       # handled at the bottom of this file
+    elif '--full' in sys.argv:
         L = build_full()
         print('FOOT', L.footprint())
         print(L.render())
@@ -322,5 +331,12 @@ def build_full2():
 if __name__ == '__main__' and '--full2' in sys.argv:
     L = build_full2()
     print('FOOT', L.footprint())
-    L.save(_REPO + '/solutions/tcp/tcp-sweep2.man')
-    print('saved tcp-sweep2.man')
+    # Save by default: tools/autotune.py names its outputs after the .man the builder
+    # emits, and falls back to <stdout> (which it then refuses to write) if there is
+    # none. The save is sandboxed during a sweep — autotune copies solutions/<slug>/ and
+    # _REPO resolves inside that copy — and a manual run rewrites the champion with a
+    # byte-identical file. Use --no-save if you want to be sure.
+    if '--no-save' not in sys.argv:
+        L.save(_REPO + '/solutions/tcp/tcp-sweep2.man')
+        print('saved tcp-sweep2.man')
+    print(L.render())                              # stdout fallback for the tuner

@@ -45,10 +45,18 @@ PIPE_GAP = 3            # rows between the device band and the controller
 PORT_GAP = 4            # columns between the non-holder port columns
 HWY_GAP = 0             # columns between neighbouring highway lanes
 LEAD_IN = 2             # blank columns between the entry column and the ops
-RING_LIFT = 26          # how far above the band the ring relay sits
+RING_LIFT = 8           # how far above the band the ring relay sits
 DISP_GAP = 6            # routing columns between the band and the display
 TAIL_PAD = 2            # spare rows under the last block
 CODE_SLACK = 14         # spare code columns east of the last port column
+
+# Holder column order found by search_holder_order().  A port op must sit on its
+# own column, so whenever the next one is behind the cursor the code ribbon
+# wraps and costs a whole controller ROW -- and height is what the box squares.
+HOLDER_ORDER = [
+    "KK", "PCOL", "RETM", "SH", "AD", "CD", "BL", "AL", "OPR", "VLR",
+    "PH", "PA", "ADS", "HHT", "HD", "WW", "NOTMF", "PATF", "NOTME", "PATE",
+]
 
 ARROW_S, ARROW_W, ARROW_E, ARROW_N = "v", "<", ">", "^"
 
@@ -91,13 +99,22 @@ def entry_labels(blocks):
 # ===========================================================================
 class Columns(object):
     def __init__(self, blocks, holder_order, pitch=HOLDER_PITCH,
-                 port_gap=PORT_GAP, hwy_gap=HWY_GAP, lead_in=LEAD_IN):
+                 port_gap=PORT_GAP, hwy_gap=HWY_GAP, lead_in=LEAD_IN,
+                 lanes=None):
         self.hwy_targets = sorted(entry_labels(blocks))
+        # A highway column is only busy between its highest join row and its
+        # target row, and men cross an idle one on a BLANK cell, so targets with
+        # disjoint row spans share a lane.  `lanes` maps target -> lane index.
+        if lanes is None:
+            lanes = {t: i for i, t in enumerate(self.hwy_targets)}
+        self.lanes = lanes
+        nlanes = max(lanes.values()) + 1 if lanes else 0
         x = 1
-        self.hwy = {}
-        for label in self.hwy_targets:
-            self.hwy[label] = x
+        lane_col = {}
+        for i in range(nlanes):
+            lane_col[i] = x
             x += 1 + hwy_gap
+        self.hwy = {t: lane_col[lanes[t]] for t in self.hwy_targets}
         self.entry_col = x + 1
         x = self.entry_col + lead_in
         self.port = {}
@@ -169,17 +186,20 @@ class CodePlacer(object):
         self.entry_row = {}
         self.joins = []
         self.lits = set()          # (row, x_open, x_close) of every REAL literal
+        self.walk = {}             # label -> cells the man steps through
+        self.edges = []            # (src, dst, lane_col, from_col, from_row)
 
     def place(self, blocks):
         c = self.c
         targets = set(c.hwy_targets)
         labels = [b[0] for b in blocks]
-        st = {"x": c.entry_col + 1, "y": self.y, "d": 1, "pend": 0}
+        st = {"x": c.entry_col + 1, "y": self.y, "d": 1, "pend": 0, "walk": 0}
         fresh = True                     # next block must be entered at entry_col
 
         def put(ch):
             self.g.put(st["x"], st["y"], ch)
             st["x"] += st["d"]
+            st["walk"] += 1
 
         def descend(reverse):
             """Turn south, fall past every pending exit row, then face `reverse`."""
@@ -221,6 +241,7 @@ class CodePlacer(object):
                 self.g.put(c.entry_col, st["y"], "@" if bi == 0 else ARROW_E)
             self.entry_row[label] = st["y"]
             fresh = False
+            st["walk"] = 0
 
             for tok in toks:
                 kind = tok[0] if isinstance(tok, tuple) else None
@@ -230,15 +251,17 @@ class CodePlacer(object):
                         put("b")
                     put("d")
                     st["pend"] += 1
-                    self._lane(st["x"] - 1, st["y"] + st["pend"], tok[1], False)
+                    self._lane(st["x"] - 1, st["y"] + st["pend"], tok[1], False,
+                               label)
                 elif kind == "go":
+                    self.walk[label] = st["walk"]
                     tgt = tok[1]
                     if tgt == nxt and nxt not in targets:
                         descend(-st["d"])        # keep walking, no round trip
                     else:
                         self.g.put(st["x"], st["y"], ARROW_S)
                         row = st["y"] + st["pend"] + 1
-                        self._lane(st["x"], row, tgt, tgt == nxt)
+                        self._lane(st["x"], row, tgt, tgt == nxt, label)
                         st["y"] = row + 1
                         st["pend"] = 0
                         fresh = True
@@ -247,6 +270,7 @@ class CodePlacer(object):
                     if (st["d"] > 0 and want < st["x"]) or \
                        (st["d"] < 0 and want > st["x"]):
                         wrap()
+                    st["walk"] += abs(want - st["x"])
                     st["x"] = want
                     put(GLYPH[kind])
                 else:
@@ -261,12 +285,13 @@ class CodePlacer(object):
         self.y = st["y"] + 1
         return self.y
 
-    def _lane(self, x, y, target, is_fall):
+    def _lane(self, x, y, target, is_fall, src=None):
         dest = self.c.entry_col if is_fall else self.c.hwy[target]
         self.g.put(x, y, ARROW_W)
         if is_fall:
             self.g.put(dest, y, ARROW_S)
         self.joins.append((dest, y, target, is_fall))
+        self.edges.append((src, target, dest, x, y, is_fall))
 
 
 def break_stray_literals(g, intended=(), verbose=False):
@@ -313,6 +338,76 @@ def break_stray_literals(g, intended=(), verbose=False):
     return fixed
 
 
+def estimate_ticks(placer, cols, counts):
+    """Walked-cell tick model: cost is the path the controller man walks.
+
+    Pipe latency is hidden (measured: a holder round trip = controller path
+    length + 1), so ticks are just cells walked -- op path, plus for every
+    control edge the westward exit lane, the ride down the highway and the
+    glide back east into the target.
+    """
+    indeg = {}
+    for src, dst, _c, _x, _y, _f in placer.edges:
+        indeg[dst] = indeg.get(dst, 0) + 1
+    total = 0.0
+    for label, walk in placer.walk.items():
+        total += counts.get(label, 0) * walk
+    for src, dst, lane, x, y, is_fall in placer.edges:
+        trow = placer.entry_row.get(dst, y)
+        cost = (x - lane) + abs(trow - y) + (cols.entry_col - lane)
+        total += counts.get(dst, 0) * cost / max(1, indeg.get(dst, 1))
+    return total
+
+
+def colour_lanes(spans):
+    """Interval-graph colouring: {target: span} -> {target: lane index}."""
+    lanes = {}
+    ends = []                       # ends[i] = last row lane i is busy
+    for target, (lo, hi) in sorted(spans.items(), key=lambda kv: kv[1][0]):
+        for i, end in enumerate(ends):
+            if end < lo:
+                lanes[target] = i
+                ends[i] = hi
+                break
+        else:
+            lanes[target] = len(ends)
+            ends.append(hi)
+    return lanes
+
+
+def plan_lanes(blocks, holder_order, rounds=6):
+    """Iterate placement <-> lane colouring until the assignment stops moving."""
+    lanes = None
+    for _ in range(rounds):
+        cols = Columns(blocks, holder_order, lanes=lanes)
+        g = lay.Layout(lm.Program())
+        placer = CodePlacer(g, cols, 1)
+        placer.place(blocks)
+        spans = {}
+        for _dest, row, target, is_fall in placer.joins:
+            if is_fall:
+                continue
+            lo, hi = spans.get(target, (row, row))
+            spans[target] = (min(lo, row), max(hi, row))
+        for target, row in placer.entry_row.items():
+            if target in spans:
+                lo, hi = spans[target]
+                spans[target] = (min(lo, row), max(hi, row))
+        new = colour_lanes(spans)
+        if new == lanes:
+            break
+        lanes = new
+    # verify: two targets on one lane must not overlap
+    by_lane = {}
+    for t, i in lanes.items():
+        by_lane.setdefault(i, []).append(spans[t])
+    for i, iv in by_lane.items():
+        iv.sort()
+        for a, b in zip(iv, iv[1:]):
+            assert a[1] < b[0], ("overlapping highway lane", i, a, b)
+    return lanes
+
+
 def checked_room(g, x, y, w, h, glyphs="+-|"):
     cor, hor, ver = glyphs
     for cx, cy in ((x, y), (x + w - 1, y), (x, y + h - 1), (x + w - 1, y + h - 1)):
@@ -334,8 +429,10 @@ def checked_room(g, x, y, w, h, glyphs="+-|"):
 def build(holder_order=None, pitch=HOLDER_PITCH, ring_lift=RING_LIFT):
     flow = F.build_flow()
     blocks = split_blocks(flow)
-    holder_order = holder_order or list(F.HOLDERS)
-    cols = Columns(blocks, holder_order, pitch=pitch)
+    holder_order = holder_order or [h for h in HOLDER_ORDER if h in F.HOLDERS]
+    assert sorted(holder_order) == sorted(F.HOLDERS), "HOLDER_ORDER is stale"
+    cols = Columns(blocks, holder_order, pitch=pitch,
+                   lanes=plan_lanes(blocks, holder_order))
 
     p = lm.Program()
     g = lay.Layout(p)
@@ -402,13 +499,13 @@ def build(holder_order=None, pitch=HOLDER_PITCH, ring_lift=RING_LIFT):
     # ---- debug output room (only wired when lllm_flow.DEBUG_EMIT is set) --
     if F.DEBUG_EMIT:
         ot_col = cols.port["ot"]
-        ot_bot = band_top - 12
+        ot_bot = band_top - 5
         p.output_room(ot_col - 1, ot_bot - 2)
         lift_pipe(ot_col, ot_bot)
 
     # ---- input room: above the band, clear of every other pipe ---------
     in_col = cols.port["in"]
-    in_bot = band_top - 6
+    in_bot = band_top - 2
     p.input_room(in_col - 1, in_bot - 2)
     drop_pipe(in_col, in_bot)
 
@@ -445,12 +542,17 @@ def build(holder_order=None, pitch=HOLDER_PITCH, ring_lift=RING_LIFT):
     path = run(path, y=relay_bot + 1)
     lay.place_pipe(g, path, (0, -1))
     pipes["out"].append((c2r, ctrl_top - 1))
+    ring_out_len = len(path)
 
     # relay -> controller, leaving the relay's right wall
     r2c = cols.port["rr"]
     path = run(run([(relay_x + HOLDER_W, relay_bot - 2)], x=r2c), y=ctrl_top - 1)
     lay.place_pipe(g, path, (0, 1))
     pipes["in"].append((r2c, ctrl_top - 1))
+    # the ring must physically hold all 32 program words while the controller
+    # is off doing something else, or `rs` deadlocks against a full pipe
+    ring_cap = ring_out_len + len(path) + 1
+    assert ring_cap >= F.RING_SLOTS + 1, ("ring too small", ring_cap)
 
     # ---- display --------------------------------------------------------
     disp_x = cols.code_hi + DISP_GAP
@@ -515,3 +617,43 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+# ===========================================================================
+# 5.  holder column order search
+# ===========================================================================
+def measure_order(order):
+    """(code rows, controller width) for a candidate holder column order.
+
+    A port op must sit on its own column, so whenever the next one lies behind
+    the cursor the ribbon has to wrap -- one extra ROW.  Height is what the box
+    is squared on, so the column order is worth searching.
+    """
+    flow = F.build_flow()
+    blocks = split_blocks(flow)
+    cols = Columns(blocks, order, lanes=plan_lanes(blocks, order))
+    g = lay.Layout(lm.Program())
+    placer = CodePlacer(g, cols, 1)
+    placer.place(blocks)
+    return placer.y, cols.width
+
+
+def search_holder_order(iters=400, seed=12345, verbose=True):
+    import random
+    rng = random.Random(seed)
+    best = list(F.HOLDERS)
+    bh, bw = measure_order(best)
+    bscore = max(bh, bw)
+    if verbose:
+        print("start rows=%d width=%d" % (bh, bw))
+    for _ in range(iters):
+        cand = list(best)
+        for _ in range(rng.choice((1, 1, 2))):
+            i, j = rng.randrange(len(cand)), rng.randrange(len(cand))
+            cand[i], cand[j] = cand[j], cand[i]
+        h, w = measure_order(cand)
+        if max(h, w) < bscore:
+            best, bh, bw, bscore = cand, h, w, max(h, w)
+            if verbose:
+                print("  rows=%d width=%d" % (h, w))
+    return best, bh, bw

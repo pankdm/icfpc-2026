@@ -83,13 +83,15 @@ SWAP_KEEP = 1
 ALIAS = {
     "TMPC": "AL", "TMPV": "BL", "CHR": "KK", "CX": "PA",
     "CY": "PCOL", "SHPAD": "HD",
+    "X0": "AD", "Y0": "SH", "X1": "CD", "Y1": "RETM",
 }
 # WW and HHT deliberately keep their own rooms: the frame-0 raster loops over
 # the W x H region, so they are still live long after RETM/CD come alive.
 
 HOLDERS = [
     "CD", "SH", "OPR", "VLR", "AD", "HD", "AL", "BL", "KK", "PH",
-    "PA", "PCOL", "RETM", "ADS", "X0", "Y0", "X1", "Y1", "WW", "HHT",
+    "PA", "PCOL", "RETM", "ADS", "WW", "HHT",
+    "NOTMF", "PATF", "NOTME", "PATE",     # room-wall masks, setup only
 ]
 
 
@@ -177,9 +179,15 @@ class Flow(object):
         return self.e("W", "{")
 
     def br_ne0(self, label):
-        """Jump to `label` unless A == 0.  Falls through with A == 0."""
-        self.br(label)
-        self.e("N")
+        """Jump to `label` unless A == 0.  Falls through with A == 0.
+
+        A*A is > 0 exactly when A != 0, so one branch does what a
+        positive-test plus a negated positive-test used to need -- and every
+        branch removed is one whole exit ROW of controller height.  Every A
+        tested this way is a small difference (|A| <= 4096), so the square
+        cannot overflow.  A and B are clobbered; no caller needs them.
+        """
+        self.e("M", "*")
         return self.br(label)
 
     def set_const(self, holder, n):
@@ -202,6 +210,43 @@ class Flow(object):
 # ordinary output room at the top of that block.  build_lllm.py wires the room
 # only when this is non-empty, so a shipping build is unaffected.
 DEBUG_EMIT = {}
+
+
+def emit_patch_row(f, tag, notm, pat, after):
+    """Rewrite the OP word of row CY, blending the room wall in with a mask.
+
+    Doing this ONCE at setup is what removes the per-cell wall test: after the
+    patch a cell's class is simply the nibble in the stored word, so the fetch
+    path is three ops instead of eight compare blocks (measured: those eight
+    were 32% of all block entries and 38% of all executed tokens).
+    """
+    f.at("P_ROT_%s" % tag)
+    f.get("CY").mul_const(2).e("M")
+    f.get("PH").e("W", "-")
+    f.mod_const(RING_SLOTS)
+    f.e("b")
+    f.go("P_SPIN_%s" % tag)
+
+    f.at("P_SPIN_%s" % tag)
+    f.brbp("P_STEP_%s" % tag)
+    f.go("P_RW_%s" % tag)
+
+    f.at("P_STEP_%s" % tag)
+    f.e(("rr",), ("rs",), "m")
+    f.go("P_SPIN_%s" % tag)
+
+    f.at("P_RW_%s" % tag)
+    f.hr("OPR")
+    f.e(("rr",), "M")
+    f.get(notm).e("&", "M")
+    f.get(pat).e("|")
+    f.hw("OPR")
+    f.e(("rs",))
+    f.hr("VLR").e(("rr",)).hw("VLR").e(("rs",))
+    f.hr("PH")
+    f.get("CY").mul_const(2).add_const(2).mod_const(RING_SLOTS)
+    f.hw("PH")
+    f.go(after)
 
 
 def build_flow():
@@ -354,15 +399,87 @@ def build_flow():
 
     f.at("ROOM_CHECK2")
     f.get("Y1").e("M").get("Y0").e("-")
-    f.br_ne0("RENDER_INIT")
+    f.br_ne0("MASKS")
     f.go("FALLBACK")
+
+    f.at("MASKS")
+    # repunit of L nibbles, built by Horner: (16**L - 1)/15 cannot be computed
+    # directly because L = 16 makes 1 << 64 overflow (`{` returns 0 past 63).
+    f.set_const("PATF", 0)
+    f.get("X0").e("M").get("X1").e("-").add_const(1).e("b")     # BP = L
+    f.go("REP_LOOP")
+
+    f.at("REP_LOOP")
+    f.brbp("REP_BODY")
+    f.go("MASKS1B")
+
+    f.at("REP_BODY")
+    f.hr("PATF").mul_const(ROW_W).add_const(1).hw("PATF")
+    f.e("m")
+    f.go("REP_LOOP")
+
+    f.at("MASKS1B")
+    f.hr("NOTMF")
+    f.get("X1").const_sub(ROW_W - 1).mul_const(NIB)             # SH1
+    f.hw("NOTMF")
+    f.hr("PATF").e("M")
+    f.get("NOTMF").e("W", "{")                                  # RS = REP << SH1
+    f.hw("PATF")
+    f.hr("NOTMF")
+    f.get("PATF").mul_const(15)
+    f.e("M").lit(1).e("N", "~")                                 # ~(15*RS)
+    f.hw("NOTMF")
+    f.hr("PATF").mul_const(10).hw("PATF")
+    f.go("MASKS2")
+
+    f.at("MASKS2")
+    # E = (1 << SH0) + (1 << SH1): the two side walls of an interior row
+    f.hr("NOTME")
+    f.get("X0").const_sub(ROW_W - 1).mul_const(NIB).e("M").lit(1).e("{")
+    f.hw("NOTME")
+    f.hr("PATE")
+    f.get("X1").const_sub(ROW_W - 1).mul_const(NIB).e("M").lit(1).e("{")
+    f.e("M").get("NOTME").e("+")
+    f.hw("PATE")
+    f.hr("NOTME")
+    f.get("PATE").mul_const(15).e("M").lit(1).e("N", "~")
+    f.hw("NOTME")
+    f.hr("PATE").mul_const(10).hw("PATE")
+    f.go("PATCH_INIT")
+
+    f.at("PATCH_INIT")
+    f.copy_holder("CY", "Y0")
+    f.go("P_ROT_T")
+
+    emit_patch_row(f, "T", "NOTMF", "PATF", "PATCH_MID_INIT")
+
+    f.at("PATCH_MID_INIT")
+    f.hr("CY").get("Y0").add_const(1).hw("CY")
+    f.go("PATCH_MID")
+
+    f.at("PATCH_MID")
+    f.get("CY").e("M").get("Y1").e("-")
+    f.br("P_ROT_M")
+    f.go("PATCH_BOT")
+
+    emit_patch_row(f, "M", "NOTME", "PATE", "PATCH_MID_NEXT")
+
+    f.at("PATCH_MID_NEXT")
+    f.hr("CY").add_const(1).hw("CY")
+    f.go("PATCH_MID")
+
+    f.at("PATCH_BOT")
+    f.copy_holder("CY", "Y1")
+    f.go("P_ROT_B")
+
+    emit_patch_row(f, "B", "NOTMF", "PATF", "RENDER_INIT")
 
     f.at("FALLBACK")
     f.set_const("X0", 0)
     f.set_const("Y0", 0)
     f.hr("X1").get("WW").sub_const(1).hw("X1")
     f.hr("Y1").get("HHT").sub_const(1).hw("Y1")
-    f.go("RENDER_INIT")
+    f.go("MASKS")
 
     # ==================================================================
     # frame 0 raster: 256 pixels straight down the display in reading order
@@ -453,56 +570,10 @@ def build_flow():
     f.get("SH").e("W")
     f.nib_extract()
     f.hw("CD")
-    f.go("WALLCHK")
+    f.go("FETCH_DONE")
 
     # --- is the cell at AD on the room rectangle? ----------------------
-    f.at("WALLCHK")
-    f.get("AD").mod_const(ADDR_MOD).e("M")    # B = x
-    f.get("X0").e("-")                        # A = x0 - x
-    f.br("WALL_NO")                           # x < x0
-    f.get("AD").mod_const(ADDR_MOD).e("M")
-    f.get("X1").e("-").e("N")                 # A = x - x1
-    f.br("WALL_NO")                           # x > x1
-    f.go("WALLCHK_Y")
-
-    f.at("WALLCHK_Y")
-    f.get("AD").shr_const(NIB).e("M")         # B = y
-    f.get("Y0").e("-")
-    f.br("WALL_NO")                           # y < y0
-    f.get("AD").shr_const(NIB).e("M")
-    f.get("Y1").e("-").e("N")
-    f.br("WALL_NO")                           # y > y1
-    f.go("WALLCHK_EDGE")
-
-    f.at("WALLCHK_EDGE")
-    f.get("AD").mod_const(ADDR_MOD).e("M")
-    f.get("X0").e("-")
-    f.br_ne0("WALL_E2")
-    f.go("WALL_YES")
-
-    f.at("WALL_E2")
-    f.get("AD").mod_const(ADDR_MOD).e("M")
-    f.get("X1").e("-")
-    f.br_ne0("WALL_E3")
-    f.go("WALL_YES")
-
-    f.at("WALL_E3")
-    f.get("AD").shr_const(NIB).e("M")
-    f.get("Y0").e("-")
-    f.br_ne0("WALL_E4")
-    f.go("WALL_YES")
-
-    f.at("WALL_E4")
-    f.get("AD").shr_const(NIB).e("M")
-    f.get("Y1").e("-")
-    f.br_ne0("WALL_NO")
-    f.go("WALL_YES")
-
-    f.at("WALL_YES")
-    f.set_const("CD", C["WALL"])
-    f.go("WALL_NO")
-
-    f.at("WALL_NO")
+    f.at("FETCH_DONE")
     f.get("RETM")
     f.br("R_EMIT")
     f.go("STEP_TAIL")

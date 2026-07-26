@@ -24,7 +24,8 @@ import parallel_grid_build as pg  # noqa: E402
 # SS_GAP_DELTA=-1 gives 585x588 (box -5.2%, 7/7): one column less per worker.
 # -2 regresses (566x598: height grows past width); ROW_STRIDE-1 breaks pipes.
 GAP_DELTA = int(os.environ.get("SS_GAP_DELTA", "0"))
-pg.WORKER_X0 = 10
+# SS_X0=9 (autotune find on top of gap-1): 584x588, same box, ticks -26.
+pg.WORKER_X0 = int(os.environ.get("SS_X0", "10"))
 pg.WORKER_GAP = 30 + pg.COMPACT_WIDTH_DELTA + GAP_DELTA
 pg.ROW_STRIDE = 40
 pg.BROADCAST_Y = 0
@@ -40,9 +41,10 @@ if __name__ == "__main__":
 
     program = pg.build()
     rendered = compact_text(program.render())
+    x0_suffix = "" if pg.WORKER_X0 == 10 else f"-x{pg.WORKER_X0}"
     name = (
         "parallel256-tunewrap.man" if GAP_DELTA == 0
-        else f"parallel256-prefix-compact-r13-gap{30 + GAP_DELTA}.man"
+        else f"parallel256-prefix-compact-r13-gap{30 + GAP_DELTA}{x0_suffix}.man"
     )
     destination = HERE / name
     destination.write_text(rendered + "\n", encoding="ascii")

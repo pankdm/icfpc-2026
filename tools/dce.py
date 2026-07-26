@@ -1,445 +1,197 @@
 #!/usr/bin/env python3
-"""dce.py — DEAD-CODE ELIMINATION on a .man grid: erase instruction cells no man can reach.
+"""dce.py — dead code elimination, then convert the freed space into box.
 
-`tools/lift.py` already recovers, per little man, the set of cells he can statically reach
-by following the machine's own movement rules from his `@`. Union that over every man and
-any non-space cell left over *inside a room interior* is code the program can never execute.
-It costs nothing to run — but it costs SPACE, and space is the score: `max(w,h)^2 x avgTicks`.
-Erasing it hands free cells to the placer, and now and then it empties a whole row or column,
-which shrinks the box directly. So this pass deletes, then immediately re-tries the
-blank-row / blank-column trims (and, with `--fold`, `tools/fold.py`'s line merges) that the
-deletion may have unlocked.
+A cell no man can reach is dead. Blanking it alone is usually worth NOTHING here, because
+ticks are cells WALKED, not instructions executed, and a hole in the middle of a grid does
+not shrink `max(w,h)`. Measured across every champion: 3-83 dead cells each, and **zero** at
+the bounding-box extremes. So DCE on its own is a no-op for score.
 
-WHY THE ANALYSIS DIRECTION IS THE SAFE ONE. `Lift.walk` is an OVER-approximation: at a
-branch (`X`/`d`/`a`/`x`) it fans out to all three headings because which one fires depends on
-runtime registers. It therefore reaches a superset of what really executes, so a cell it
-calls unreachable is genuinely unreachable. The error it can make is calling a dead cell
-live, which only costs us an optimization.
+It pays only in composition: blanking dead cells turns rows and columns into candidates that
+`tools/polish.py` (delete a blank/straight line) and `tools/fold.py` (merge adjacent lines
+when no glyph lands in the other's walk path) could not previously touch. This tool therefore
+does both halves — eliminate, then re-run the geometry passes on the result — and reports the
+score at each stage so the contribution of each is visible rather than assumed.
 
-The one place that argument breaks is `Y`. `walk` starts only from `@`, so cells that are
-only ever reached from a fork's birth positions are invisible to it and would be deleted as
-"dead". This tool therefore REFUSES to run on a program containing `Y` unless you pass
-`--allow-y` and accept the grade gate as your only protection.
+Reachability comes from `tools/lift.py`, whose walk is cross-checked against the oracle's real
+execution (`--verify`), so "unreachable" means the machine provably never executes it, not
+that a heuristic thinks so. Branch cells fan out to all three headings, so the reachable set
+is an OVER-approximation: anything it calls dead really is dead.
 
-NEVER DELETED, regardless of reachability:
-  * anything outside a room interior — walls, corners, pipes, the blank margin;
-  * every cell of a pipe path, and every cell of a display (its interior is pixel data);
-  * `@`, `I`, `O`, and every backtick;
-  * every cell spanned by a backtick literal. Literals are read HORIZONTALLY *and*
-    VERTICALLY and may overlap, so both axes are scanned and the 8-neighbourhood of every
-    backtick is protected too: blanking a digit beside a literal can silently change the
-    value a crossing literal reads, and nothing but the grade gate would notice.
-
-The grade gate is the real check. A candidate is kept only if it still passes EVERY public
-case and does not score worse. The input file is never modified; output is <name>-dce.man,
-written only when something actually improved.
-
-  python3 tools/dce.py <slug> <file.man>              # delete, then trim/fold what that frees
-  python3 tools/dce.py <slug> <file.man> --dry-run    # census only: no grading, no output
-  python3 tools/dce.py <slug> <file.man> --fold       # also run fold.py's line merges after
+  python3 tools/dce.py <slug> <file.man> [--fold] [--dry-run]
 """
-
-from __future__ import annotations
-
 import argparse
-import concurrent.futures
 import json
 import os
 import subprocess
 import sys
-import tempfile
-import time
-from pathlib import Path
 
-REPO = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO / "tools"))
-GRADER = REPO / "tools" / "grade_json.js"
-
-import fold as FOLD    # noqa: E402  (Fabric / apply_folds — the line-merge pass)
-import lift as LIFT    # noqa: E402  (the front end: rooms, pipes, per-man reachability)
-import polish as PO    # noqa: E402  (bbox / blank-line census / drop / atomic_write)
-
-# Cells that are load-bearing no matter what the walk says.
-KEEP_CHARS = set("@IO`")
+REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
-def load_rows(path) -> list[str]:
-    text = Path(path).read_text(encoding="utf-8").replace("\r", "").rstrip("\n")
+def load_rows(path):
+    text = open(path, encoding="utf-8").read().replace("\r", "").rstrip("\n")
     rows = text.split("\n")
-    w = max((len(r) for r in rows), default=0)
+    w = max(len(r) for r in rows) if rows else 0
     return [r.ljust(w) for r in rows]
 
 
-def render(rows: list[str]) -> str:
-    return "\n".join(r.rstrip() for r in rows).rstrip("\n") + "\n"
+def lift(path):
+    r = subprocess.run(["python3", os.path.join(REPO, "tools", "lift.py"), path, "--json"],
+                       capture_output=True, text=True, cwd=REPO)
+    try:
+        return json.loads(r.stdout.strip().splitlines()[-1])
+    except (ValueError, IndexError):
+        sys.exit(f"lift failed: {(r.stderr or r.stdout)[:200]}")
 
 
-# ------------------------------------------------------------------ the analysis
-
-class DeadSet:
-    """Everything needed to decide, per cell, `may this be blanked?`."""
-
-    def __init__(self, rows: list[str]):
-        self.rows = rows
-        self.h = len(rows)
-        self.w = len(rows[0]) if rows else 0
-        lf = LIFT.Lift(rows)
-        if lf.topo.get("type") == "error":
-            raise SystemExit(f"analyze failed: {lf.topo.get('message')}")
-        self.lift = lf
-        self.rooms = lf.topo.get("rooms") or []
-        self.displays = lf.topo.get("displays") or []
-        self.pipes = lf.topo.get("pipes") or []
-        self.starts = lf.starts()
-
-        # --- reachability: the union over every man of lift.walk's static cell set.
-        self.reach: set[tuple[int, int]] = set()
-        self.per_man: list[int] = []
-        for st in self.starts:
-            cells, _edges = lf.walk(st)
-            self.per_man.append(len(cells))
-            self.reach |= set(cells)
-
-        self.protected = self._protect()
-        self.dead = self._dead()
-
-    def at(self, x: int, y: int) -> str:
-        if 0 <= y < self.h and 0 <= x < len(self.rows[y]):
-            return self.rows[y][x]
-        return " "
-
-    def in_room_interior(self, x: int, y: int) -> bool:
-        for r in self.rooms:
-            (x0, y0), (x1, y1) = r["min"], r["max"]
-            if x0 < x < x1 and y0 < y < y1:
-                return True
-        return False
-
-    # ---- protection -------------------------------------------------------
-    def _literal_cells(self) -> set[tuple[int, int]]:
-        """Every cell a backtick literal could span, on BOTH axes.
-
-        Backticks are paired in reading order along each row and each column, and the whole
-        inclusive span of a pair is protected. The 8-neighbourhood of every backtick is
-        protected as well: a literal is parsed in both directions and two literals may
-        overlap, so a digit merely *beside* a backtick can be a digit *of* a literal read on
-        the other axis. Over-protecting costs a missed deletion; under-protecting silently
-        changes a constant."""
-        out: set[tuple[int, int]] = set()
-        ticks = [(x, y) for y in range(self.h) for x in range(len(self.rows[y]))
-                 if self.rows[y][x] == "`"]
-        for (x, y) in ticks:
-            for dx in (-1, 0, 1):
-                for dy in (-1, 0, 1):
-                    out.add((x + dx, y + dy))
-        for y in range(self.h):
-            xs = [x for x in range(len(self.rows[y])) if self.rows[y][x] == "`"]
-            for a, b in zip(xs[0::2], xs[1::2]):
-                out |= {(x, y) for x in range(a, b + 1)}
-        for x in range(self.w):
-            ys = [y for y in range(self.h) if self.at(x, y) == "`"]
-            for a, b in zip(ys[0::2], ys[1::2]):
-                out |= {(x, y) for y in range(a, b + 1)}
-        return out
-
-    def _protect(self) -> set[tuple[int, int]]:
-        keep: set[tuple[int, int]] = set()
-        for p in self.pipes:
-            for seg in p["path"]:
-                keep.add(tuple(seg["pos"]))
-        for d in self.displays:                       # interior is pixel data, not code
-            (x0, y0), (x1, y1) = d["min"], d["max"]
-            keep |= {(x, y) for x in range(x0, x1 + 1) for y in range(y0, y1 + 1)}
-        for y in range(self.h):
-            for x in range(len(self.rows[y])):
-                if self.rows[y][x] in KEEP_CHARS:
-                    keep.add((x, y))
-        keep |= self._literal_cells()
-        return keep
-
-    def _dead(self) -> list[tuple[int, int]]:
-        out = []
-        for y in range(self.h):
-            for x in range(len(self.rows[y])):
-                if self.rows[y][x] == " ":
-                    continue
-                if not self.in_room_interior(x, y):
-                    continue                          # walls, pipes, margin: not ours
-                if (x, y) in self.reach or (x, y) in self.protected:
-                    continue
-                out.append((x, y))
-        return out
-
-    def has_y(self) -> bool:
-        return any("Y" in r for r in self.rows)
+def grade(slug, path, cases=None):
+    cmd = ["node", os.path.join(REPO, "tools", "grade_json.js"), slug, path, "--failfast"]
+    if cases:
+        cmd += ["--cases", cases]
+    r = subprocess.run(cmd, capture_output=True, text=True, cwd=REPO, timeout=1800)
+    try:
+        return json.loads(r.stdout.strip().splitlines()[-1])
+    except (ValueError, IndexError):
+        return {"error": (r.stderr or "grade failed")[:160]}
 
 
-def blank(rows: list[str], cells) -> list[str]:
+def box_of(rows):
+    ys = [i for i, r in enumerate(rows) if r.strip()]
+    if not ys:
+        return 0, 0, 0
+    w = max(len(r) for r in rows)
+    xs = [x for x in range(w) if any(len(r) > x and r[x] != " " for r in rows)]
+    return xs[-1] - xs[0] + 1, ys[-1] - ys[0] + 1, max(xs[-1] - xs[0] + 1, ys[-1] - ys[0] + 1) ** 2
+
+
+def literal_cells(rows):
+    """Every cell inside a backtick literal, horizontally and vertically.
+
+    These are load-bearing but frequently NOT walked: a literal is loaded when the man
+    crosses its CLOSING backtick, so the digits between can sit on no man's path while still
+    defining the value. Blanking one silently changes a constant — it broke gradebook (7/7 ->
+    a 5,000,000-tick timeout) and no reachability model would ever have caught it, because
+    the cells genuinely are unreachable."""
+    out = set()
+    h = len(rows)
+    w = max(len(r) for r in rows) if rows else 0
+    grid = [r.ljust(w) for r in rows]
+    for y in range(h):                                   # horizontal
+        ticks = [x for x in range(w) if grid[y][x] == "`"]
+        for a, b in zip(ticks[0::2], ticks[1::2]):
+            span = [grid[y][x] for x in range(a + 1, b)]
+            if all(c == " " or c.isdigit() for c in span):
+                out.update((x, y) for x in range(a, b + 1))
+    for x in range(w):                                   # vertical
+        ticks = [y for y in range(h) if grid[y][x] == "`"]
+        for a, b in zip(ticks[0::2], ticks[1::2]):
+            span = [grid[y][x] for y in range(a + 1, b)]
+            if all(c == " " or c.isdigit() for c in span):
+                out.update((x, y) for y in range(a, b + 1))
+    return out
+
+
+def dead_cells(rows, ir):
+    """Non-blank interior cells no man can reach, excluding literal content."""
+    reach = set()
+    for m in ir["men"]:
+        for k in m.get("reach", []):                 # the full walk, not just block cells
+            reach.add(tuple(int(t) for t in k.split(",")))
+        for b in m["blocks"]:
+            for p, _ in b:
+                reach.add(tuple(p))
+        for k in m["op_cells"]:
+            reach.add(tuple(int(t) for t in k.split(",")))
+    interior = set()
+    for r in ir["rooms"]:
+        (x0, y0), (x1, y1) = r["min"], r["max"]
+        for y in range(y0 + 1, y1):
+            for x in range(x0 + 1, x1):
+                interior.add((x, y))
+    # a man START cell is reachable by definition even if the walk record misses it
+    for m in ir["men"]:
+        reach.add(tuple(m["start"]))
+    # An I/O room's `I`/`O` marker sits INSIDE a room interior and no man can ever stand
+    # there, so it is formally unreachable — and blanking it removes the program's input or
+    # output entirely (gradebook went 7/7 -> a 5,000,000-tick timeout). Unreachable is not
+    # the same as unused; only cells whose ONLY role is to be executed are dead.
+    protected = {(x, y) for y in range(len(rows)) for x in range(len(rows[y]))
+                 if rows[y][x] in "IO"}
+    for r in ir["rooms"]:
+        (x0, y0), (x1, y1) = r["min"], r["max"]
+        if any(rows[y][x] in "IO"
+               for y in range(y0 + 1, y1) for x in range(x0 + 1, x1) if x < len(rows[y])):
+            protected |= {(x, y) for y in range(y0 + 1, y1) for x in range(x0 + 1, x1)}
+    lits = literal_cells(rows)
+    return [(x, y) for (x, y) in sorted(interior)
+            if rows[y][x] != " " and (x, y) not in reach
+            and (x, y) not in lits and (x, y) not in protected]
+
+
+def blank(rows, cells):
     grid = [list(r) for r in rows]
-    for (x, y) in cells:
-        if 0 <= y < len(grid) and 0 <= x < len(grid[y]):
-            grid[y][x] = " "
-    return ["".join(r) for r in grid]
+    for x, y in cells:
+        grid[y][x] = " "
+    return ["".join(r).rstrip() for r in grid]
 
 
-# ------------------------------------------------------------------ grading
-
-class Grader:
-    """Same contract as polish.py's: one JSON line per candidate, cached, parallel."""
-
-    def __init__(self, slug, cap, cases, workdir):
-        self.slug, self.cap, self.cases = slug, cap, cases
-        self.workdir = workdir
-        self.cache: dict[str, dict] = {}
-        self.calls = 0
-
-    def _run(self, text: str) -> dict:
-        fd, tmp = tempfile.mkstemp(suffix=".man", dir=self.workdir)
-        try:
-            with os.fdopen(fd, "w", encoding="utf-8") as fh:
-                fh.write(text)
-            cmd = ["node", str(GRADER), self.slug, tmp, "--failfast"]
-            if self.cap:
-                cmd += ["--cap", str(self.cap)]
-            if self.cases:
-                cmd += ["--cases", str(self.cases)]
-            p = subprocess.run(cmd, cwd=REPO, capture_output=True, text=True, timeout=7200)
-            line = ""
-            for ln in p.stdout.splitlines():
-                ln = ln.strip()
-                if ln.startswith("{"):
-                    line = ln
-            if not line:
-                return {"error": (p.stderr or p.stdout or "no output").strip()[:200]}
-            return json.loads(line)
-        except Exception as exc:  # noqa: BLE001 — a broken candidate must not kill the sweep
-            return {"error": f"{type(exc).__name__}: {exc}"}
-        finally:
-            try:
-                os.unlink(tmp)
-            except OSError:
-                pass
-
-    def grade(self, text: str) -> dict:
-        if text not in self.cache:
-            self.calls += 1
-            self.cache[text] = self._run(text)
-        return self.cache[text]
-
-    def grade_many(self, texts: list[str], jobs: int) -> list[dict]:
-        uniq = list(dict.fromkeys(t for t in texts if t not in self.cache))
-        if uniq:
-            self.calls += len(uniq)
-            with concurrent.futures.ThreadPoolExecutor(max_workers=jobs) as ex:
-                for t, r in zip(uniq, ex.map(self._run, uniq)):
-                    self.cache[t] = r
-        return [self.cache[t] for t in texts]
-
-
-ok = PO.ok
-fmt = PO.fmt
-key = PO.key
-
-
-# ------------------------------------------------------------------ passes
-
-def dce_pass(rows, dead, g, jobs, verbose) -> tuple[list[str], list[tuple[int, int]]]:
-    """Blank every dead cell we can. Try the whole batch first, then cell by cell.
-
-    Deleting dead code is semantically a no-op, so the batch is expected to pass outright;
-    the per-cell fallback exists because `unreachable` is only as good as the topology the
-    lift recovered, and one bad cell must not cost us the other ninety."""
-    if not dead:
-        return rows, []
-    whole = render(blank(rows, dead))
-    res = g.grade(whole)
-    base = g.grade(render(rows))
-    if ok(res) and res["score"] <= base["score"]:
-        print(f"   batch: all {len(dead)} dead cells blanked at once -> {fmt(res)}")
-        return blank(rows, dead), list(dead)
-
-    print(f"   batch of {len(dead)} REJECTED "
-          f"({fmt(res) if ok(res) else (res.get('error') or 'fails cases')}); "
-          f"falling back to one cell at a time")
-    texts = [render(blank(rows, [c])) for c in dead]
-    each = g.grade_many(texts, jobs)
-    good = [c for c, r in zip(dead, each) if ok(r) and r["score"] <= base["score"]]
-    if verbose:
-        for c, r in zip(dead, each):
-            if c not in good:
-                print(f"      x ({c[0]},{c[1]}) '{rows[c[1]][c[0]]}': "
-                      f"{r.get('error') or 'fails cases'}")
-    cur, kept = rows, []
-    for c in good:                                    # cumulative, each step re-graded
-        cand = blank(cur, [c])
-        r = g.grade(render(cand))
-        if ok(r) and r["score"] <= base["score"]:
-            cur, _ = cand, kept.append(c)
-    print(f"   per-cell: {len(kept)}/{len(dead)} dead cells blanked")
-    return cur, kept
-
-
-def trim_pass(rows, g, max_waves, verbose) -> list[str]:
-    """Delete blank rows/columns and margins the deletion may have exposed. Grade-gated."""
-    best = g.grade(render(rows))
-    cur = rows
-    trimmed, top, bot, left, _ = PO.trim_margins(cur)
-    if (top or bot or left) and trimmed:
-        r = g.grade(render(trimmed))
-        if ok(r) and key(r) <= key(best):
-            print(f"   trim margins: top={top} bottom={bot} left={left} -> {fmt(r)}")
-            cur, best = trimmed, r
-    for wave in range(max_waves):
-        cands = ([("row", i) for i, row in enumerate(cur) if PO.row_kind(row) == "blank-row"]
-                 + [("col", c) for c in range(PO.width(cur))
-                    if PO.col_kind(cur, c) == "blank-col"])
-        if not cands:
-            break
-        applied = 0
-        for d, i in cands:
-            cand = PO.drop(cur, {i} if d == "row" else set(), set() if d == "row" else {i})
-            r = g.grade(render(cand))
-            if ok(r) and key(r) <= key(best):
-                print(f"   + drop blank {d} {i}: {fmt(r)}")
-                cur, best, applied = cand, r, applied + 1
-                break                                 # indices shift: recompute the census
-            if verbose:
-                print(f"   x blank {d} {i}: {r.get('error') or 'no better'}")
-        if not applied:
-            break
-    return cur
-
-
-def fold_pass(rows, g, max_waves) -> list[str]:
-    """fold.py's line merges, which a freshly emptied cell can newly permit."""
-    cur = rows
-    best = g.grade(render(cur))
-    for wave in range(max_waves):
-        fab = FOLD.Fabric(cur)
-        cands = [(1, i) for i in fab.folds(1)] + [(0, i) for i in fab.folds(0)]
-        if not cands:
-            break
-        progressed = False
-        for axis in (1, 0):
-            idxs = [i for a, i in cands if a == axis]
-            if not idxs:
-                continue
-            for group in ([idxs] if len(idxs) > 1 else []) + [[i] for i in idxs]:
-                cand = FOLD.apply_folds(cur, axis, group)
-                r = g.grade(render(cand))
-                tag = "row" if axis == 1 else "col"
-                if ok(r) and key(r) <= key(best):
-                    print(f"   + fold {tag}s {group}: {fmt(r)}")
-                    cur, best, progressed = cand, r, True
-                    break
-        if not progressed:
-            break
-    return cur
-
-
-# ------------------------------------------------------------------ main
-
-def main() -> int:
-    ap = argparse.ArgumentParser(
-        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+def main():
+    ap = argparse.ArgumentParser()
     ap.add_argument("slug")
-    ap.add_argument("file")
-    ap.add_argument("--out", default=None, help="output path (default <name>-dce.man)")
-    ap.add_argument("--jobs", type=int, default=8)
-    ap.add_argument("--cap", type=int, default=None,
-                    help="tick cap per candidate; default 4x the baseline's worst case")
-    ap.add_argument("--cases", default=None, help="extra cases JSON for grade_json.js")
-    ap.add_argument("--fold", action="store_true", help="also run fold.py's line merges")
-    ap.add_argument("--max-waves", type=int, default=12)
-    ap.add_argument("--allow-y", action="store_true",
-                    help="run even though the program forks; the grade gate is then the only check")
-    ap.add_argument("--dry-run", action="store_true", help="census only: no grading, no output")
-    ap.add_argument("-v", "--verbose", action="store_true")
+    ap.add_argument("man")
+    ap.add_argument("--fold", action="store_true",
+                    help="after eliminating, run polish/fold to convert freed space into box")
+    ap.add_argument("--cases")
+    ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
 
-    src = Path(args.file).resolve()
-    if not src.exists():
-        print(f"no such file: {src}", file=sys.stderr)
-        return 2
-    out = Path(args.out).resolve() if args.out else src.with_name(src.stem + "-dce.man")
-    if out == src:
-        print("refusing to overwrite the input file", file=sys.stderr)
-        return 2
-
-    rows = load_rows(src)
-    t0 = time.time()
-    ds = DeadSet(rows)
-
-    w0, h0, box0 = PO.footprint(rows)
-    live = sum(1 for y in range(ds.h) for x in range(len(rows[y]))
-               if rows[y][x] != " " and ds.in_room_interior(x, y))
-    print(f"== dce {src.name}  [{args.slug}]   {w0}x{h0} box {box0}")
-    print(f"   {len(ds.rooms)} rooms, {len(ds.displays)} displays, {len(ds.pipes)} pipes, "
-          f"{len(ds.starts)} men")
-    print(f"   room-interior glyphs: {live};  statically reachable cells: {len(ds.reach)}")
-    print(f"   DEAD (unreachable, unprotected, in a room interior): {len(ds.dead)}")
-    if args.verbose or args.dry_run:
-        by_char: dict[str, int] = {}
-        for (x, y) in ds.dead:
-            by_char[rows[y][x]] = by_char.get(rows[y][x], 0) + 1
-        if by_char:
-            print("   by glyph: " + " ".join(f"{c!r}x{n}" for c, n in sorted(by_char.items())))
-            for (x, y) in ds.dead[:80]:
-                print(f"      ({x},{y}) {rows[y][x]!r}")
-
-    if ds.has_y():
-        msg = ("program contains `Y`: lift.walk only walks from `@`, so cells reached only "
-               "from a fork's birth positions look unreachable and would be wrongly deleted")
-        if not args.allow_y:
-            print(f"   REFUSING — {msg}. Pass --allow-y to override.")
-            return 1
-        print(f"   WARNING — {msg}; --allow-y given, the grade gate is the only check.")
-
+    rows = load_rows(args.man)
+    ir = lift(args.man)
+    dead = dead_cells(rows, ir)
+    W, H, box = box_of(rows)
+    ys = [y for _, y in dead]
+    xs = [x for x, _ in dead]
+    at_edge = [c for c in dead if c[0] in (min(xs), max(xs)) or c[1] in (min(ys), max(ys))] if dead else []
+    print(f"{os.path.basename(args.man)}: {W}x{H} box {box}, {len(dead)} dead cells "
+          f"({len(at_edge)} at the bbox edge — only those can shrink the box directly)")
+    if not dead:
+        print("  nothing to eliminate")
+        return
     if args.dry_run:
-        print(f"   --dry-run: nothing graded, nothing written ({time.time() - t0:.1f}s)")
-        return 0
-    if not ds.dead:
-        print("   nothing dead; the program is already fully reachable.")
-        return 0
+        print(f"  would blank: {dead[:12]}{' …' if len(dead) > 12 else ''}")
+        return
 
-    with tempfile.TemporaryDirectory(prefix="dce-") as workdir:
-        base_g = Grader(args.slug, None, args.cases, workdir)
-        base = base_g.grade(render(rows))
-        if not ok(base):
-            print(f"BASELINE DOES NOT PASS: {json.dumps(base)[:300]}")
-            return 1
-        worst = max((r.get("settleTick") or 0) for r in base.get("results", [])) or 0
-        cap = args.cap if args.cap is not None else max(1000, worst * 4)
-        g = Grader(args.slug, cap or None, args.cases, workdir)
-        g.cache[render(rows)] = base
-        print(f"   baseline: {fmt(base)}  ({base['passed']}/{base['total']} public)")
+    base = grade(args.slug, args.man, args.cases)
+    if base.get("error") or base["passed"] != base["total"]:
+        sys.exit(f"baseline does not pass: {base}")
+    print(f"  baseline {base['passed']}/{base['total']} score {base['score']:,.0f}")
 
-        cur, killed = dce_pass(rows, ds.dead, g, args.jobs, args.verbose)
-        if killed:
-            cur = trim_pass(cur, g, args.max_waves, args.verbose)
-            if args.fold:
-                cur = fold_pass(cur, g, args.max_waves)
+    cand = blank(rows, dead)
+    out = os.path.splitext(args.man)[0] + "-dce.man"
+    open(out, "w").write("\n".join(cand) + "\n")
+    g = grade(args.slug, out, args.cases)
+    nW, nH, nbox = box_of(cand)
+    ok = not g.get("error") and g["passed"] == g["total"]
+    print(f"  after DCE: {g.get('passed')}/{g.get('total')} box {box}->{nbox} "
+          f"score {g.get('score', 0):,.0f}" if ok else f"  after DCE: FAILED {g}")
+    if not ok:
+        os.remove(out)
+        sys.exit("  dead-cell removal broke the program — the reachability set is wrong, "
+                 "which is a lift.py bug worth reporting")
 
-        final = g.grade(render(cur))
-        print()
-        print("== report")
-        print(f"   dead cells found  : {len(ds.dead)}")
-        print(f"   dead cells deleted: {len(killed)}")
-        print(f"   before: {fmt(base)}")
-        print(f"   after : {fmt(final) if ok(final) else final}")
-        print(f"   {g.calls} candidate gradings in {time.time() - t0:.1f}s")
-        if not ok(final) or key(final) >= key(base):
-            print("   NO IMPROVEMENT — the deletions are score-neutral; nothing written.")
-            print("   (Blanking dead code frees cells for the placer but only pays once a")
-            print("    row/column empties or a fold becomes legal.)")
-            return 0
-        PO.atomic_write(out, render(cur))
-        gain = 100 * (1 - final["score"] / base["score"])
-        print(f"   score {base['score']:,.0f} -> {final['score']:,.0f} ({gain:.2f}% better)")
-        print(f"   wrote {out}")
-        print(f"   verify: node tools/grade.js {args.slug} {out}")
-        return 0
+    # The point of DCE here: freed cells may make whole lines deletable/foldable.
+    if args.fold:
+        for tool, flag in (("polish.py", None), ("fold.py", None)):
+            path = os.path.join(REPO, "tools", tool)
+            if not os.path.exists(path):
+                continue
+            r = subprocess.run(["python3", path, args.slug, out] + ([flag] if flag else []),
+                               capture_output=True, text=True, cwd=REPO, timeout=3600)
+            tail = [ln for ln in (r.stdout or "").splitlines() if ln.strip()][-3:]
+            print(f"  {tool}: " + " | ".join(t.strip() for t in tail))
+    print(f"\nwrote {os.path.relpath(out, REPO)}")
+    print(f"verify: node tools/grade.js {args.slug} {os.path.relpath(out, REPO)}")
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    main()

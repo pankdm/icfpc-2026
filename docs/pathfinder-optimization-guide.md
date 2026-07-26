@@ -185,3 +185,36 @@ On `the long game`, the reflow controller executes about 376k receives and
 212k blanks in 626k total ticks.  As in Pathfinder, geometry exposed serialized
 service receives as the next bottleneck.  Further square-folding requires
 fewer CFG rows or a more compact service protocol, not extra horizontal slack.
+
+## LLM application
+
+LLM uses `solutions/little-little-man/build_subset.py` rather than
+`tools/stateflow.py`, but it has the same controller-over-services shape.  An
+optional `lay_fn` hook there allows the banked/deduplicated Flow to reuse the
+same boustrophedon layouter.
+
+```text
+baseline pipe-io-banked-dedup.man
+  612x1768, avg 13.377M, local score 41.81T
+
+reflow pipe-io-banked-dedup-boustro-cx45-o0.man
+  277x1137, avg 10.893M, local score 14.08T
+```
+
+The reflow passes all 14 public cases under release Rust, reduces average
+ticks by 18.6%, and reduces local score by 66.3%.  The minimum tested
+binding-safe origin is `code_x=45`; widening operation slack did not reduce
+the 994-row controller because service-port bands force the wraps.
+
+Representative ticks:
+
+```text
+first steps  5.121M -> 4.375M
+grand tour  19.389M -> 16.147M
+```
+
+On reflowed `grand tour`, controller room 0 executes about 13.18M receives and
+2.60M blanks in 16.15M ticks.  LLM is therefore now much more service-latency
+bound than geometry-latency bound.  Another layout pass should target the
+remaining 1137-row box; another tick pass must reduce RAM transactions or
+their latency.

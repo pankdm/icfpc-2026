@@ -55,3 +55,24 @@ If a rewrite is not affordable, the current design still has ordinary folding he
 (control room is 34x49 inside a 61x61 envelope, and the rings are hand-routed). A 1.5-2x
 from geometry alone is worth +3 to +4 places, but nothing beyond that is reachable without
 changing how values are stored.
+
+---
+
+## CORRECTION (2026-07-26): the "cheap geometry fold" fallback does NOT exist
+
+The consolation prize suggested above — fold the existing 61x61 for ~1.5-2x — was
+recommended twice before being tested. All three routes to it are blocked:
+
+| route | result |
+|---|---|
+| `tools/compact_man.py` | `61x61 -> 61x61` — no globally redundant row or column |
+| `tools/autotune.py` via `build_opt5.py` | **the builder is broken**: `build_opt5.py run` dies with `PIPE COLLISION (15, -10)`, so the champion cannot be regenerated and there is no integer for the tuner to perturb (same trap CLAUDE.md records for tcp) |
+| `tools/smtplace.py` | `pipe 0: endpoint not on a room border (src (31,6) dst (32,11)) — cannot plan`; the lifter cannot read this grid's pipes |
+
+matmul *looked* like a good smtplace target — its largest room is 34x49 = 1,666, only
+**45%** of the 3,721 box (well under the 70% rule of thumb), and `max(w,h) >= 49`
+implies a 1.55x floor. The blocker is the lifter, not the geometry, so the win may
+still be there for anyone willing to fix `lift.py`'s endpoint detection for this grid.
+
+**Consequence: there is no low-risk incremental win on matmul.** The rewrite is the
+only path, which strengthens rather than weakens the case for finishing the carousel.

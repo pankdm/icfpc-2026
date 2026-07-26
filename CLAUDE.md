@@ -54,9 +54,19 @@ cached `tests/<slug>.json`. Local PASS ⇒ public-case PASS (same wasm the serve
 oracle and it is what makes any search or profiling loop affordable — pathfinder's 7 cases take
 ~60s on Rust and *minutes* on wasm (`sim/xray.js` on a 2M-tick pathfinder case does not finish
 in 10 minutes). Use it as a **pre-filter, not the judge**: fast reject ⇒ discard; fast pass ⇒
-re-grade with `tools/grade.js` before believing it (`interp/` has one known divergence,
-`fork-into-wall`, per `node sim/difftest.js`). `lm` also has `--profile` and `--inspect=N`
-(single-tick JSON snapshot) which the wasm harness cannot give you.
+`lm` also has `--profile` and `--inspect=N` (single-tick JSON snapshot) which the wasm
+harness cannot give you.
+
+**A Rust pass on the public cases is good enough to SUBMIT.** `node sim/difftest.js` compares
+the two engines step-by-step (runner states, pipe contents, output, end reason, parsed topology)
+and as of 2026-07-26 reports **54 passed, 0 failed** — including `fork-into-wall(copy)`, the
+fixture the old note called a known divergence. That divergence is FIXED; the note was stale.
+Since submitting never lowers a score, the cost of a rare false pass is one submission slot
+(max 5 pending), not points. Prefer the oracle as a final check when it is cheap, but do NOT
+block on it: it OOMs outright on LLLM (`Go program has already exited`) and `sim/xray.js` on a
+single 2M-tick pathfinder case does not finish in 10 minutes.
+The risk the Rust engine does NOT cover is the same one the oracle misses — PRIVATE cases.
+Generality, not engine fidelity, is what loses points.
 
 **`sim/xray.js` defaults to `--cap=120000` ticks.** On a multi-million-tick program that window
 may cover only the *setup* phase, and its GLOBAL/HEADROOM percentages will then describe the

@@ -5,11 +5,14 @@ Measured ~17x faster than the WASM oracle (0.07s vs 1.19s for sudoku's six cases
 it skips a Go/WASM boot per invocation. That multiplies every search: most candidates a
 search generates are rejects, and paying the oracle to reject them is the dominant cost.
 
-USE IT AS A PRE-FILTER, NOT AS THE JUDGE. `interp/` is a reimplementation and still has one
-known divergence from the reference (`fork-into-wall`, per `node sim/difftest.js`), so:
+GOOD ENOUGH TO SUBMIT ON. `interp/` is a reimplementation, but `node sim/difftest.js` compares
+it against the reference step-by-step and reports 54 passed / 0 failed as of 2026-07-26 --
+including `fork-into-wall(copy)`, which older notes called a known divergence (it is fixed).
+Submitting never lowers a score, so a rare false pass costs a submission slot, not points.
 
     fast reject  -> discard the candidate (cheap, and rejects are the common case)
-    fast pass    -> RE-GRADE with tools/grade_json.js before believing it
+    fast pass    -> ship it; re-grade on the oracle only when that is cheap. The oracle OOMs
+                    on LLLM and is far too slow for pathfinder-sized programs.
 
 `--verify` does exactly that pairing and reports any disagreement, which is also how you
 re-validate the engine after touching `interp/`.

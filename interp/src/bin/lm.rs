@@ -205,6 +205,12 @@ fn run_grade(args: &Args, rows: &[String]) {
             w.executed_cells.iter().map(|(k, v)| (*k, *v)).collect();
         cells.sort_by_key(|(_, count)| std::cmp::Reverse(*count));
         eprintln!("PROFILE cells={:?}", &cells[..cells.len().min(60)]);
+        let mut stalls: Vec<((i32, i32), u64)> =
+            w.stall_cells.iter().map(|(k, v)| (*k, *v)).collect();
+        stalls.sort_by_key(|(_, count)| std::cmp::Reverse(*count));
+        let total: u64 = stalls.iter().map(|(_, c)| *c).sum();
+        eprintln!("PROFILE stall_total={}", total);
+        eprintln!("PROFILE stalls={:?}", &stalls[..stalls.len().min(5000)]);
     }
 }
 

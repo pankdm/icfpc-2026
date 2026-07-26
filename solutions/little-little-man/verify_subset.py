@@ -70,7 +70,11 @@ def run_flow(
             pc = 0
             continue
 
-        if token.isdigit():
+        if len(token) > 1 and token[0] == "`" and token[-1] == "`":
+            digits = token.strip("`")
+            assert digits == digits[::-1], f"non-palindromic literal {token!r}"
+            a = int(digits)
+        elif token.isdigit():
             a = int(token)
         elif token == "M":
             b = a

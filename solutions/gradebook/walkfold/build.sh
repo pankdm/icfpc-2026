@@ -7,8 +7,9 @@
 #            them), and sliding a merge silently detaches the flow that joins there.
 #            Each patch keeps the executed instruction sequence identical and only moves
 #            where the cells sit; every `r`/`s` stays inside its pipe band.
-#   lift/norm/squash — the mechanical passes. `lift` runs to fixpoint after each patch
-#            because a patch frees cells the next round of lifting can use.
+#   lift/norm/pull/fuse/squash — the mechanical passes. `lift` runs to fixpoint after each
+#            patch because a patch frees cells the next round of lifting can use; `pull`
+#            and `fuse` then reclaim whole ROWS, which is what the box is made of.
 #
 # ORDER MATTERS: patch coordinates are absolute, and `squash` DELETES rows, so it runs
 # only once every patch has been applied.
@@ -36,10 +37,12 @@ $W patch $T/a.man $P/p3.json $T/b.man >/dev/null && mv $T/b.man $T/a.man   # ros
 $W patch $T/a.man $P/p4.json $T/b.man >/dev/null && mv $T/b.man $T/a.man   # roster loop B
 lift_fix $T/a.man
 
-for i in 1 2 3; do                 # only now may rows disappear
-  $W norm   $T/a.man $T/b.man >/dev/null
-  $W squash $T/b.man $T/a.man >/dev/null
+for i in 1 2 3 4 5; do             # only now may rows disappear
   lift_fix $T/a.man
+  $W norm   $T/a.man $T/b.man >/dev/null
+  $W pull   $T/b.man $T/c.man --rounds 40 --limit 1 >/dev/null
+  $W fuse   $T/c.man $T/b.man --rounds 40 --limit 1 >/dev/null
+  $W squash $T/b.man $T/a.man >/dev/null
 done
 
 cp $T/a.man $D/gradebook-walkfold.man

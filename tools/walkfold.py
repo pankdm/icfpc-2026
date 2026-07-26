@@ -381,6 +381,206 @@ def cmd_lift(args):
     print(f"  wrote {args.out} (total static gain {total} cells over {it} rounds)")
 
 
+# ------------------------------------------------------------- segment fusion
+
+def op_band(g, tab, ch, cell, room):
+    """The columns an op may legally occupy: its pipe's band, or the whole room."""
+    (x0, _), (x1, _) = g.rooms[room]["min"], g.rooms[room]["max"]
+    full = (x0 + 1, x1 - 1)
+    if ch not in "rqs":
+        return full
+    kind = "out" if ch == "s" else "in"
+    want = tab[cell[0]][kind]
+    cols = [x for x in tab if tab[x][kind] == want]
+    return (min(cols), max(cols)) if cols else full
+
+
+def plan_fuse(g, succ, room=0, verbose=False):
+    """Find a code row that can be appended to the previous row of the SAME direction.
+
+    The serpentine spends two rows per logical line: one carrying the ops and one walking
+    back to the west wall. Fusing the ops of line B onto line A's row empties both the
+    return row and B's row, and `squash` then deletes them -- and since the score is
+    max(w,h)^2, a deleted row on a height-bound program outweighs a lot of ticks.
+
+    Feasibility is a strictly-increasing column assignment: the man executes an E row
+    left-to-right, so op i must sit east of op i-1 AND inside its own pipe band. That is
+    what makes fusion FAIL honestly rather than silently -- two consecutive reads of the
+    input pipe both demand columns 1-5, so nothing can be placed between them."""
+    st = state_map(succ)
+    tab, pure, _, _ = bands(g, room)
+    if not pure:
+        return []
+    (rx0, ry0), (rx1, ry1) = g.rooms[room]["min"], g.rooms[room]["max"]
+    E, W, S, N = (1, 0), (-1, 0), (0, 1), (0, -1)
+    plans, refused = [], []
+
+    def priv(cell, dirs):
+        return st.get(cell, set()) <= set(dirs)
+
+    for yA in range(ry0 + 1, ry1 - 2):
+        # A ends with a 'v' reached heading E; below it a '<' opens the return row
+        cA = [x for x in range(rx0 + 1, rx1)
+              if g.at(x, yA) == "v" and priv((x, yA), [E])]
+        if len(cA) != 1:
+            continue
+        cA = cA[0]
+        if g.at(cA, yA + 1) != "<" or not priv((cA, yA + 1), [S]):
+            continue
+        ret = [x for x in range(rx0 + 1, rx1) if g.at(x, yA + 1) != " "]
+        if len(ret) != 2:
+            continue                       # return row must carry nothing else
+        t = min(ret)
+        if g.at(t, yA + 1) != "v" or not priv((t, yA + 1), [W]):
+            continue
+        # A cell a vertical corridor merely CROSSES is still fine: it is blank either way.
+        if any(not priv((x, yA + 1), [W, N, S]) for x in range(t, cA)):
+            continue
+        if g.at(t, yA + 2) != ">" or not priv((t, yA + 2), [S]):
+            continue
+        # B: the ops of row yA+2, ending at its own vertical turn
+        bcells = [x for x in range(t + 1, rx1) if g.at(x, yA + 2) != " "]
+        if not bcells:
+            continue
+        cB = max(bcells)
+        if any(not priv((x, yA + 2), [E, N, S]) for x in range(t + 1, cB + 1)):
+            continue
+        if g.at(cB, yA + 2) not in VERT or not priv((cB, yA + 2), [E]):
+            continue
+        ops = [(x, g.at(x, yA + 2)) for x in bcells if x != cB]
+        if any(ch in BRANCH or ch == "`" or ch in TURNS for _, ch in ops):
+            refused.append((yA, "B holds a branch, a literal or a turn"))
+            continue
+        # A's own glyphs, and the first column free for B
+        acols = [x for x in range(rx0 + 1, rx1) if g.at(x, yA) != " "]
+        cur = max(acols)                   # the 'v' at cA is the last of them
+        place, ok = [], True
+        for (x, ch) in ops:
+            lo, hi = op_band(g, tab, ch, (x, yA + 2), room)
+            nx = max(cur + 1, lo)
+            # a column a vertical corridor uses cannot hold a glyph -- step over it
+            while nx <= hi and nx < cB and (g.at(nx, yA) != " "
+                                            or not priv((nx, yA), [E])):
+                nx += 1
+            if nx > hi or nx >= cB:
+                ok = False
+                break
+            place.append((nx, ch))
+            cur = nx
+        if not ok:
+            refused.append((yA, f"no increasing in-band column assignment for {ops}"))
+            continue
+        if any(g.at(x, yA) != " " or not priv((x, yA), [E, N, S])
+               for x in range(cA + 1, cB + 1)):
+            continue
+        plans.append({"yA": yA, "cA": cA, "t": t, "cB": cB, "place": place,
+                      "bcols": bcells, "term": g.at(cB, yA + 2)})
+    if verbose:
+        for y, why in refused:
+            print(f"    refused row {y}: {why}")
+    return plans
+
+
+def plan_pull(g, succ, room=0, verbose=False):
+    """Pull a row straight up when the man only stepped down to keep going the SAME way.
+
+    A `v` with a `>` directly under it is a row change that buys nothing: those two rows
+    are one logical line the emitter happened to split. Nothing moves horizontally, so no
+    pipe can rebind, and a flow that used to join at the lower row now joins one row higher
+    onto the very same glyph."""
+    st = state_map(succ)
+    (rx0, ry0), (rx1, ry1) = g.rooms[room]["min"], g.rooms[room]["max"]
+    E, S, N = (1, 0), (0, 1), (0, -1)
+    plans = []
+    for yA in range(ry0 + 1, ry1 - 1):
+        acols = [x for x in range(rx0 + 1, rx1) if g.at(x, yA) != " "]
+        bcols = [x for x in range(rx0 + 1, rx1) if g.at(x, yA + 1) != " "]
+        if not acols or not bcols:
+            continue
+        c = max(acols)
+        if g.at(c, yA) != "v" or g.at(c, yA + 1) != ">" or min(bcols) != c:
+            continue
+        if st.get((c, yA)) != {E} or not st.get((c, yA + 1), set()) <= {S, N}:
+            continue
+        ok = True
+        for x in range(c + 1, max(bcols) + 1):
+            up, here = st.get((x, yA), set()), st.get((x, yA + 1), set())
+            if g.at(x, yA) != " ":
+                ok = False
+            elif g.at(x, yA + 1) != " ":
+                # a glyph moving up must take every flow that reaches it with it
+                if not (up <= {E, N} and here <= {E, N}):
+                    ok = False
+            elif not up <= {E, N, S}:
+                ok = False
+        if ok:
+            plans.append({"yA": yA, "move": [(x, g.at(x, yA + 1)) for x in bcols]})
+    if verbose:
+        print(f"    {len(plans)} pull candidates")
+    return plans
+
+
+def pull_patch(plans):
+    patch = {}
+    for p in plans:
+        for (x, ch) in p["move"]:
+            patch[f"{x},{p['yA'] + 1}"] = " "
+            patch[f"{x},{p['yA']}"] = ch
+    return patch
+
+
+def cmd_pull(args):
+    rows = load_rows(args.man)
+    total = 0
+    for it in range(args.rounds):
+        g = Grid(rows)
+        plans = plan_pull(g, g.walk(g.starts()[args.man_idx]), args.room, args.verbose)
+        plans = plans[:args.limit] if args.limit else plans
+        if not plans:
+            break
+        total += len(plans)
+        for p in plans:
+            print(f"  pulled row {p['yA'] + 1} up into row {p['yA']}")
+        rows = ["".join(r) for r in apply_patch(rows, pull_patch(plans))]
+    open(args.out, "w").write(render([list(r) for r in rows]))
+    print(f"  wrote {args.out} ({total} rows pulled)")
+
+
+def fuse_patch(plans):
+    patch = {}
+    for p in plans:
+        patch[f"{p['cA']},{p['yA']}"] = " "
+        patch[f"{p['cA']},{p['yA'] + 1}"] = " "
+        patch[f"{p['t']},{p['yA'] + 1}"] = " "
+        patch[f"{p['t']},{p['yA'] + 2}"] = " "
+        for x in p["bcols"]:
+            patch[f"{x},{p['yA'] + 2}"] = " "
+        for (x, ch) in p["place"]:
+            patch[f"{x},{p['yA']}"] = ch
+        patch[f"{p['cB']},{p['yA']}"] = p["term"]
+    return patch
+
+
+def cmd_fuse(args):
+    rows = load_rows(args.man)
+    total = 0
+    for it in range(args.rounds):
+        g = Grid(rows)
+        succ = g.walk(g.starts()[args.man_idx])
+        plans = plan_fuse(g, succ, args.room, args.verbose)
+        # one fusion per round: each empties rows the next round must re-analyse
+        plans = plans[:args.limit] if args.limit else plans
+        if not plans:
+            break
+        total += len(plans)
+        for p in plans:
+            print(f"  fused row {p['yA'] + 2} into row {p['yA']}: "
+                  + " ".join(f"{ch}@{x}" for x, ch in p["place"]))
+        rows = ["".join(r) for r in apply_patch(rows, fuse_patch(plans))]
+    open(args.out, "w").write(render([list(r) for r in rows]))
+    print(f"  wrote {args.out} ({total} rows fused)")
+
+
 def cmd_norm(args):
     """Drop turn glyphs that never turn anything.
 
@@ -483,6 +683,26 @@ def main():
     l.add_argument("--limit", type=int, default=0)
     l.add_argument("-v", "--verbose", action="store_true")
     l.set_defaults(fn=cmd_lift)
+
+    f = sub.add_parser("fuse")
+    f.add_argument("man")
+    f.add_argument("out")
+    f.add_argument("--man-idx", type=int, default=0)
+    f.add_argument("--room", type=int, default=0)
+    f.add_argument("--rounds", type=int, default=40)
+    f.add_argument("--limit", type=int, default=1)
+    f.add_argument("-v", "--verbose", action="store_true")
+    f.set_defaults(fn=cmd_fuse)
+
+    u = sub.add_parser("pull")
+    u.add_argument("man")
+    u.add_argument("out")
+    u.add_argument("--man-idx", type=int, default=0)
+    u.add_argument("--room", type=int, default=0)
+    u.add_argument("--rounds", type=int, default=40)
+    u.add_argument("--limit", type=int, default=1)
+    u.add_argument("-v", "--verbose", action="store_true")
+    u.set_defaults(fn=cmd_pull)
 
     n = sub.add_parser("norm")
     n.add_argument("man")

@@ -44,8 +44,9 @@ BASE_FLOOR = dict(scalar_off=24, cell_off=112, ctop=5, sp_row=8, ri_row=12,
                   sd_band=8, ss_band=20)
 
 # The banked RAM servers attach their reply pipes *inside* their own component,
-# so even a correct build reports a few loose pipe ends.  Budget = whatever the
-# baseline produces; anything above it is a port pipe that missed its room.
+# so even a correct build reports a few loose pipe ends.  The reference is the
+# baseline's loose-end SET (pipe index + side), not its count: a count budget
+# lets a candidate fix one known end and break a real one for free.
 BASE_DANGLING = None
 
 
@@ -70,10 +71,10 @@ def evaluate(cols, floor, code_x=10, verify=False):
     if manlint.literal_faults(program.render().split("\n")):
         return None
     global BASE_DANGLING
-    loose = len(manlint.dangling_pipes(program))
+    loose = manlint.dangling_signature(program)
     if BASE_DANGLING is None:
         BASE_DANGLING = loose
-    elif loose > BASE_DANGLING:
+    elif loose != BASE_DANGLING:
         return None
     if verify:
         try:

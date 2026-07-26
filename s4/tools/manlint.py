@@ -77,29 +77,37 @@ def dangling_pipes(program):
     bodies use the same '-' and '|'.
     """
     bad = []
-    for first, last, _n, back, fwd in program.pipes:
-        for cell, end in ((back, first), (fwd, last)):
-            if cell not in program.room_cells:
-                bad.append((end, cell))
+    for i, (first, last, _n, back, fwd) in enumerate(program.pipes):
+        for side, cell in (("head", back), ("tail", fwd)):
+            if (program.get(*cell) not in WALL
+                    or cell in program.pipe_cells):
+                bad.append((i, side))
     return bad
 
 
 # The banked RAM servers hand out reply attachments *inside* their own component
-# (split_belts deletes the proxy I/O rooms and leaves a gap), so a correct build
-# still reports a few loose ends.  A search therefore compares against the count
-# its own baseline produces rather than demanding zero.
-def dangling_budget(program):
-    return len(dangling_pipes(program))
+# (split_belts deletes the proxy I/O rooms, leaving a gap that is not a wall), so
+# a correct build still reports a few loose ends.  They are the same pipes every
+# time -- `_compact_components` emits pipes in a fixed order -- so a search must
+# compare the loose-end *set* against its baseline, not the count: a candidate
+# that accidentally fixes one known end has budget left over to break a real one,
+# which is exactly how a 36,864-box snake candidate passed a count check and then
+# failed every case with "pipe ends without reaching another room".
+def dangling_signature(program):
+    return frozenset(dangling_pipes(program))
 
 
-def check(program, allow_dangling=0):
+def check(program, allow_dangling=None):
     """None when the grid is structurally plausible, else a reason string."""
     bad = bad_overwrites(program)
     if bad:
         return f"{len(bad)} collisions, first {bad[0]}"
-    loose = dangling_pipes(program)
-    if len(loose) > allow_dangling:
-        return f"{len(loose)} dangling pipe ends, first {loose[0]}"
+    loose = dangling_signature(program)
+    if allow_dangling is not None and loose != allow_dangling:
+        return (f"dangling pipe ends {sorted(loose)} differ from the expected "
+                f"{sorted(allow_dangling)}")
+    if allow_dangling is None and loose:
+        return f"{len(loose)} dangling pipe ends, first {sorted(loose)[0]}"
     faults = literal_faults(program.render().split("\n"))
     if faults:
         return f"{len(faults)} malformed literals, first {faults[0]}"

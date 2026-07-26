@@ -59,10 +59,10 @@ def evaluate(cols, floor, verify=False, queue_floor=QUEUE_FLOOR):
     if manlint.bad_overwrites(program):
         return None
     global BASE_DANGLING
-    loose = len(manlint.dangling_pipes(program))
+    loose = manlint.dangling_signature(program)
     if BASE_DANGLING is None:
         BASE_DANGLING = loose
-    elif loose > BASE_DANGLING:
+    elif loose != BASE_DANGLING:
         return None
     qr = layout["ports"]["qr"]
     queue = [rec[2] for rec in program.pipes if rec[1] == qr]

@@ -50,9 +50,11 @@ class Program:
         # loader requires to sit on a room border ("pipe ends without reaching
         # another room" otherwise).
         self.pipes = []
-        # Cells written as a room/display border, so an endpoint check can tell a
-        # real wall from a pipe body -- both are drawn with '-' and '|'.
-        self.room_cells = set()
+        # Cells written as pipe body/arrowheads.  A wall and a pipe are both
+        # drawn with '-' and '|', and components stamped by copying another
+        # Program's cells never go through `room` at all, so "is this a wall?"
+        # is answered as "wall glyph that no pipe wrote".
+        self.pipe_cells = set()
 
     # ---- primitives ----
     def put(self, x, y, ch, kind="cell"):
@@ -79,12 +81,6 @@ class Program:
     def room(self, x, y, w, h, glyphs="+-|"):
         """Draw a w×h room with top-left at (x,y). Returns its Rect (outer + interior)."""
         cor, hor, ver = glyphs
-        for i in range(w):
-            self.room_cells.add((x + i, y))
-            self.room_cells.add((x + i, y + h - 1))
-        for j in range(h):
-            self.room_cells.add((x, y + j))
-            self.room_cells.add((x + w - 1, y + j))
         for i in range(w):
             self.put(x + i, y, hor, "room")
             self.put(x + i, y + h - 1, hor, "room")
@@ -130,6 +126,7 @@ class Program:
         cells.append((lx, ly, cells[-1][2], cells[-1][3]))
         for idx, (x, y, dx, dy) in enumerate(cells):
             bend = idx > 0 and (cells[idx - 1][2], cells[idx - 1][3]) != (dx, dy)
+            self.pipe_cells.add((x, y))
             if idx == 0 or idx == len(cells) - 1 or bend:
                 self.put(x, y, VEC2ARROW[(dx, dy)], "pipe")
             else:

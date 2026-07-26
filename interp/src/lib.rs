@@ -79,9 +79,9 @@ impl Pipe {
     #[inline]
     fn count(&self) -> i64 { self.occupied.len() as i64 }
     #[inline]
-    fn src_cell(&self) -> Pt { self.path[0] }
+    pub fn src_cell(&self) -> Pt { self.path[0] }
     #[inline]
-    fn dst_cell(&self) -> Pt { *self.path.last().unwrap() }
+    pub fn dst_cell(&self) -> Pt { *self.path.last().unwrap() }
     #[inline]
     fn push(&mut self, value: i64) -> bool {
         if self.values[0].is_some() { return false; }
@@ -145,6 +145,10 @@ pub struct World {
     pub footprint: i64,
     step_cap: u64,
     pub output: Vec<i64>,
+    pub executed: HashMap<char, u64>,
+    pub room_exec: Vec<u64>,
+    pub room_glyph: HashMap<(usize, char), u64>,
+    pub executed_cells: HashMap<Pt, u64>,
 
     // IO / rounds
     input_tokens: Vec<i64>,      // flattened across all rounds
@@ -219,6 +223,8 @@ impl World {
             rooms: vec![], pipes: vec![], displays: vec![], runners: vec![],
             next_id: 0, step_count: 0, end: EndReason::Running, footprint, step_cap,
             output: vec![],
+            executed: HashMap::new(), room_exec: vec![], room_glyph: HashMap::new(),
+            executed_cells: HashMap::new(),
             input_tokens: vec![], round_in_end: vec![], round_out_end: vec![],
             released_round: 0, input_read: 0, input_pipe: None, output_pipe: None,
             expected: vec![], expected_frames: vec![], round_frame_end: vec![], frame_w: 0, frame_h: 0,
@@ -231,6 +237,7 @@ impl World {
         if let Err(msg) = world.build_topology() {
             world.end = EndReason::LoadError { message: msg };
         }
+        world.room_exec.resize(world.rooms.len(), 0);
         world
     }
 
@@ -414,7 +421,13 @@ impl World {
                     match room {
                         Some(ri) => {
                             *per_room.entry(ri).or_insert(0) += 1;
-                            if per_room[&ri] > 1 { return Err("room has multiple '@'s".into()); }
+                            if per_room[&ri] > 1 {
+                                let r = &self.rooms[ri];
+                                return Err(format!(
+                                    "room {} {:?}..{:?} has multiple '@'s (latest at {},{})",
+                                    ri, r.min, r.max, x, y
+                                ));
+                            }
                             runners.push(Runner {
                                 id: self.next_id, pos: (x, y), dir: (1, 0),
                                 a: 0, b: 0, bp: 0, halted: false, blocked: false,
@@ -515,16 +528,29 @@ impl World {
                 return Ok((path, self.border_room(nxt.0, nxt.1)));
             }
             if !is_pipe_glyph(nxt.0, nxt.1) {
-                return Err("pipe dangling".into());
+                return Err(format!(
+                    "pipe dangling after {:?} heading {:?}; next {:?} is {:?}",
+                    pos, dir, nxt, self.at(nxt.0, nxt.1)
+                ));
             }
             let cn = self.at(nxt.0, nxt.1);
             path.push(nxt);
             if is_arrow(cn) {
                 dir = arrow_dir(cn);
             } else if cn == '-' {
-                if dir.1 != 0 { return Err("wrong pipe body glyph".into()); }
+                if dir.1 != 0 {
+                    return Err(format!(
+                        "wrong pipe body glyph at ({},{}): '-' while moving ({},{})",
+                        nxt.0, nxt.1, dir.0, dir.1
+                    ));
+                }
             } else if cn == '|' {
-                if dir.0 != 0 { return Err("wrong pipe body glyph".into()); }
+                if dir.0 != 0 {
+                    return Err(format!(
+                        "wrong pipe body glyph at ({},{}): '|' while moving ({},{})",
+                        nxt.0, nxt.1, dir.0, dir.1
+                    ));
+                }
             }
             pos = nxt;
             if path.len() > (self.w * self.h) as usize + 4 { return Err("pipe loop".into()); }
@@ -966,6 +992,13 @@ impl World {
             let (x, y) = self.runners[i].pos;
             let ch = self.cell(x, y);
             let dir = self.runners[i].dir;
+            *self.executed.entry(ch).or_insert(0) += 1;
+            *self.executed_cells.entry((x, y)).or_insert(0) += 1;
+            let room = self.runners[i].room;
+            if room < self.room_exec.len() {
+                self.room_exec[room] += 1;
+            }
+            *self.room_glyph.entry((room, ch)).or_insert(0) += 1;
             // literal content cell (digit/space between backticks) -> nop
             if self.lit_content.contains(&(x, y)) { continue; }
             // literal closing?

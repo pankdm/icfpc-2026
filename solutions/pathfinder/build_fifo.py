@@ -151,10 +151,16 @@ def build_flow():
     return f
 
 
-def build(belt_count=8):
+def build(belt_count=9, code_x=60, scalar_belts=1):
     return stateflow.build_program(
         build_flow(),
         scalar_size=SCALAR_RAM_N,
+        scalar_belts=scalar_belts,
+        fast_scalar_ram=scalar_belts > 1,
+        scalar_command_band=2,
+        scalar_reply_band=1,
+        scalar_display_offset=60,
+        code_x=code_x,
         queue=True,
         fast_cell_ram=True,
         cell_belts=belt_count,
@@ -164,9 +170,14 @@ def build(belt_count=8):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--belts", type=int, default=8)
+    parser.add_argument("--belts", type=int, default=9)
+    parser.add_argument("--code-x", type=int, default=60)
+    parser.add_argument("--scalar-belts", type=int, default=1)
     args = parser.parse_args()
-    program = build(args.belts)
-    output = os.path.join(HERE, f"reverse-bfs-fifo-b{args.belts}.man")
+    program = build(args.belts, args.code_x, args.scalar_belts)
+    output = os.path.join(
+        HERE,
+        f"reverse-bfs-fifo-b{args.belts}-s{args.scalar_belts}-x{args.code_x}.man",
+    )
     program.save(output)
     print("saved", output, "footprint", program.footprint())

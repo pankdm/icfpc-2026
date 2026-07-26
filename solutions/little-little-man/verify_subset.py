@@ -29,6 +29,8 @@ def run_flow(
     return_ram=False,
     frame_hook=None,
     token_hook=None,
+    ram_hook=None,
+    expected_frames=None,
 ):
     blocks = builder.build_flow().blocks
     input_values = deque(int(value) for rnd in rounds for value in rnd["in"])
@@ -36,12 +38,16 @@ def run_flow(
     ram_cmd = []
     ram_replies = deque()
     cell_cmd = []
+    packed_cell_write = None
+    packed_replica_writes = {}
+    packed_replica_replies = {}
     cell_replies = deque()
     scratch = deque()
+    queue = deque()
     frames = []
     next_pixels = [0] * 256
     display_cursor = 0
-    a = b = 0
+    a = b = backpack = 0
     label = "START"
     pc = 0
 
@@ -80,6 +86,8 @@ def run_flow(
             a = s64(-a)
         elif token == "&":
             a = s64(a & b)
+        elif token == "|":
+            a = s64(a | b)
         elif token == "{":
             a = s64(a << b) if 0 <= b <= 63 else 0
         elif token == "}":
@@ -98,6 +106,10 @@ def run_flow(
             scratch.append(a)
         elif token == "rp":
             a = scratch.popleft()
+        elif token == "qs":
+            queue.append(a)
+        elif token == "qr":
+            a = queue.popleft()
         elif token == "sc":
             ram_cmd.append(a)
             if len(ram_cmd) >= 2:
@@ -119,26 +131,69 @@ def run_flow(
                             f"{label}[{pc - 1}], step {steps}; command={ram_cmd}"
                         )
                     ram[addr] = ram_cmd[2]
+                    if ram_hook is not None:
+                        ram_hook(addr, ram_cmd[2])
                     ram_cmd.clear()
         elif token == "rr":
             a = ram_replies.popleft()
-        elif token == "cc":
-            cell_cmd.append(a)
-            if len(cell_cmd) >= 2:
-                op, addr = cell_cmd[:2]
-                logical_addr = build.CELL0 + addr
-                if op == 0:
-                    if not 0 <= addr < 256:
-                        raise AssertionError(f"cell RAM read address {addr} out of range")
-                    cell_replies.append(ram[logical_addr])
-                    cell_cmd.clear()
-                elif len(cell_cmd) == 3:
-                    if not 0 <= addr < 256:
-                        raise AssertionError(f"cell RAM write address {addr} out of range")
-                    ram[logical_addr] = cell_cmd[2]
-                    cell_cmd.clear()
-        elif token == "cr":
-            a = cell_replies.popleft()
+        elif token == "cc" or (
+            len(token) == 3 and token[0] == "c" and token[1].isdigit()
+            and token[2] == "s"
+        ):
+            if getattr(builder, "PACKED_CELL", False):
+                replica = "cc" if token == "cc" else token[:2]
+                pending_write = (
+                    packed_cell_write if replica == "cc"
+                    else packed_replica_writes.get(replica)
+                )
+                if pending_write is not None:
+                    ram[build.CELL0 + pending_write] = a
+                    if replica == "cc":
+                        packed_cell_write = None
+                    else:
+                        packed_replica_writes[replica] = None
+                elif a >= 0:
+                    addr = a
+                    reply_queue = (
+                        cell_replies if replica == "cc"
+                        else packed_replica_replies.setdefault(replica, deque())
+                    )
+                    reply_queue.append(ram[build.CELL0 + addr])
+                else:
+                    address = -a - 1
+                    if not 0 <= address < 256:
+                        raise AssertionError(
+                            f"packed cell write address {address} out of range"
+                        )
+                    if replica == "cc":
+                        packed_cell_write = address
+                    else:
+                        packed_replica_writes[replica] = address
+            else:
+                cell_cmd.append(a)
+                if len(cell_cmd) >= 2:
+                    op, addr = cell_cmd[:2]
+                    logical_addr = build.CELL0 + addr
+                    if op == 0:
+                        if not 0 <= addr < 256:
+                            raise AssertionError(f"cell RAM read address {addr} out of range")
+                        cell_replies.append(ram[logical_addr])
+                        cell_cmd.clear()
+                    elif len(cell_cmd) == 3:
+                        if not 0 <= addr < 256:
+                            raise AssertionError(f"cell RAM write address {addr} out of range")
+                        ram[logical_addr] = cell_cmd[2]
+                        cell_cmd.clear()
+        elif token == "cr" or (
+            len(token) == 3 and token[0] == "c" and token[1].isdigit()
+            and token[2] == "r"
+        ):
+            if token == "cr":
+                a = cell_replies.popleft()
+            else:
+                a = packed_replica_replies[token[:2]].popleft()
+        elif token == "p":
+            a, backpack = backpack, a
         elif token == "sd":
             if not 0 <= a <= 15:
                 raise AssertionError(f"display color {a} out of range")
@@ -157,10 +212,15 @@ def run_flow(
                 raise AssertionError(f"display swap value {a} is not 0 or 1")
             if frame_hook is not None:
                 frame_hook(len(frames), ram, next_pixels)
-            if len(frames) == len(rounds):
+            target_frames = len(rounds) if expected_frames is None else expected_frames
+            if len(frames) == target_frames:
                 if return_ram:
                     return frames, steps, ram
                 return frames, steps
+        elif token == "H":
+            if return_ram:
+                return frames, steps, ram
+            return frames, steps
         else:
             raise AssertionError(f"unknown token {token!r}")
 

@@ -17,15 +17,15 @@ a 2D ASCII grid esolang (little men `@` walking rooms, hands/backpack, pipes, LM
   - `trace.js`, `grid.js`, and the `run*.js` / `scan_swap.js` / `swapsearch.js` scripts are the
     experiment harnesses used to reverse-engineer semantics.
 - **`docs/`** — reverse-engineered semantics.
+  - `agent-framework-guide.md` — end-to-end construction, verification,
+    profiling, optimization, submission, and handoff workflow.
   - `multi-man-interactions.md` — how multiple little men interact (fork `Y`, collision, reaping,
     walls, lockstep), all confirmed against the oracle.
 
 ## Interpreter status
 
-Milestone 1 (validated byte-for-byte vs. the oracle): rooms, men, movement, all non-pipe
-instructions (arithmetic with floored div/mod + i64 wrapping, hands, backpack, `X`, directions,
-`H`, digits), `Y` fork, man↔man collision, wall faults (both timings), reaping.
-
-TODO: pipes (`s S r R U q` + capacity/timing), IO rooms, LM-75 display, numeric literals,
-round gating; then a fuzzer to pin remaining edge cases; then a pyo3 binding for a Python
-search loop.
+The Rust interpreter implements the full language used by the contest:
+rooms, movement, arithmetic, literals, forks and collisions, pipes and pipe
+contention, I/O, LM-75 displays, and multi-round gating. It is kept in parity
+with the organizer WASM through differential tests. The WASM remains the final
+oracle for submissions.

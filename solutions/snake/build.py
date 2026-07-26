@@ -134,7 +134,8 @@ def build_flow():
 
 
 def build(**kwargs):
-    return stateflow.build_program(build_flow(), scalar_size=SCALAR_RAM_N, **kwargs)
+    kwargs.setdefault("scalar_size", SCALAR_RAM_N)
+    return stateflow.build_program(build_flow(), **kwargs)
 
 
 VARIANTS = {
@@ -152,6 +153,12 @@ VARIANTS = {
     "linked-compact-cx60-cb8.man": dict(
         code_x=60, compact=True, fast_cell_ram=True, cell_belts=8,
         fast_scalar_ram=True, scalar_belts=4,
+    ),
+    # Only 14 scalar addresses are used: a 16-slot scalar (4 cells/belt)
+    # halves the hottest RAM latency. cell_belts=16 fails all cases.
+    "linked-compact-s16-cx45.man": dict(
+        scalar_size=16, code_x=45, compact=True, fast_cell_ram=True,
+        cell_belts=8, fast_scalar_ram=True, scalar_belts=4,
     ),
 }
 

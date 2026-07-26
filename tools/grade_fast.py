@@ -30,9 +30,18 @@ LM = os.path.join(REPO, "interp", "target", "release", "lm")
 
 
 def rounds_of(tc):
+    """(input, expected, framesJson) exactly as tools/lib.js buildCase() forms them.
+
+    Display problems express their expectation as FRAMES, not integers. Omitting them does
+    not fail loudly — the engine simply has nothing to match, so it never settles and runs to
+    the tick cap, reporting `pass` with avgTicks = cap. That looked like an engine bug on
+    plotter (32.8e9 vs the oracle's 202e6) and was this omission."""
     rs = tc.get("rounds") or [tc]
+    per_round_frames = [r.get("frames") or [] for r in rs]
+    frames_json = json.dumps(per_round_frames) if any(per_round_frames) else ""
     return (" / ".join(" ".join(r.get("in") or []) for r in rs),
-            " / ".join(" ".join(r.get("out") or []) for r in rs))
+            " / ".join(" ".join(r.get("out") or []) for r in rs),
+            frames_json)
 
 
 def footprint(path):
@@ -57,9 +66,11 @@ def grade(slug, man, cap=None):
     tick_cap = cap or spec.get("tickCap") or 5_000_000
     results, ticks = [], []
     for tc in cases:
-        inp, exp = rounds_of(tc)
-        p = subprocess.run([LM, "--grade", man, f"--input={inp}", f"--expected={exp}",
-                            f"--cap={int(tick_cap)}"], capture_output=True, text=True, timeout=900)
+        inp, exp, frames = rounds_of(tc)
+        cmd = [LM, "--grade", man, f"--input={inp}", f"--expected={exp}", f"--cap={int(tick_cap)}"]
+        if frames:
+            cmd.append(f"--frames={frames}")
+        p = subprocess.run(cmd, capture_output=True, text=True, timeout=900)
         try:
             v = json.loads((p.stdout or "").strip().splitlines()[-1])
         except (ValueError, IndexError):

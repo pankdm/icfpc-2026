@@ -65,8 +65,41 @@ CODE_SLACK = 14         # spare code columns east of the last port column
 # (ticks), and the two trade off against each other.  Any future search here must
 # optimise box x ticks, not rows.  This order is the best MEASURED one.
 HOLDER_ORDER = [
-    "KK", "PCOL", "RETM", "SH", "AD", "CD", "BL", "AL", "OPR", "VLR",
-    "PH", "PA", "ADS", "HHT", "HD", "WW", "NOTMF", "PATF", "NOTME", "PATE",
+    "KK", "PCOL", "SH", "AD", "HD",
+    "RETM", "CD", "BL", "VLR", "OPR",
+    "AL", "WW", "PA", "HHT", "PH",
+    "NOTME", "PATF", "PATE", "NOTMF", "ADS",
+]
+
+# Block layout order, searched by search_layout.py against cost_model.py.
+# Empty == use lllm_flow's own emission order.
+BLOCK_ORDER = [
+    "BOOT", "FALLBACK", "CELL_LOOP", "NONDIGIT",
+    "CELL_CODED", "NOT_AT", "NOT_PLUS", "ROW_END",
+    "LATER_PLUS", "PLUS_CHK_X", "P_STEP_M", "P_STEP_B",
+    "MASKS", "REP_BODY", "REP_LOOP", "PAD_ROWS",
+    "PAD_BODY", "PAD_LOOP", "ROOM_CHECK", "ROOM_CHECK2",
+    "P_SPIN_B", "P_RW_B", "RENDER_INIT", "FIRST_PLUS",
+    "PATCH_MID_INIT", "PATCH_MID", "RENDER_DONE", "P_ROT_M",
+    "P_SPIN_M", "P_RW_M", "PATCH_MID_NEXT", "R_EMIT",
+    "R_CHK", "R_LOOP", "ROT_BODY", "ROT_LOOP",
+    "FETCH_SAME", "FETCH_DONE", "STEP_TAIL", "RING_READ",
+    "FETCH_ROW", "STEP", "STEP_ALIVE", "DOTICK",
+    "D_LOW", "ADV_E", "ADVANCE", "ADV_W",
+    "ADV_S", "OP_W", "ADV_N", "D_LOW2",
+    "OP_E", "ROUND_END", "NEXT_ROUND", "D_MID",
+    "OP_SUB", "OP_N", "OP_M", "OP_S",
+    "P_ROT_B", "OP_DIGIT", "OP_X", "OP_ADD",
+    "X_CW", "PATCH_BOT", "OP_H", "P_STEP_T",
+    "X_CCW", "P_ROT_T", "P_SPIN_T", "PATCH_INIT",
+    "MASKS1B", "MASKS2", "P_RW_T",
+]
+
+# Holders whose DROP pipe takes the right-hand interior column, so that `hr`
+# comes after `hw` in reading order.  Searched by search_layout.py.
+HOLDER_FLIP = [
+    "AL", "CD", "HD", "KK", "NOTMF",
+    "OPR", "PATF", "RETM", "VLR", "WW",
 ]
 
 ARROW_S, ARROW_W, ARROW_E, ARROW_N = "v", "<", ">", "^"
@@ -90,10 +123,20 @@ PORT_ORDER = ("in", "ot", "rs", "rr", "ds", "da", "dd")
 # ===========================================================================
 # 1.  CFG shape
 # ===========================================================================
-def split_blocks(flow):
-    """[(label, tokens)] in fall-through order; tokens keep their inline branches."""
+def split_blocks(flow, order=None):
+    """[(label, tokens)] in LAYOUT order; tokens keep their inline branches.
+
+    Layout order is free -- every edge is explicit, so any permutation runs the
+    same program -- and it is worth a lot: a `go` to the block laid out directly
+    below is a 2-cell descend and costs ONE row, while every other edge pays a
+    west run to a highway lane, the ride, the glide back east, and two rows.
+    `order` is searched by search_layout.py; the entry block must stay first.
+    """
+    order = order or BLOCK_ORDER or flow.order
+    assert sorted(order) == sorted(flow.order), "BLOCK_ORDER is stale"
+    assert order[0] == flow.order[0], "the entry block must be laid out first"
     out = []
-    for label in flow.order:
+    for label in order:
         toks = flow.blocks[label]
         assert isinstance(toks[-1], tuple) and toks[-1][0] == "go", label
         out.append((label, toks))
@@ -122,7 +165,7 @@ class Columns(object):
     def __init__(self, blocks, holder_order, pitch=HOLDER_PITCH,
                  port_gap=PORT_GAP, hwy_gap=HWY_GAP, lead_in=LEAD_IN,
                  lanes=None, heat=None, code_slack=CODE_SLACK,
-                 tiers=BAND_TIERS, port_order=PORT_ORDER):
+                 tiers=BAND_TIERS, port_order=PORT_ORDER, flip=()):
         self.hwy_targets = sorted(entry_labels(blocks))
         # A highway column is only busy between its highest join row and its
         # target row, and men cross an idle one on a BLANK cell, so targets with
@@ -168,11 +211,20 @@ class Columns(object):
         self.holder_tier = {}
         self.hr = {}
         self.hw = {}
+        # WHICH of the two interior columns carries the DROP pipe is free: a
+        # holder room has exactly one incoming and one outgoing pipe, so the
+        # room's own r/s cannot mis-bind either way.  It matters a lot to the
+        # controller though.  `get(h)` is `hr` then `hw`; with hr always on the
+        # left, every get() on a WESTWARD ribbon row asks for a column behind
+        # the cursor and costs a whole wrap row.  So the side is a per-holder
+        # bit that search_layout.py picks.
+        flip = flip or ()
+        self.flip = set(flip)
         for i, name in enumerate(holder_order):
             self.holder_tier[name] = i % tiers
             self.holder_room_x[name] = x
-            self.hr[name] = x + 1
-            self.hw[name] = x + 2
+            lo, hi = x + 1, x + 2
+            self.hr[name], self.hw[name] = (hi, lo) if name in self.flip else (lo, hi)
             x += pitch
         x += HOLDER_W - pitch
         self.code_hi = x + code_slack
@@ -518,14 +570,15 @@ def checked_room(g, x, y, w, h, glyphs="+-|"):
 # ===========================================================================
 def build(holder_order=None, pitch=HOLDER_PITCH, ring_lift=RING_LIFT,
           port_gap=PORT_GAP, lead_in=LEAD_IN, code_slack=CODE_SLACK,
-          tiers=BAND_TIERS, port_order=PORT_ORDER):
+          tiers=BAND_TIERS, port_order=PORT_ORDER, block_order=None,
+          flip=None):
     flow = F.build_flow()
-    blocks = split_blocks(flow)
+    blocks = split_blocks(flow, block_order)
     holder_order = holder_order or [h for h in HOLDER_ORDER if h in F.HOLDERS]
     assert sorted(holder_order) == sorted(F.HOLDERS), "HOLDER_ORDER is stale"
     kw = dict(pitch=pitch, port_gap=port_gap, lead_in=lead_in,
               code_slack=code_slack, tiers=tiers, port_order=port_order,
-              heat=SIM.block_heat())
+              flip=HOLDER_FLIP if flip is None else flip, heat=SIM.block_heat())
     cols = Columns(blocks, holder_order,
                    lanes=plan_lanes(blocks, holder_order, **kw), **kw)
 

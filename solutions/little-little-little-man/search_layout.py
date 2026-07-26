@@ -12,6 +12,11 @@ WHAT IS FREE.  Two orderings do not change a single instruction:
                 a 2-cell descend; every other edge pays a west run to a highway
                 lane, the ride, and the glide back east.  So the hottest
                 successor of each block wants to be the block right below it.
+  HOLDER FLIP   which of a holder room's two interior columns carries the DROP
+                pipe.  `get(h)` is `hr` then `hw`, so with the drop always on
+                the left EVERY get() on a westward ribbon row asks for a column
+                behind the cursor and costs a whole wrap row -- and 197 of the
+                388 controller rows are wraps.
 
 Both were previously searched on ROW COUNT alone, which is why the last attempt
 graded 27% worse on ticks (see the HOLDER_ORDER comment in build_lllm.py).  The
@@ -19,6 +24,7 @@ objective here is the real one, max(w, h)^2 * ticks, with ticks from the exact
 model -- 4 ms per candidate instead of a 55 s grade.
 """
 import argparse
+import json
 import os
 import random
 import sys
@@ -49,15 +55,16 @@ class Objective(object):
     def blocks_for(self, order):
         return [(l, self.by_label[l]) for l in order]
 
-    def __call__(self, holder_order, block_order, rounds=2):
-        key = (tuple(holder_order), tuple(block_order), rounds)
+    def __call__(self, holder_order, block_order, flip=(), rounds=2):
+        key = (tuple(holder_order), tuple(block_order), tuple(sorted(flip)), rounds)
         hit = self.cache.get(key)
         if hit is not None:
             return hit
         try:
             placer, cols = CM.placer_costs(holder_order=list(holder_order),
                                            blocks=self.blocks_for(block_order),
-                                           heat=self.heat, rounds=rounds)
+                                           heat=self.heat, flip=tuple(flip),
+                                           rounds=rounds)
             t = CM.avg_ticks(self.hits, placer)
             h = placer.y + CHROME_ROWS
             box = max(cols.width, h) ** 2
@@ -68,20 +75,22 @@ class Objective(object):
         return val
 
 
-def anneal(obj, holder_order, block_order, iters, seed, what):
+def anneal(obj, holder_order, block_order, flip, iters, seed, what, out=None):
     rng = random.Random(seed)
-    cur_h, cur_b = list(holder_order), list(block_order)
-    cur = obj(cur_h, cur_b)
-    best, best_h, best_b = cur, list(cur_h), list(cur_b)
+    cur_h, cur_b, cur_f = list(holder_order), list(block_order), set(flip)
+    cur = obj(cur_h, cur_b, cur_f)
+    best, best_h, best_b, best_f = cur, list(cur_h), list(cur_b), set(cur_f)
     # T is a FRACTION of the current score: a typical single-move delta here is
     # a few tenths of a percent, so 0.06 accepted everything and the search was
     # a random walk that never beat its own start.
     T0, T1 = 0.0015, 0.00005
     for it in range(iters):
         T = T0 * (T1 / T0) ** (it / float(iters))
-        ch, cb = list(cur_h), list(cur_b)
-        move = what if what != "both" else rng.choice(("holder", "block"))
-        if move == "holder":
+        ch, cb, cf = list(cur_h), list(cur_b), set(cur_f)
+        move = what if what != "both" else rng.choice(("holder", "block", "flip"))
+        if move == "flip":
+            cf.symmetric_difference_update({rng.choice(ch)})
+        elif move == "holder":
             i, j = rng.randrange(len(ch)), rng.randrange(len(ch))
             if rng.random() < 0.5:
                 ch[i], ch[j] = ch[j], ch[i]
@@ -94,39 +103,51 @@ def anneal(obj, holder_order, block_order, iters, seed, what):
             j = rng.randrange(1, len(cb))
             v = cb.pop(i)
             cb.insert(j, v)
-        cand = obj(ch, cb)
+        cand = obj(ch, cb, cf)
         if cand[0] == float("inf"):
             continue
         if cand[0] < cur[0] or rng.random() < pow(2.718281828,
                                                   -(cand[0] - cur[0]) / (T * cur[0])):
-            cur, cur_h, cur_b = cand, ch, cb
+            cur, cur_h, cur_b, cur_f = cand, ch, cb, cf
             if cand[0] < best[0]:
-                best, best_h, best_b = cand, list(ch), list(cb)
-    return best, best_h, best_b
+                best, best_h, best_b, best_f = cand, list(ch), list(cb), set(cf)
+                if out:
+                    # checkpoint every improvement: a long anneal is worth
+                    # harvesting before it finishes
+                    json.dump({"score": best[0], "box": best[1], "ticks": best[2],
+                               "holder": best_h, "block": best_b,
+                               "flip": sorted(best_f)},
+                              open(out, "w"), indent=1)
+    return best, best_h, best_b, best_f
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--iters", type=int, default=20000)
     ap.add_argument("--restarts", type=int, default=4)
-    ap.add_argument("--what", default="both", choices=("holder", "block", "both"))
+    ap.add_argument("--what", default="both",
+                    choices=("holder", "block", "flip", "both"))
     ap.add_argument("--seed", type=int, default=1)
+    ap.add_argument("--out", default=None,
+                    help="JSON file rewritten on every improvement")
     args = ap.parse_args()
 
     obj = Objective()
     h0 = [h for h in B.HOLDER_ORDER if h in F.HOLDERS]
-    b0 = [l for l, _t in obj.base]
-    start = obj(h0, b0)
+    b0 = list(B.BLOCK_ORDER) or [l for l, _t in obj.base]
+    f0 = list(B.HOLDER_FLIP)
+    start = obj(h0, b0, f0)
     print("start   score=%.4g box=%d ticks=%.0f" % start, flush=True)
 
-    best, bh, bb = start, h0, b0
+    best, bh, bb, bf = start, h0, b0, f0
     for r in range(args.restarts):
-        s, h, b = anneal(obj, bh, bb, args.iters, args.seed + r, args.what)
+        s, h, b, f = anneal(obj, bh, bb, bf, args.iters, args.seed + r, args.what,
+                            out=args.out)
         print("run %-2d  score=%.4g box=%d ticks=%.0f" % ((r,) + s), flush=True)
         if s[0] < best[0]:
-            best, bh, bb = s, h, b
-    best = obj(bh, bb, rounds=6)          # re-score the winner at the fixpoint
-    start = obj(h0, b0, rounds=6)
+            best, bh, bb, bf = s, h, b, f
+    best = obj(bh, bb, bf, rounds=6)      # re-score the winner at the fixpoint
+    start = obj(h0, b0, f0, rounds=6)
     print("\nbest    score=%.4g box=%d ticks=%.0f  (%.3fx ticks, %.3fx score)"
           % (best + (start[2] / best[2], start[0] / best[0])))
     print("\nHOLDER_ORDER = [")
@@ -137,6 +158,7 @@ def main():
     for i in range(0, len(bb), 4):
         print("    " + ", ".join('"%s"' % x for x in bb[i:i + 4]) + ",")
     print("]")
+    print("\nHOLDER_FLIP = %r" % sorted(bf))
 
 
 if __name__ == "__main__":

@@ -284,19 +284,32 @@ def build():
     # ================= CONTROL : cols 0-9, rows 33-41 =================
     CX, CY = 0, 33
     C = lambda x, y, c: P(CX + x, CY + y, c)
-    p.room(CX, CY, 10, 9)
-    for i, c in enumerate(">@rbr-sv"):     # op, BP=op, addr, A=addr-prev, send
+    # 8 WIDE, NOT 10 -- this is a CONNECTIVITY requirement, not an area tweak.
+    # In the 27x27 fold CONTROL sits at cols 19-26 rows 18-26; at 10 wide it
+    # would start at col 17 and its top-left corner would meet MEM's
+    # bottom-right corner diagonally, sealing the right strip off from the
+    # bottom-left so the belt serpentine has nowhere to run. At 8 wide, cols
+    # 17-18 stay open as a 2-wide channel joining the two regions.
+    # Same 19 ops and the same register flow as before, re-laid into a 6x7
+    # interior: main line along row 1 and down col 6, prev-update along row 7,
+    # then the op branch.
+    p.room(CX, CY, 8, 9)
+    for i, c in enumerate(">@rbrv"):       # >=loop-back turn, @, op, BP=op, addr
         C(1 + i, 1, c)
-    for i, c in enumerate("+M1+M<"):       # A=addr, B=addr, then prev := addr+1
-        C(8, 2 + i, c)                     # (+1 because the tap reinject also
-    C(7, 7, 'd')                           #  advances the belt by one)
-    C(7, 6, 'r'); C(7, 5, 's'); C(7, 4, '<')          # WRITE arm: value, then 1
-    C(6, 4, '1'); C(5, 4, 's'); C(4, 4, '<'); C(3, 4, '<'); C(2, 4, 'v')
-    C(2, 5, ' '); C(2, 6, ' ')
-    C(6, 7, '0'); C(5, 7, 's'); C(4, 7, '0'); C(3, 7, 's')   # READ arm: 0, 0
-    C(2, 7, '<'); C(1, 7, '^')
+    for i, c in enumerate("-s+M1<"):       # A=delta, send it, A=addr, B=addr, A=1
+        C(6, 2 + i, c)
+    C(5, 7, '+'); C(4, 7, 'M')             # prev := addr+1 (the tap's reinject
+    C(3, 7, 'd')                           #  advances the belt one extra step)
+    # WRITE arm (BP=op>0 -> cw from west = north): value, then the op literal 1
+    C(3, 6, 'r'); C(3, 5, 's'); C(3, 4, '1'); C(3, 3, 's'); C(3, 2, '<')
+    C(2, 2, '<')
+    # READ arm (BP==0 -> straight west): 0, then 0. Both arms return up col 1.
+    C(2, 7, '0'); C(1, 7, '^')
+    C(1, 6, 's'); C(1, 5, '0'); C(1, 4, 's'); C(1, 3, ' '); C(1, 2, '^')
+    for y in range(3, 7):
+        C(2, y, ' ')
     for y in range(2, 7):
-        C(1, y, ' ')
+        C(4, y, ' '); C(5, y, ' ')
 
     # ================= HOP : cols 20-31, rows 22-25 =================
     HX, HY = 20, 22
@@ -312,12 +325,12 @@ def build():
 
     # ================= IO =================
     p.output_room(0, 23)
-    p.input_room(12, 33)
+    p.input_room(10, 33)                   # moved in with CONTROL's new right wall
 
     # ================= pipes =================
     out = [(X_OUT, PIPE_ROW), (X_OUT, PIPE_ROW + 1)]
     cmd = [(X_CMD, 32), (X_CMD, PIPE_ROW)]
-    ipipe = [(11, 34), (10, 34)]
+    ipipe = [(9, 34), (8, 34)]             # input left wall -> CONTROL right wall (now col 7)
     p1 = [(X_P1, PIPE_ROW), (X_P1, 23), (19, 23)]
     # Belt return: serpentine in rows 27-31 over cols 11-31, then north up the
     # deliberately-kept-clear col 10.  The FIRST segment must run SOUTH so the

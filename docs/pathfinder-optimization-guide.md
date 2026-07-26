@@ -255,10 +255,24 @@ width parameter 247 -> room0 250x178
 
 The current fixed satellite stack makes 247 optimal at 250x251.  The first
 attachment-aware SMT model selects the 233x189 room-0 variant and packs the
-known satellites into 233x235.  This is a reproducible lower bound in
-`solutions/little-little-little-man/smt-layout.json`, not yet a `.man`
-candidate.  The missing gate is collision-free routing of two non-crossing
-400-cell pipes at exactly preserved lengths inside that box.
+known satellites into 233x235.  The independently materialized round-2 build
+then reached 233x234:
+
+```text
+reflow3-233x234.man   avg 3.641M, local score 199.34B
+official              21/21, server score 224.15B
+```
+
+The one-cell agreement is useful validation of the coarse model.  Exact
+materialization raised room 2, tucked the display at the four-cell pipe's
+reach limit, and folded both 400-cell delay lines into collision-free comb
+teeth at exactly preserved lengths.
+
+Placing the display beside room 2 was infeasible even though rectangle and
+Manhattan constraints allowed it.  Display attachment semantics come from the
+pipe's final movement direction, not merely its endpoint coordinate or glyph.
+The exact-routing stage must therefore constrain approach direction at typed
+pins as well as distance and non-overlap.
 
 ## SMT layout optimization
 

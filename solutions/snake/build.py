@@ -121,11 +121,14 @@ def build_flow():
     f.at("COMMIT_TICK").commit().go("ROUND")
 
     # Collision leaves the snake in place and recolors every occupied cell red.
-    f.at("LOSE").const(0).store(I).go("LOSE_SCAN")
-    f.at("LOSE_SCAN").subc(I, 256).br("LOSE_COMMIT", "LOSE_COMMIT", "LOSE_CELL")
-    f.at("LOSE_CELL").cell_load(I).br("LOSE_RED", "LOSE_ADV", "LOSE_RED")
-    f.at("LOSE_RED").display_const(I, 9).go("LOSE_ADV")
-    f.at("LOSE_ADV").addc(I, 1, I).go("LOSE_SCAN")
+    # The body is a linked list (cell = next+1, head = HEAD_SENTINEL), so walk
+    # TAIL->HEAD in length-L steps instead of scanning all 256 cells: the red
+    # recoloring is the final output, so its cost lands in every settle time.
+    f.at("LOSE").load(TAIL).store(I).go("LOSE_STEP")
+    f.at("LOSE_STEP").display_const(I, 9)
+    f.cell_load(I).store(TMP)
+    f.subc(TMP, HEAD_SENTINEL).br("LOSE_NEXT", "LOSE_COMMIT", "LOSE_NEXT")
+    f.at("LOSE_NEXT").subc(TMP, 1, I).go("LOSE_STEP")
     f.at("LOSE_COMMIT").commit().go("ROUND")
     return f
 

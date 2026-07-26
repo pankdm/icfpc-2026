@@ -74,11 +74,18 @@ squash`.** Diagnose first: count blocks vs edges with `tools/blockify3.py`.
    must leave the source wall perpendicular (else `src -1`), and the LAST move
    direction (`path[-1] - path[-2]`, see interp `border_cell_of_pipe_end`)
    determines the attachment side — a sideways final approach to a display
-   fails with `display pipe bad side`.
+   fails with `display pipe bad side`. And a SOURCE attachment needs a
+   2-cell straight stub: a route that turns on its first cell parses as
+   `src:-1`, silently detaching the pipe (matmul's live champion actually
+   ships with such a detached pipe — it is unliftable but functions).
 2. Backtick literals parse on **both axes** and read **reversed westward** —
    literal runs are rigid; never re-head or split one.
 3. A pipe running alongside a room's wall reads as attached to that room and
-   steals its `s`/`r` bindings (adjacency, not just endpoints).
+   steals its `s`/`r` bindings (adjacency, not just endpoints) — and this is
+   INVISIBLE to the binding-resolution gate when the graze is on a NEWLY
+   routed pipe; place.py's `route_guard` (added by smtplace) protects new
+   routes while original grazes stay grandfathered. Displays need the same
+   graze protection even when the room guard is off.
 4. `R`/`U` pick among ready incoming pipes in **reading order** — moving
    attachments must preserve each room's incoming reading-order permutation.
 5. The wasm oracle (Go) OOMs on heavy runs (`Go program has already exited`).

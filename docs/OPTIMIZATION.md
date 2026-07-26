@@ -67,8 +67,16 @@ Read the three numbers this gives you:
    gradebook 771M→438M server. Use when blockify shows many branch states.
 4. **walkfold passes** (`lift/pull/fuse/norm/squash`) — intra-room
    re-placement; gradebook -69% over its life. `squash` is the box win.
-5. **place.py** — rigid room translation + pipe re-routing (the only placement
-   move that can't change a man's walk). A few %.
+5. **smtplace.py + place.py** — Z3 proposes exact rigid-room floorplans
+   (lexicographic min max(W,H), then pipe stretch, then displacement; CEGAR
+   against routing failures; `--group` moves clusters with routes reused
+   verbatim), place.py verifies everything. Pathfinder −21.7% server. ALSO
+   yields optimality certificates: tcp 32x31 and sudoku multi2 42x40 are
+   PROVEN optimal under rigid moves — do not re-search them. matmul
+   opt5/opt4 are unliftable (a genuinely detached pipe, see reflow-lessons).
+   tools/smtrows.py is the generator-side sibling: Z3 certified the greedy
+   boustrophedon per-block row-optimal, so port columns are searched with
+   greedy as an exact evaluator (snake −7%).
 6. **fold.py / polish.py / compact_man.py** — mechanical row/col deletion.
 7. **autotune.py** — single-literal perturbation; read `tools/AUTOTUNE.md`.
    Wasted on hand-folded champions, useful on fresh builders.

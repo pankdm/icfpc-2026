@@ -1,5 +1,40 @@
 """fast_ram.py -- a REUSABLE, PARAMETERISED systolic random-access RAM.
 
+!! LIMITS -- READ BEFORE TRYING TO REUSE THIS. It is NOT a drop-in for split_ram. !!
+Adversarial verification (2026-07-26) found two HARD blockers, both size-independent
+(re-measured at k=16, 18 and 32), plus a contract mismatch:
+
+  1. THE CALLER'S COMMAND PIPE MUST BE <= 19 CELLS. Lengths 2..19 all pass (settle
+     unchanged, the pipe prefills so latency hides); lengths 20, 22, 25, 30, 35, 40, 100
+     ALL DEADLOCK -- lm --grade runs to the cap with status "timeout" and --inspect shows
+     every token consumed and NO reply, ever. tools/stateflow.py routes the command port
+     along band rows spanning the whole program width, i.e. 50-150 cells, so a Semester-4
+     swap fails on GEOMETRY ALONE. The REPLY pipe has no such limit (2..120 all pass).
+  2. THE COMMAND PORT MUST BE FED BY AN INPUT ROOM, NOT BY A MAN. A relay room admitting
+     one token every P ticks deadlocks for EVERY P swept from 5 to 800; the identical
+     wiring with an input room attached directly passes.
+  ROOT CAUSE of both: the decode workers are spawned on a FIXED SCHEDULE and die if the
+  first broadcast is late by more than ~18 ticks. The front end is timer-driven; it must
+  become data-driven before this component can attach to any real consumer.
+
+  3. PIN GEOMETRY DIFFERS FROM split_ram IN TWO WAYS. (a) split_ram's `command` is at
+     (ox+3, oy-1) -- OUTSIDE the stamp, entered from the NORTH by a vertical drop; ours is
+     INSIDE the stamp and must be the terminus of a pipe flowing WEST along row 2.
+     (b) `reply_turn` is INVERTED: split_ram returns it WEST of `reply`, we return it EAST.
+
+  4. AREA. split_ram is 48x48 = 2,304 for EVERY size; this component is 9,604 (size 30/32)
+     to 24,964 (size 288). It buys ticks by spending 4-10x the area, so it only pays where
+     the box has room -- on the measured numbers that is Pathfinder only, and LLM is a NET
+     LOSS because LLM's 219 ticks/access is PIPE TRANSIT, which a bigger RAM makes worse.
+
+  5. verify() currently passes a k=4 configuration that fails within 40 ops (MIN_CELLS_PER_BANK
+     is enforced in choose_banks() but not in _plan()), and VALUE_MAX shrinks as k grows
+     (~5.1e17 at k=18, ~2.9e17 at k=32) -- the "always > 0" claims below are not unconditional.
+
+The component itself is sound and verified standalone: solutions/memory/fast-ram-100.man grades
+7/7 on the WASM oracle at box 11,449 / avgTicks 358.1 / score 4,100,378, and the tick law
+settle = startup + 8.000*ops holds with ZERO residual out to 500 ops.
+
 This is a generalisation of the Memory champion's store
 (``solutions/memory/champion-6abc7461.man``), whose builder-shaped ancestor is
 ``solutions/memory/direct_memory.py`` (hard-locked to k=20 / l<=10 and shipping a

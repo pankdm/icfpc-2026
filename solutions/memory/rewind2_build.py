@@ -51,7 +51,52 @@ WHAT STEP (1) DID AND DID NOT BUY -- measured, don't re-litigate:
     A single man on a straight rsrsrs chain is exactly 0.50 values/tick
     (2 ticks/relay), so ~2.1-2.4 ticks/relay is the realistic floor here.
 
-THE FOLD IS THE BINDING CONSTRAINT, AND IT IS AREA-LIMITED, NOT LAZINESS:
+NEXT STEP -- NARROW MEM TO 17 WIDE, THEN FOLD TO 27x27. Fully derived, and it
+is the ONLY thing standing between here and beating the champion:
+  At avgTicks 5210, box 729 (27x27) = 3.80M local < champion 3.96M. Box 784
+  (28x28) = 4.08M is NOT enough, so 27x27 is the target, not "about 28".
+  With MEM 19 wide the best reachable box is 29x29 = 4.38M (a LOSS): CONTROL's
+  10x9 rectangle needs either a 10-wide side strip or a 9-tall bottom strip,
+  and at box 27 with MEM 19 wide neither exists. Narrow MEM to 17 and the right
+  strip becomes cols 17-26 = exactly 10 wide, so CONTROL drops in at rows 0-8.
+
+  MEM room(0,0,17,21); interior cols 1-15, rows 1-19. Attachments on the bottom
+  wall: OUT=1, CMD=3, P2=9, P1=14.
+    -> CMD/P2 midpoint 6  : `r` at x<=5 reads COMMANDS, at x>=7 reads BELT
+                            (x=6 TIES and CMD wins on reading order -- avoid it)
+    -> OUT/P1 midpoint 7.5: every `s` must sit at x>=8
+  Row 5 (15 cells, cols 1-15): > r M ` 1 0 0 ` W % M 8 W / v   -- 'b' moves to
+  row 6 because col 16 no longer exists.
+  Row 6 westward: (15,6)'<' (14,6)'b' (13,6)'a'=guard8 -> ring8 cols 12/13,
+  exit (12,6); (11,6)'W' (10,6)'b' (9,6)'a'=guard1 -> ring1 cols 8/9, exit
+  (8,6); then west to the tap. Checked: ring8 s->P1 dist 1-2 vs OUT 11-12;
+  ring8 r->P2 dist 3-4 vs CMD 9-10; ring1 s->P1 5-6 vs OUT 7-8 (margin 2);
+  ring1 r->P2 0-1. All bind correctly.
+  Tap at cols 4-9: (5,7)'r'(second) (5,8)'M' (5,9)'r'(op) (5,10)'X'.
+  Init: use `20` and 5 sends/lap x 20 laps = 100, ring cols 8-14 rows 2-3, so
+  every init `s` stays at x>=8.
+  RETURN WEST, NOT EAST -- this is also worth ~10 t/op over the current route:
+  read arm ... (9,11)'v' down col 9 to (9,18)'<', west along row 18 to
+  (1,18)'^', north up col 1, and (1,5)'>' turns it straight back into row 5.
+  Write arm rejoins row 18 at (10,18)'<'. Col 1 rows 6-17 and col 9 rows 12-17
+  are both free (ring1 is rows 6-10, ring8 cols 12-13).
+  Then: CONTROL cols 17-26 rows 0-8; input room cols 17-19 rows 11-13 with
+  ipipe [(18,10),(18,9)]; HOP cols 8-19 rows 23-26 (NOT 21-24, which would sit
+  on the row-21 attachment cells); output room cols 0-2 rows 23-25.
+  UNSOLVED: cmd must reach (3,21) from CONTROL without crossing p1's (14,22).
+  Routing cmd along row 22 collides with p1; along row 21 it collides with the
+  other three attachments. Either give p1 a different exit row or run cmd down
+  col 1-2 on the far side. Solve this before building.
+
+WHY THE OLD "688-CELL FLOOR" NOTE BELOW IS WRONG (kept as a warning):
+it summed room BOUNDING RECTANGLES. rewind-v2 has only 431 non-space cells at
+32% density, 269 of them walls. The rooms are bloated around empty interiors,
+so the fix is to SHRINK ROOMS, not to pack the current rectangles tighter.
+(The packing constraint really is the sum of rectangles, since a room's blank
+interior cannot host another room or a pipe -- but those rectangles are the
+thing to shrink.)
+
+THE OLD, OVERSTATED AREA ARGUMENT:
   MEM 19x21=399 + CONTROL 10x9=90 + HOP 12x4=48 + 2 IO rooms=18 + pipes ~133
   = 688 cells of content. A 26x26 box is 676 -- it DOES NOT FIT. 27x27=729
   leaves 41 cells of slack, i.e. ~94% packing, which is not routable.

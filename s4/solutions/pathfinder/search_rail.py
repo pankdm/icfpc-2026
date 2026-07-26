@@ -30,13 +30,16 @@ FLOOR_KEYS = ["scalar_off", "cell_off", "ctop", "scratch_off", "scratch_row",
               "ss_band",
               # the queue serpentine's east edge is what pins the whole
               # footprint width; without these two the search cannot reach it
-              "queue_rows", "queue_right_off"]
+              "queue_rows", "queue_right_off",
+              # display_row lifts the display out from under the RAM stack --
+              # 60 rows below `bottom` is why this satellite band is 81 rows
+              "display_row"]
 BASE_PORTS = {n: stateflow.DEFAULT_PORTS[n][0] for n in PORTS}
 BASE_FLOOR = dict(scalar_off=48, cell_off=164, ctop=5, scratch_off=18,
                   scratch_row=12, ri_row=12, display_off=110, cc_band=1,
                   cr_band=3, queue_off=268, queue_row=6, queue_left=280,
                   queue_tail=266, sd_band=-4, sa_band=-3, ss_band=20,
-                  queue_rows=1, queue_right_off=300)
+                  queue_rows=1, queue_right_off=300, display_row=60)
 QUEUE_FLOOR = 40   # measured BFS frontier is <= ~19 items; keep 2x headroom
 BASE_DANGLING = None   # set from the baseline build on first evaluate
 

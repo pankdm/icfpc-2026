@@ -352,6 +352,11 @@ def build_program(
              cc_band=1 if packed_cell else 2, cr_band=3,
              queue_off=268, queue_row=6, queue_left=280, queue_tail=266,
              sd_band=-4, sa_band=-3, ss_band=20)
+    # display_row is deliberately absent from the defaults: it falls back to
+    # scalar_display_offset so existing builds are untouched, and only a search
+    # that sets it can lift the display up beside the RAM stack instead of 60
+    # rows below it (which is what makes pathfinder's satellite band 81 rows
+    # tall against snake's 53).
     g.update(floor or {})
     scalar_x, scalar_y = code_x + g["scalar_off"], bottom + g["ctop"]
     cell_x, cell_y = code_x + g["cell_off"], bottom + g["ctop"]
@@ -519,10 +524,11 @@ def build_program(
     # Addressable 16x16 display. With the banked scalar RAM (32x32 instead of
     # the 78x43 belt) the sd feeder clears the scalar block 18 rows sooner.
     display_x = code_x + g["display_off"]
-    display_y = bottom + (
+    display_y = bottom + g.get(
+        "display_row",
         scalar_display_offset
         if scalar_display_offset is not None
-        else (70 if cell_replicas > 1 else (42 if fast_scalar_ram else 60))
+        else (70 if cell_replicas > 1 else (42 if fast_scalar_ram else 60)),
     )
     p.display(display_x, display_y, 18, 18)
     # RAM now sits immediately below the controller. Leave each display port

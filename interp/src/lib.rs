@@ -158,6 +158,7 @@ pub struct World {
     // judging
     expected: Vec<i64>,
     expected_frames: Vec<u8>, // flattened frame pixels (each frame = w*h bytes)
+    round_frame_end: Vec<usize>, // cumulative expected frames per round (display gating)
     frame_w: i32,
     frame_h: i32,
     pub frame_mismatch: Option<usize>, // index of first mismatching committed frame
@@ -220,7 +221,7 @@ impl World {
             output: vec![],
             input_tokens: vec![], round_in_end: vec![], round_out_end: vec![],
             released_round: 0, input_read: 0, input_pipe: None, output_pipe: None,
-            expected: vec![], expected_frames: vec![], frame_w: 0, frame_h: 0,
+            expected: vec![], expected_frames: vec![], round_frame_end: vec![], frame_w: 0, frame_h: 0,
             frame_mismatch: None, frame_matched: 0, frame_mismatch_got: None, is_display_judged: false,
         };
 
@@ -258,9 +259,10 @@ impl World {
         }
         // frames (JSON): array of frames, each an array of strings of hex digits
         if !frames.trim().is_empty() {
-            if let Some((fw, fh, flat)) = parse_frames(frames) {
+            if let Some((fw, fh, flat, per_round)) = parse_frames_rounds(frames) {
                 self.frame_w = fw; self.frame_h = fh;
                 self.expected_frames = flat;
+                self.round_frame_end = per_round;
                 self.is_display_judged = true;
             }
         }
@@ -840,11 +842,23 @@ impl World {
             }
         }
         // advance round gating: release next round when current round's expected output emitted
-        while self.released_round + 1 < self.round_in_end.len().max(self.round_out_end.len())
-            && self.released_round < self.round_out_end.len()
-            && self.output.len() >= self.round_out_end[self.released_round]
-        {
-            self.released_round += 1;
+        // A DISPLAY round completes when its frames are committed and matched; it emits no
+        // integers, so gating on output.len() releases every round immediately and the
+        // program finishes early (measured: 84 ticks per round transition too soon).
+        if self.is_display_judged && !self.round_frame_end.is_empty() {
+            while self.released_round + 1 < self.round_in_end.len().max(self.round_frame_end.len())
+                && self.released_round < self.round_frame_end.len()
+                && self.frame_matched >= self.round_frame_end[self.released_round]
+            {
+                self.released_round += 1;
+            }
+        } else {
+            while self.released_round + 1 < self.round_in_end.len().max(self.round_out_end.len())
+                && self.released_round < self.round_out_end.len()
+                && self.output.len() >= self.round_out_end[self.released_round]
+            {
+                self.released_round += 1;
+            }
         }
         // feed input into input pipe source cell if free & a released token remains
         if let Some(pi) = self.input_pipe {
@@ -1282,6 +1296,26 @@ fn lit_overflow(digits: &str) -> bool {
 
 // Parse frames JSON. The oracle wants rounds x frames x rows ([][][]string); we also accept
 // frames x rows ([][]string). We collect every innermost array-of-strings as a frame, in order.
+// Also returns the CUMULATIVE frame count per round. The judged frames are flattened for
+// comparison, but round gating needs to know where each round's frames end (see the gate in
+// io_phase): a display round is finished when its frames are committed, not when integers
+// are emitted -- display programs emit no integers at all.
+fn parse_frames_rounds(s: &str) -> Option<(i32, i32, Vec<u8>, Vec<usize>)> {
+    let val = serde_frames::parse(s)?;
+    let mut per_round: Vec<usize> = vec![];
+    if let serde_frames::Val::Arr(rounds) = &val {
+        for r in rounds {
+            let mut fr: Vec<Vec<String>> = vec![];
+            serde_frames::collect_frames(r, &mut fr);
+            per_round.push(fr.len());
+        }
+    }
+    let mut cum = 0usize;
+    let round_frame_end: Vec<usize> = per_round.iter().map(|n| { cum += n; cum }).collect();
+    let (w, h, flat) = parse_frames(s)?;
+    Some((w, h, flat, round_frame_end))
+}
+
 fn parse_frames(s: &str) -> Option<(i32, i32, Vec<u8>)> {
     let val = serde_frames::parse(s)?;
     let mut frames: Vec<Vec<String>> = vec![];

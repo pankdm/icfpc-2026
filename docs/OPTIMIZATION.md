@@ -113,10 +113,12 @@ A transform is submit-ready only when ALL hold:
 
 ## 5. Current state / where the points are
 
-Run `python3 tools/ours.py` for live numbers. As of 2026-07-26 morning:
-biggest remaining gaps are Pathfinder (1.24 pts, partial solve), Snake
-(0.90 and shrinking), LLLM (0.88 → mostly banked after the reflow submit),
-then Sudoku/Plotter/Matmul/Subset (~0.4 each). In-flight background work:
-pathfinder reflow, gradebook reflow (fuse-ceiling break), subset-sum squaring
-— check `tl ready` / `tl list` and the notes on `tl-xbyt` (reflow-rollout)
-before starting overlapping work.
+Run `python3 tools/ours.py` for live numbers. As of 2026-07-26 ~19:30 local:
+rank 14/235, 26.95+ pts, 16/16 fully solved. Today's submitted wins: LLLM
+41.8x (reflow), Snake 24.8x (generator-side: code_x, banked RAMs, compact
+floor, boustrophedon, linked lose-walk), gradebook -43% (connector passes),
+subset-sum -7%, pathfinder 18/18 (other lane). Remaining pools: Snake 0.80,
+Pathfinder 0.53 (box-dominated, 381x496), LLLM 0.56, Plotter 0.47 (71x,
+algorithmic), Sudoku 0.45, Matmul 0.38, Subset 0.37 (MITM rebuild in
+flight). Check `tl ready` / notes on `tl-xbyt` (reflow-rollout) before
+starting overlapping work.

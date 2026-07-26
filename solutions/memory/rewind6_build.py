@@ -163,12 +163,12 @@ def build():
 
     # ================= IO =================
     p.output_room(0, 17)                   # cols 0-2, under OUT's column (x=1)
-    p.input_room(0, 25)                    # cols 0-2, below CONTROL
+    p.input_room(0, 24)                    # cols 0-2, below CONTROL
 
     # ================= pipes =================
     out = [(X_OUT, PIPE_ROW), (X_OUT, PIPE_ROW + 2)]     # -> output room top
     cmd = [(X_CMD, PIPE_ROW + 2), (X_CMD, PIPE_ROW)]     # CONTROL top -> MEM
-    ipipe = [(3, 26), (5, 26), (5, 25)]    # input room right wall -> CONTROL bottom
+    ipipe = [(3, 25), (5, 25), (5, 26), (8, 26), (8, 25)]    # input room right wall -> CONTROL bottom
     p1 = [(X_P1, PIPE_ROW), (X_P1, 15), (16, 15), (16, 16)]   # -> HOP top (16,17)
     # p2: HOP top (22,17) -> up col 22 -> column-snake 22/23/24/25 -> down col
     # 26 -> west row 26 (dogleg to col 6 for length) -> up col 13 -> row 15.

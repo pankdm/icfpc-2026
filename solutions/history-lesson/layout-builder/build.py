@@ -38,10 +38,16 @@ LOGGER = logging.getLogger(__name__)
 # them, so references can be remapped without changing the stream protocol.
 # At dictionary width 52 this reaches the six-band source-width lower bound.
 PACKING_ORDER_44 = [
-    9, 5, 12, 6, 10, 2, 15, 14, 4, 11, 16, 1, 3, 7, 13, 8,
-    25, 18, 22, 34, 36, 39, 27, 30, 29, 19, 17, 20, 35, 37,
-    38, 41, 21, 28, 31, 42, 32, 43, 40, 24, 26, 23, 33, 44,
+    2, 13, 10, 5, 8, 11, 7, 15, 6, 9, 12, 1, 4, 16, 3, 14,
+    23, 36, 18, 22, 34, 25, 26, 27, 30, 29, 38, 40, 24, 42,
+    37, 19, 32, 43, 39, 33, 44, 35, 41, 17, 21, 28, 20, 31,
 ]
+FOOTER_ROWS = (
+    "vs0<<<",
+    ">>rsv^",
+    " ^<<<^",
+)
+FOOTER_WIDTH = 6
 
 
 @dataclass(frozen=True)
@@ -195,7 +201,9 @@ def pack_dictionary(values: list[int], room_width: int) -> list[DictionaryBand]:
     if room_width < 8:
         raise ValueError("dictionary width must be at least 8")
     capacity = room_width - 5
-    final_capacity = room_width - 7
+    # The final bottom row enters a fixed 3x6 footer at the left. Its first
+    # ordinary westbound slot begins in column seven.
+    final_capacity = room_width - 10
     values_tuple = tuple(values)
     max_constants_per_band = 2 * (capacity // 4)
 
@@ -213,7 +221,7 @@ def pack_dictionary(values: list[int], room_width: int) -> list[DictionaryBand]:
             )
             final_band = index + count == len(values_tuple)
             # The final band must contain at least one bottom-row constant so
-            # it can provide the fourth glyph in `vs0s`.
+            # the westbound path sends a final value before entering footer.
             top_count_stop = count if final_band else count + 1
             for top_count in range(1, top_count_stop):
                 band = _best_band(
@@ -319,9 +327,13 @@ def place_dictionary(
         bottom_y = top_y + 1
         pitch = sum(width + 3 for width in band.widths)
         final_band = band_index == len(bands) - 1
-        # Ordinary bands are right-aligned. The final band starts at column
-        # four so its first real bottom slot completes the `vs0s` prefix.
-        base_x = x0 + 4 if final_band else turn_x - pitch - 1
+        # Ordinary bands are right-aligned. The final band starts immediately
+        # after the fixed six-column footer.
+        base_x = (
+            x0 + FOOTER_WIDTH + 1
+            if final_band
+            else turn_x - pitch - 1
+        )
         if base_x < x0 + 2:
             raise AssertionError((base_x, x0, room_width, band))
         starts = []
@@ -369,25 +381,11 @@ def place_dictionary(
         program.put(turn_x, bottom_y, "<")
         program.put(x0 + 1, bottom_y, "v")
 
-    # Keep the buffer loop strictly after the preload.  On the last westbound
-    # row the loader encounters the zero sentinel only after all constants,
-    # then descends directly into the steady r/s iteration loop.
+    # Stamp the immutable footer over the lower-left 3x6 area. Constants in
+    # the final band begin immediately to its right.
     final_bottom_y = y0 + 2 * len(bands)
-    program.put(x0 + 3, final_bottom_y, "0")
-    program.put(x0 + 2, final_bottom_y, "s")
-    pump_y = final_bottom_y + 1
-    _put_row(
-        program,
-        x0 + 1,
-        pump_y,
-        [">", ">", "r", "s", "v"],
-    )
-    _put_row(
-        program,
-        x0 + 1,
-        pump_y + 1,
-        [" ", "^", "<", "<", "<"],
-    )
+    for row_offset, row in enumerate(FOOTER_ROWS):
+        _put_row(program, x0 + 1, final_bottom_y + row_offset, row)
     return room_width, room_height
 
 
@@ -646,6 +644,11 @@ def build(
                 for band in dictionary_bands
             ],
             "physical_order": physical_order,
+            "footer": {
+                "width": FOOTER_WIDTH,
+                "height": len(FOOTER_ROWS),
+                "rows": FOOTER_ROWS,
+            },
         },
         "service_rooms": service_rooms,
         "pipes": pipe_count,

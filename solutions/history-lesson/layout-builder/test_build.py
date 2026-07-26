@@ -37,7 +37,7 @@ class LayoutBuilderTest(unittest.TestCase):
         self.assertEqual(dictionary["bands"], 6)
         self.assertEqual(
             dictionary["constants_per_band"],
-            [9, 9, 6, 6, 6, 8],
+            [9, 10, 6, 6, 7, 6],
         )
         self.assertEqual(
             len(dictionary["slots_per_band"]),
@@ -55,7 +55,7 @@ class LayoutBuilderTest(unittest.TestCase):
             7777777,
             88888888,
         ]
-        narrow = builder.pack_dictionary(values, 18)
+        narrow = builder.pack_dictionary(values, 24)
         wide = builder.pack_dictionary(values, 30)
         self.assertGreater(len(narrow), len(wide))
         self.assertNotEqual(
@@ -84,18 +84,14 @@ class LayoutBuilderTest(unittest.TestCase):
         dictionary = self.metadata["dictionary"]
         x = dictionary["x"]
         bottom = dictionary["y"] + dictionary["height"] - 1
-        self.assertEqual(
-            "".join(self.program.get(x + dx, bottom - 3) for dx in range(1, 5)),
-            "vs0s",
+        actual = tuple(
+            "".join(
+                self.program.get(x + dx, y)
+                for dx in range(1, builder.FOOTER_WIDTH + 1)
+            )
+            for y in range(bottom - 3, bottom)
         )
-        self.assertEqual(
-            "".join(self.program.get(x + dx, bottom - 2) for dx in range(1, 6)),
-            ">>rsv",
-        )
-        self.assertEqual(
-            "".join(self.program.get(x + dx, bottom - 1) for dx in range(1, 6)),
-            " ^<<<",
-        )
+        self.assertEqual(actual, builder.FOOTER_ROWS)
 
 
 if __name__ == "__main__":

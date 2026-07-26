@@ -37,13 +37,13 @@ dummy literal slots at minimum width. No slot counts or row split are fixed.
 The combined objective minimizes paired bands, maximizes constants in earlier
 bands, and then minimizes unused width. The final band is optimized under a
 special constraint: it must begin its bottom row with a real westbound
-constant send. That band is left-aligned so the final three interior rows have
-the exact form:
+constant send immediately after an immutable 3×6 block at the lower-left.
+That block has the exact form:
 
 ```text
-vs0s
->>rsv
- ^<<<
+vs0<<<
+>>rsv^
+ ^<<<^
 ```
 
 The builder may permute physical dictionary positions while keeping direct

@@ -32,7 +32,8 @@ Node 20+ (v25 here) and Python 3 stdlib only — **no npm/pip install**.
 ## Dev loop
 
 ```bash
-node tools/grade.js <slug> <file.man>   # grade one candidate (oracle = the real judge)
+python3 tools/grade_fast.py <slug> <f.man>  # ← START HERE. Rust engine, ~17x faster than wasm
+node tools/grade.js <slug> <file.man>   # grade one candidate (oracle = the FINAL judge)
 node tools/grade.js <slug>              # grade + rank every candidate in solutions/<slug>/
 node tools/grade_all.js [--slug X]      # batch regression vs tests/baseline.json (offline)
 node sim/xray.js <slug> <file.man>      # WHERE to optimize: box driver, headroom, corridors
@@ -47,6 +48,20 @@ python3 tools/fetch_tests.py [slug...]  # refresh tests/<slug>.json spec cache
 `grade.js` fetches the spec from the API; `grade_all.js` and the scripts above prefer the
 cached `tests/<slug>.json`. Local PASS ⇒ public-case PASS (same wasm the server grades with)
 — but private cases are **not** covered locally.
+
+**ALWAYS REACH FOR THE RUST ENGINE FIRST** (`interp/target/release/lm`, built with
+`cargo build --release --manifest-path interp/Cargo.toml`). It is ~17x faster than the wasm
+oracle and it is what makes any search or profiling loop affordable — pathfinder's 7 cases take
+~60s on Rust and *minutes* on wasm (`sim/xray.js` on a 2M-tick pathfinder case does not finish
+in 10 minutes). Use it as a **pre-filter, not the judge**: fast reject ⇒ discard; fast pass ⇒
+re-grade with `tools/grade.js` before believing it (`interp/` has one known divergence,
+`fork-into-wall`, per `node sim/difftest.js`). `lm` also has `--profile` and `--inspect=N`
+(single-tick JSON snapshot) which the wasm harness cannot give you.
+
+**`sim/xray.js` defaults to `--cap=120000` ticks.** On a multi-million-tick program that window
+may cover only the *setup* phase, and its GLOBAL/HEADROOM percentages will then describe the
+wrong phase entirely. Always pass `--cap` above the case's real settle tick, or treat the
+numbers as setup-only. This bit during the pathfinder analysis.
 
 **Oracle quirk:** long runs can kill the Go wasm with `Error: Go program has already exited`
 (runtime OOM). Grade heavy problems **one file per process**; `subset-sum`'s 20-value case
@@ -79,41 +94,73 @@ Run `python3 tools/ours.py` (points/rank/gap, public data) and `python3 tools/su
 scores or commit messages for this** — local grading only sees public cases, and two entries
 below were wrong in exactly that way until the dashboard corrected them.
 
-As of 2026-07-25 ~17:00Z we are **rank 27/235, 21.84 points, 10.16 still available**:
+As of **2026-07-26 ~15:40Z we are 26.88 points, 5.12 available — ALL 16 graded problems now
+pass every case**. Semester 4 is solved; the correctness game is over and this is now purely
+a *ranking* game (see below). Run `tools/ours.py` for the live table.
 
-| problem | live build | box | avgTicks | our score | board best | pts | left |
+**Scoring is now purely rank-based.** With every case passing, `case_pts` is pinned at 1.0 and
+the only variable is `rank_pts = (field − rank) / (field − 1)`. So what matters is **not** the
+gap to the leader but **how many teams are clustered just below our score**. `tools/ours.py`
+sorts by points lost; to see what an *improvement* is actually worth, compute ranks-gained per
+speedup factor — the marginal value differs wildly per problem. Measured 2026-07-26:
+
+| problem | rank | +1.5x | +2x | +3x | +5x | +10x | max |
 |---|---|---|---|---|---|---|---|
-| Pathfinder | 7/18 cases | — | — | — | 11.1B | **0.00** | **2.00** |
-| LLM | none | — | — | — | 95.5B | **0.00** | **2.00** |
-| Snake | 5/17 cases | — | — | 22.7B | 72.7M | **0.00** | **2.00** |
-| LLLM | *not in git* | 149×1469 | 5,078,601 | 10.96T | 1.27B | 1.13 | 0.87 |
-| Grade Book | `gradebook-compact.man` | 69×130 | 186,578 | 3.15B | 42.2M | 1.49 | 0.51 |
-| Plotter | `plotter-tight31.man` | 81×81 | 45,270 | 297M | 862,560 | 1.51 | 0.49 |
-| Sudoku Auditor | `ringfree4.man` | 43×41 | 4,147 | 7.67M | 49,720 | 1.55 | 0.45 |
-| Matrix Multiply | `matmul-opt5.man` ← **not** tight2 | 61×61 | 61,831 | 230M | 15.2M | 1.62 | 0.38 |
-| Subset Sum | `parallel256-prefix-compact-r13-c21` | 634×588 | 162,350 | 65.3B | **500** | 1.63 | 0.37 |
-| Sort | `select-v5.man` | 21×21 | 2,723 | 1.20M | 27,210 | 1.69 | 0.31 |
-| Packet Reassembly | ⚠️ **not in git** | 35×35 | 1,738 | 2.13M | 329,349 | 1.71 | 0.29 |
-| Brackets | `stack6.man` | 23×23 | 578 | 305,884 | 300 | 1.76 | 0.24 |
-| History Lesson | `history-lesson-with-year.man` | 84×84 | — | 7,056 | 5,929 | 1.84 | 0.16 |
-| Memory | `manual_4.man` / `addr-compare.man` | 26×26 | 23,556 | 15.9M | 27,867 | 1.95 | 0.05 |
-| Reverse a List | `manual-11x11.man` | 11×11 | 187 | 22,603 | 19,481 | 1.97 | 0.03 |
-| Triangle | `weave8x8.man` | 8×8 | 13 | **832** | 832 | **2.00** | 0.00 |
+| LLLM | 29/48 | 0.09 | 0.11 | 0.20 | 0.28 | 0.39 | 0.60 |
+| Pathfinder | 23/42 | 0.03 | 0.08 | 0.10 | 0.15 | 0.28 | 0.54 |
+| Sudoku | 36/78 | 0.11 | 0.15 | 0.34 | 0.43 | 0.47 | 0.45 |
+| Snake | 40/55 | 0.04 | 0.06 | 0.14 | 0.18 | 0.24 | 0.72 |
+| Grade Book | 22/68 | 0.10 | 0.16 | 0.21 | 0.24 | 0.28 | 0.31 |
+| Sort | 32/128 | 0.11 | 0.17 | 0.24 | 0.24 | 0.24 | 0.24 |
+| **all 16 combined** | | **0.86** | **1.37** | **2.20** | **2.78** | **3.60** | 5.12 |
 
-**⚠️ Packet Reassembly's live 35×35 build is not in git** (searched every blob in history;
-the repo's best is `tcp-sweep2.man` at 41×41 / 2.90M). It cannot be reproduced or improved
-from the repo. Same for the LLLM 149×1469 build. Whoever has them locally must commit them.
+Read that bottom row: **a broad 1.5–2x sweep is worth more than a 100x on any single problem.**
+Sudoku and Sort have the densest clusters (a 3x on sudoku ≈ 0.34 pts); Snake/LLLM/Subset Sum
+are 200–480x off the leader, so even a 10x barely moves them.
 
-### What is worth doing (this is the whole strategy)
+Also: **the field improves while you sleep.** We drifted 26.91 → 26.88 in ~90 minutes on
+2026-07-26 without touching anything. Standing still loses points.
 
-- **Semester 4 correctness is worth 6.00 points; every score optimisation on all 12 solved
-  problems combined is worth ~3.3.** Snake, Pathfinder and LLM currently earn **zero**.
-- **Passing only public cases earns nothing.** Eligibility needs ≥1 *private* pass, and a
-  partial solve that happens to cover exactly the public cases (Snake 5/17, Pathfinder 7/18
-  — the public counts are 5 and 7) scores 0.00, not "partial credit". Generalising a
-  half-working Semester-4 solution is worth more than any amount of folding elsewhere.
-- Of the tuning targets, **Grade Book (+61 height slack) and LLLM (+1320 height slack)** are
-  the only ones with large mechanical box headroom left; the rest are already square.
+### Champion inventory — do not re-do this archaeology
+
+Every live build **is already the best one available anywhere** (verified 2026-07-26 by grading
+all 118 unique `.man` files across all 19 worktrees against the oracle and comparing per problem).
+There are **no unsubmitted improvements** lying around. Two traps found doing it:
+
+- **`tools/submissions.py --match` matches by DIMENSIONS ONLY.** It reported sudoku's live build
+  as `multi2.man` (42×40) — but the real champion is a different 42×40 build with 4.1k ticks vs
+  multi2's 19.3k. Submitting the "matched" file scored **32.4M against our live 7.23M**. Identify
+  champions by SCORE, never by box.
+- Champions live on several branches; `main` (7190033) is the most complete. Commit `54c1eb5`
+  ("commit every live champion, including five that existed nowhere in git") is the recovery.
+  The `-history`, `-gbreflow`, `-pfbits`, `icfpc-pathfinder-opt` worktrees each hold champions
+  that are **not** in the others.
+
+### Measured dead ends (2026-07-26) — do not repeat these
+
+- **Boustrophedon band widening / replica ports (LLM, Snake, Pathfinder).** 870 of LLM's 994
+  controller rows come from band conflicts in `boustro.Cursor.place()`, and Snake/Pathfinder are
+  100% band-driven — which *looks* like bands are everything. They are not: overriding every
+  port's band to the full op range (i.e. infinite replicas, no routing cost) only takes LLM's
+  controller 994 → 588 rows, a **2.4x box ceiling**, because `_lay_once` starts a NEW ROW for
+  every block — 194 blocks × 1 row + 98 `br` × 3 rows ≈ 490-row floor. Widening one hot band is
+  worth even less (moving `sd` 80→150 doubles `sc`'s band 30→65 cols for 994→981, **1.3%**).
+  **LLM height is CFG-shape-bound, not band-bound**; the lever is fewer/packed blocks.
+  Re-spacing attachments also breaks pipe routing (≈2000/2000 coordinate-descent moves and 3 of 5
+  targeted moves failed `verify_bindings` — trap 3 in `docs/reflow-lessons.md`).
+- **Replica pipes have an ordering hazard**: `R` picks among ready incoming pipes in **reading
+  order, not arrival order**, so equal-length replicas preserve send order only while at most one
+  replica is ready — a guarantee that gets *weaker* as the layout compacts.
+- **Snake box is at its floor**: `code_x` ∈ {10,20,40,60} × `op_slack` ∈ {0,10,40,100} ×
+  `scalar_belts` × `cell_belts` all leave `ctrlH = 200` and best box 64,009 (= the champion).
+- **History Lesson is at its layout floor**: `build_ring.py W` fails to build for W ≤ 82 and gets
+  worse above; 83×83 is exact. It is 93.3% dense (6427 non-space cells of 6889). Score is pure
+  footprint and it has **0 private cases**, so local pass ⇒ server pass. The only lever left is
+  better *compression*: 4473 digit cells ≈ 14.9 kbit encode 2810 bytes (ratio 0.66) where gzip
+  gets 1563 B — matching gzip would free ~700 cells and reach 76×76, which is the leader's box.
+- **Sudoku `multi2` is not the champion** (see trap above); autotune on it found DX 16→15
+  (box 1764→1681) and `DX=14` reaches 40×40 but dies with `loaderror: pipe ends without
+  reaching another room`.
 
 ## What actually moves the score
 

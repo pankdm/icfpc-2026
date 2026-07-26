@@ -235,11 +235,17 @@ def build_program(
     scalar_command_band=1,
     scalar_reply_band=3,
     scalar_display_offset=None,
+    lay_fn=None,
     merge_pad=None,
     block_gap=None,
     boustrophedon=False,
 ):
-    """Compile *flow* and attach the shared stateful-problem hardware."""
+    """Compile *flow* and attach the shared stateful-problem hardware.
+
+    ``lay_fn`` may replace ``flowgrid.lay_cfg_controller`` while preserving
+    the component assembly.  It accepts ``(program, flow, port_spec,
+    code_x=...)`` and returns the usual layout dictionary.
+    """
     if compact and not (fast_cell_ram and fast_scalar_ram):
         raise ValueError("compact mode requires fast_cell_ram and fast_scalar_ram")
     if compact and queue:
@@ -263,20 +269,23 @@ def build_program(
             offset = 160 + 80 * replica
             port_spec[f"c{replica}s"] = (offset, "s")
             port_spec[f"c{replica}r"] = (offset + 25, "r")
-    layout = flowgrid.lay_cfg_controller(
-        p,
-        flow,
-        port_spec,
-        code_x=code_x,
-        pooled_edges=pooled_edges,
-        tight_gaps=tight_gaps,
-        dedup_edges=dedup_edges,
-        coalesce_targets=coalesce_targets,
-        local_edges=True,
-        merge_pad=merge_pad,
-        block_gap=block_gap,
-        boustrophedon=boustrophedon,
-    )
+    if lay_fn is not None:
+        layout = lay_fn(p, flow, port_spec, code_x=code_x)
+    else:
+        layout = flowgrid.lay_cfg_controller(
+            p,
+            flow,
+            port_spec,
+            code_x=code_x,
+            pooled_edges=pooled_edges,
+            tight_gaps=tight_gaps,
+            dedup_edges=dedup_edges,
+            coalesce_targets=coalesce_targets,
+            local_edges=True,
+            merge_pad=merge_pad,
+            block_gap=block_gap,
+            boustrophedon=boustrophedon,
+        )
     ports = layout["ports"]
     bottom = layout["bottom"]
 

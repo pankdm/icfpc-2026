@@ -36,6 +36,18 @@ async function loadProblem(slug) {
     const cases = Array.isArray(j) ? j : (j.cases || []);
     problem.publicTestData = (problem.publicTestData || []).concat(cases);
   }
+  // Heavy stateful cases can exhaust the Go/WASM recorder when several are
+  // graded in one process.  Let callers isolate one public case per fresh
+  // oracle process without rewriting the cached problem specification.
+  const caseIndex = arg('--case-index');
+  if (caseIndex !== null) {
+    const index = Number(caseIndex);
+    const cases = problem.publicTestData || [];
+    if (!Number.isInteger(index) || index < 0 || index >= cases.length) {
+      throw new Error(`bad --case-index ${caseIndex}; expected 0..${cases.length - 1}`);
+    }
+    problem.publicTestData = [cases[index]];
+  }
   // FAIL-FAST: grade the cheapest case first. A broken candidate usually fails on any
   // case, so rejecting on the smallest one avoids paying for the expensive ones. Ordering
   // cannot change the verdict (every case must pass) and avgTicks is order-independent.

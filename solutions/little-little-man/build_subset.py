@@ -257,6 +257,7 @@ def lay_controller(
     return_layout=False,
     tight_gaps=False,
     dedup_edges=False,
+    lay_fn=None,
 ):
     if port_profile == "compact" and banked:
         spec = {
@@ -296,19 +297,22 @@ def lay_controller(
             "sa": (118, "s"),
             "ss": (140, "s"),
         }
-    layout = flowgrid.lay_cfg_controller(
-        p,
-        flow,
-        spec,
-        code_x=code_x,
-        x0=x0,
-        y0=y0,
-        local_edges=local_edges,
-        direct_edges=direct_edges,
-        pooled_edges=pooled_edges,
-        tight_gaps=tight_gaps,
-        dedup_edges=dedup_edges,
-    )
+    if lay_fn is not None:
+        layout = lay_fn(p, flow, spec, code_x=code_x)
+    else:
+        layout = flowgrid.lay_cfg_controller(
+            p,
+            flow,
+            spec,
+            code_x=code_x,
+            x0=x0,
+            y0=y0,
+            local_edges=local_edges,
+            direct_edges=direct_edges,
+            pooled_edges=pooled_edges,
+            tight_gaps=tight_gaps,
+            dedup_edges=dedup_edges,
+        )
     return layout if return_layout else layout["ports"]
 
 
@@ -324,6 +328,7 @@ def build_program(
     pooled_edges=False,
     tight_gaps=False,
     dedup_edges=False,
+    lay_fn=None,
 ):
     """Attach a compiled Flow to the shared input/RAM/scratch/display hardware."""
     p = lm.Program()
@@ -338,6 +343,7 @@ def build_program(
         pooled_edges=pooled_edges,
         tight_gaps=tight_gaps,
         dedup_edges=dedup_edges,
+        lay_fn=lay_fn,
     )
     inp = ports["ri"]
     ram_reply = ports["rr"]

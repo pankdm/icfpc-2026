@@ -51,6 +51,43 @@ WHAT STEP (1) DID AND DID NOT BUY -- measured, don't re-litigate:
     A single man on a straight rsrsrs chain is exactly 0.50 values/tick
     (2 ticks/relay), so ~2.1-2.4 ticks/relay is the realistic floor here.
 
+*** HEIGHT ARITHMETIC FOR THE 28x28 FOLD -- READ BEFORE LAYING IT OUT. ***
+The OUT/CMD swap (done) only works while CONTROL stays SOUTH-WEST, so that cmd
+runs straight up the far-west column with nothing to cross. Moving CONTROL
+north-east to "kill the connector band" re-creates the planarity conflict,
+because cmd would again have to cross p1 (x=14) and p2 (x=9). So CONTROL stays
+below MEM, and the box height is a pure sum:
+
+    MEM 18 + cmd 2 + CONTROL 9 = 29   ->   box 29x29 = 841
+
+cmd needs TWO cells (pipes are >=2 long), so CONTROL's top wall cannot sit at
+row 18 or 19; it starts at row 20. 841 x 4923 = 4.14M, which does NOT beat the
+champion's 3,963,967. 28x28 = 784 is required, and needs one row removed from
+MEM or from CONTROL:
+
+ (a) MEM 18 -> 17 rows: drop ring8 to nrelay=7 (dn=8, upn=6 makes m_on_up true,
+     so bot = top+2+dn = 15 instead of 16) and move the return run to row 15,
+     west of ring8's cols 12-13. Costs ticks: lap 20/7 = 2.857 t/relay vs
+     22/8 = 2.75, about +6 t/op, landing ~784 x 5044 = 3.95M. Beats the
+     champion by only 0.3% -- too thin to rely on.
+ (b) CONTROL 9 -> 8 rows (6x6 interior): 19 ops + ~7 turns = 26 cells in 36, so
+     it FITS by area, but I could not route it. Both branch arms must return to
+     the row-1 loop turn, and they cannot share col 1: the read arm's col-1
+     cells are '0','s','0','s', so a write man merging into them would send 0
+     instead of 1. Every variant either walks into a wall at (2,1) above the
+     '@', or makes (2,1) a turn and forms a two-cell infinite loop with (1,1).
+
+ (c) BEST -- change the protocol so the arms get shorter, which fixes (b) AND
+     saves ticks. Send op BEFORE value, and omit value entirely on reads:
+        CONTROL: ... s(delta), then branch:  write -> 1, s, r, s
+                                             read  -> 0, s
+        MEM tap: r(op), X;  read arm r(belt), S
+                            write arm r(value), M, r(belt), W, s
+     Arms drop from 8 ops to 6, which is what makes a 6x6 CONTROL routable, and
+     every READ op now carries 2 values instead of 3 -- fewer sends in CONTROL
+     and one fewer read in MEM, so ticks IMPROVE rather than regress like (a).
+     This is a protocol change: re-run the 34-case fuzz, not just the 7 public.
+
 *** THE cmd/(3,21) CONFLICT IS SOLVED, AND A HARDER BLOCKER FOUND. ***
 cmd fix: route it BELOW HOP, not beside it. With MEM cols 0-16 rows 0-17,
 HOP at cols 4-15 rows 20-23 and p1 = [(14,18),(14,19)] (2 cells into HOP's top

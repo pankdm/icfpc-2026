@@ -3,8 +3,8 @@
 a box-constraint duplicate carried on lane 2 (the LAST mask an addressing room
 sends) landing at round 2, while the fork chain is still birthing men."""
 import subprocess, sys, json
-BUILDER = "build_lanes4.py"
-TC = 41
+BUILDER = "build_lanes5.py"
+TC = 32
 SOL = "/Users/visenbaev/icfpc26/.claude/worktrees/agent-a6899275a3d404a4a/solutions/sudoku-validity"
 CASES = {
     "lane2-box-dup@2":  [(6, 3, 5), (7, 4, 5)],
@@ -32,4 +32,4 @@ for left in range(int(sys.argv[1]), int(sys.argv[2]) + 1):
                            cwd="/Users/visenbaev/icfpc26", capture_output=True, text=True)
         j = json.loads(o.stdout.strip().splitlines()[-1])
         res.append(f"{name}={j.get('status')}")
-    print(f"LAP={2*(TC-left):3d} " + "  ".join(res))
+    print(f"depth={left:2d} LAP={62+2*left:3d} " + "  ".join(res))

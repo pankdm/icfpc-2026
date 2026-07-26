@@ -78,6 +78,14 @@ fourth short output goes to the robot-bit termination test.
 - Every pipe in the layer cycle must have fixed capacity; shortening is allowed
   only after the protocol passes adversarial idle and dense-layer tests.
 
+`scratchpad/pathfinder_lane_ports.py` proves the receive geometry. A single
+UNVIS man walks across five physically separated ports (reset, U, R, D, L);
+repeating `r` at one coordinate is invalid because lowercase reads stay locked
+to the nearest pipe even after that pipe becomes empty. The probe also exposed
+a fanout rule for setup/controller streams: every branch must drain every
+broadcast token, even if it discards most of them, or a short unused branch
+fills and backpressures the broadcaster.
+
 ## Round reset
 
 OPEN sends its word to UNVIS. Parent workers receive zero. FRONT receives the

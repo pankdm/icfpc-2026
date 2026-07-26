@@ -3,21 +3,31 @@
 
 Nearly every 10-20% win in this repo's history was a constant tweak in a build*.py
 (`pitch 16->14`, `band=30`, `XL=4`, `relay -13->-12`), found by hand. This automates it:
-perturb one module-level integer constant, regenerate the .man, grade it on the reference
-oracle, keep the change only if it still passes EVERY case and scores strictly lower.
-Then coordinate-descend until no single-knob change helps.
+perturb an integer in the builder, regenerate the .man, grade it on the reference oracle,
+keep the change only if it still passes EVERY case and scores strictly lower. Search runs
+as parallel waves of single-knob moves until nothing improves.
+
+>>> Full docs — how the search works, how to make a builder tunable, and what results to
+>>> expect — are in tools/AUTOTUNE.md. Read that before extending this file.
 
     python3 tools/autotune.py <slug> <builder.py> [-- builder args...]
 
-    --knobs A,B,C     only tune these constants (default: all module-level ints)
+    --knobs A,B,C     only tune these knobs (by display name)
     --exclude A,B     never touch these
+    --scope all|assign  'all' = every int literal (default); 'assign' = only NAME = <int>
+    --max-knobs N     cap how many knobs are searched
     --deltas 1,2,4    step sizes to try each direction (default 1,2)
     --target x.man    which produced file to grade (default: the one the builder writes)
-    --cases f.json    extra stress cases that a candidate must ALSO pass (see below)
+    --cases f.json    extra stress cases a candidate must ALSO pass (guards generality)
     --jobs N          parallel candidate evaluations (default 4)
-    --passes N        max coordinate-descent passes (default 4)
+    --passes N        max search waves (default 4)
     --budget SEC      stop starting new candidates after this many seconds
     --timeout SEC     per-candidate wall clock (default 120)
+    --tick-factor N   reject candidates slower than N x the baseline avg ticks (default 4)
+    --no-screen       skip the build-only screening pass
+    --no-macros       disable macro knobs (coordinated block shifts)
+    --no-cache        do not read/write .autotune-cache.json
+    -v/--verbose      print rejected candidates too
     --dry-run         evaluate the baseline + list the knobs, then stop
 
 SAFETY — this can never break an existing solution:

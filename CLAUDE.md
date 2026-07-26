@@ -162,15 +162,18 @@ Score is `max(w,h)² × avg ticks`. In this repo's history the wins came, in ord
 Keep short pipes (length adds latency *and* ticks), and remember ticks stop at the **final
 correct output** — crashing into a wall afterwards is free, `H` is often unnecessary.
 
-### Automated tuning (`tools/autotune.py`)
+### Automated tuning (`tools/autotune.py` — **full docs: `tools/AUTOTUNE.md`**)
 
 ```bash
 python3 tools/autotune.py <slug> solutions/<slug>/build*.py --jobs 8 [-- builder args]
 ```
-Perturbs one integer literal in the builder, regenerates the `.man`, grades it, and keeps
-the change only if it still passes every case **and** scores strictly lower — steepest
-descent in parallel waves. Builds run in a temp sandbox and output goes to new
-`*-tuned.man` / `*_tuned.py` files, so it cannot damage a working solution.
+Perturbs an integer in the builder, regenerates the `.man`, grades it, and keeps the change
+only if it still passes every case **and** scores strictly lower — parallel waves of
+single-knob moves. Builds run in a temp sandbox and output goes to new `*-tuned.man` /
+`*_tuned.py` files, so it cannot damage a working solution. **If you write a builder, read
+the "making a builder tunable" section of `tools/AUTOTUNE.md`** — a repo audit found the
+tuner could originally reach only 4 of 12 solved problems, almost always because of how the
+builder emits its grid.
 
 What it found so far, and what that tells you:
 - **sudoku-validity: 7,556,863 → 7,209,468** (box 1849 → 1764) from a single literal

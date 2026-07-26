@@ -48,10 +48,10 @@ PIPE_GAP = 3            # rows between the device band and the controller
 PORT_GAP = 1            # columns between the non-holder port columns
 IN_CLEAR = 3            # extra clearance east of the 3-wide input room
 HWY_GAP = 0             # columns between neighbouring highway lanes
-LEAD_IN = 2             # blank columns between the entry column and the ops
-RING_LIFT = 8           # how far above the band the ring relay sits
+LEAD_IN = 0             # blank columns between the entry column and the ops
+RING_LIFT = 7           # how far above the band the ring relay sits
 DISP_GAP = 6            # routing columns between the band and the display
-TAIL_PAD = 2            # spare rows under the last block
+TAIL_PAD = 0            # spare rows under the last block
 CODE_SLACK = 14         # spare code columns east of the last port column
 
 # Holder column order found by search_holder_order().  A port op must sit on its

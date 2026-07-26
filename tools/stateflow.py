@@ -121,16 +121,21 @@ DEFAULT_PORTS = {
 # the port column among same-direction ports (band rule), and sa sits WEST of
 # sd so a display write (load, sa, const, sd) stays column-monotone on one row.
 COMPACT_PORTS = {
+    # Columns from the tools/smtrows.py port search (the greedy layout is
+    # per-block row-optimal for ANY fixed map — Z3-certified — so searching
+    # port columns with the greedy evaluator is exact): 154->142 op rows,
+    # width 105->93 on the snake flow. Zones are strict Voronoi midpoints
+    # of same-direction neighbours.
     "ri": (6, "r", 1, 12),
-    "sp": (12, "s", 1, 20),
-    "rp": (20, "r", 14, 31),
-    "sc": (30, "s", 22, 44),
-    "rr": (44, "r", 33, 95),
-    "sd": (60, "s", 46, 66),
-    "sa": (74, "s", 68, 80),
-    "ss": (88, "s", 82, 98),
-    "cc": (110, "s", 101, 135),
-    "cr": (148, "r", 97, 155),
+    "sp": (12, "s", 1, 24),
+    "rp": (20, "r", 14, 33),
+    "sc": (37, "s", 25, 49),
+    "rr": (47, "r", 34, 86),
+    "sd": (62, "s", 50, 67),
+    "sa": (73, "s", 68, 78),
+    "ss": (85, "s", 80, 87),
+    "cc": (90, "s", 88, 155),
+    "cr": (127, "r", 88, 155),
 }
 
 
@@ -182,9 +187,8 @@ def _compact_components(p, ports, bottom, code_x, scalar_size, scalar_belts, cel
     # reading order (sa top, sd west, ss bottom) matches the classic layout.
     # sa's port column IS dx+8, so the address feed drops straight in; sd
     # descends west of the room; ss wraps around the east side to the bottom.
-    dx, dy = c + 66, b + 5
+    dx, dy = ports["sa"][0] - 8, b + 5
     p.display(dx, dy, 18, 18)
-    assert ports["sa"][0] == dx + 8
     p.pipe([ports["sa"], (dx + 8, dy - 1)])
     p.pipe([
         ports["sd"],

@@ -42,7 +42,8 @@ HOLDER_PITCH = 5        # columns between neighbouring holder rooms
 HOLDER_W = 4            # holder room outer width
 HOLDER_H = 6            # holder room outer height
 PIPE_GAP = 3            # rows between the device band and the controller
-PORT_GAP = 4            # columns between the non-holder port columns
+PORT_GAP = 1            # columns between the non-holder port columns
+IN_CLEAR = 3            # extra clearance east of the 3-wide input room
 HWY_GAP = 0             # columns between neighbouring highway lanes
 LEAD_IN = 2             # blank columns between the entry column and the ops
 RING_LIFT = 8           # how far above the band the ring relay sits
@@ -127,7 +128,11 @@ class Columns(object):
         self.port = {}
         for name in PORT_ORDER:
             self.port[name] = x
-            x += port_gap
+            # The input ROOM is 3 cells wide and straddles its own port column,
+            # so a neighbouring port's vertical would run alongside its right
+            # wall and steal its binding.  Every other port is a bare pipe and
+            # may be packed shoulder to shoulder.
+            x += max(port_gap, IN_CLEAR) if name == "in" else port_gap
         self.holder_room_x = {}
         self.hr = {}
         self.hw = {}
@@ -195,6 +200,14 @@ class CodePlacer(object):
         self.lits = set()          # (row, x_open, x_close) of every REAL literal
         self.walk = {}             # label -> cells the man steps through
         self.edges = []            # (src, dst, lane_col, from_col, from_row)
+        # --- exact walk model (see cost_model.py) ---------------------------
+        # cum[label][i]  cells stepped from the block's first op cell up to and
+        #                including token i (wraps included).
+        # exit[(label,i)] cells stepped LEAVING the block at token i, up to and
+        #                including the entry glyph of the successor block.
+        self.cum = {}
+        self.exit = {}
+        self._rides_by_key = {}
 
     def place(self, blocks):
         c = self.c
@@ -212,6 +225,8 @@ class CodePlacer(object):
             """Turn south, fall past every pending exit row, then face `reverse`."""
             self.g.put(st["x"], st["y"], ARROW_S)
             st["y"] += 1 + st["pend"]
+            # 'v', then `pend` blank exit rows, then the turn glyph: 2 + pend
+            st["walk"] += 2 + st["pend"]
             st["pend"] = 0
             self.g.put(st["x"], st["y"], ARROW_W if reverse < 0 else ARROW_E)
             st["d"] = reverse
@@ -244,8 +259,10 @@ class CodePlacer(object):
             self.entry_row[label] = st["y"]
             fresh = False
             st["walk"] = 0
+            cum = self.cum.setdefault(label, [])
+            del cum[:]
 
-            for tok in toks:
+            for ti, tok in enumerate(toks):
                 kind = tok[0] if isinstance(tok, tuple) else None
                 if kind in ("br", "brbp"):
                     need(4)
@@ -257,18 +274,35 @@ class CodePlacer(object):
                     # BEHIND the cursor in the current heading
                     self._lane(st["x"] - st["d"], st["y"] + st["pend"], tok[1],
                                False, label)
+                    # taken arm: fall `pend` rows to the exit row, run west to
+                    # the lane, ride it, glide east to the target's entry glyph.
+                    self.exit[(label, ti)] = self._ride(
+                        (label, ti), st["x"] - st["d"], st["y"] + st["pend"],
+                        tok[1]) + st["pend"]
                 elif kind == "go":
                     self.walk[label] = st["walk"]
+                    cum.append(st["walk"])
                     tgt = tok[1]
                     if tgt == nxt and nxt not in targets:
+                        w0 = st["walk"]
                         descend(-st["d"])        # keep walking, no round trip
+                        self.exit[(label, ti)] = st["walk"] - w0
                     else:
                         self.g.put(st["x"], st["y"], ARROW_S)
                         row = st["y"] + st["pend"] + 1
+                        if tgt == nxt:
+                            # is_fall: west to entry_col, then one row down
+                            self.exit[(label, ti)] = (2 + st["pend"]
+                                                      + (st["x"] - c.entry_col) + 1)
+                        else:
+                            self.exit[(label, ti)] = (
+                                2 + st["pend"]
+                                + self._ride((label, ti), st["x"], row, tgt))
                         self._lane(st["x"], row, tgt, tgt == nxt, label)
                         st["y"] = row + 1
                         st["pend"] = 0
                         fresh = True
+                    continue
                 elif kind is not None and c.of(tok) is not None:
                     want = c.of(tok)
                     if (st["d"] > 0 and want < st["x"]) or \
@@ -286,8 +320,26 @@ class CodePlacer(object):
                     if text[0] == "`":
                         x1 = st["x"] - st["d"]
                         self.lits.add((st["y"], min(x0, x1), max(x0, x1)))
+                cum.append(st["walk"])
         self.y = st["y"] + 1
         return self.y
+
+    def _ride(self, key, x, row, target):
+        """Cells from the exit row's '<' to the target block's entry glyph.
+
+        The vertical leg is unknown for a FORWARD edge (the target row has not
+        been placed yet), so the ride is recorded and resolved by finish().
+        """
+        dest = self.c.hwy[target]
+        self._rides_by_key[key] = (x, row, target)
+        return (x - dest) + (self.c.entry_col - dest)
+
+    def finish(self):
+        """Add each highway ride's vertical leg, now that every row is known."""
+        for key, (x, row, target) in self._rides_by_key.items():
+            self.exit[key] += abs(self.entry_row[target] - row)
+        self._rides_by_key = {}
+        return self
 
     def _lane(self, x, y, target, is_fall, src=None):
         dest = self.c.entry_col if is_fall else self.c.hwy[target]
@@ -379,11 +431,11 @@ def colour_lanes(spans):
     return lanes
 
 
-def plan_lanes(blocks, holder_order, rounds=6):
+def plan_lanes(blocks, holder_order, rounds=6, **kw):
     """Iterate placement <-> lane colouring until the assignment stops moving."""
     lanes = None
     for _ in range(rounds):
-        cols = Columns(blocks, holder_order, lanes=lanes)
+        cols = Columns(blocks, holder_order, lanes=lanes, **kw)
         g = lay.Layout(lm.Program())
         placer = CodePlacer(g, cols, 1)
         placer.place(blocks)
@@ -430,13 +482,15 @@ def checked_room(g, x, y, w, h, glyphs="+-|"):
 # ===========================================================================
 # 4.  whole program
 # ===========================================================================
-def build(holder_order=None, pitch=HOLDER_PITCH, ring_lift=RING_LIFT):
+def build(holder_order=None, pitch=HOLDER_PITCH, ring_lift=RING_LIFT,
+          port_gap=PORT_GAP, lead_in=LEAD_IN):
     flow = F.build_flow()
     blocks = split_blocks(flow)
     holder_order = holder_order or [h for h in HOLDER_ORDER if h in F.HOLDERS]
     assert sorted(holder_order) == sorted(F.HOLDERS), "HOLDER_ORDER is stale"
-    cols = Columns(blocks, holder_order, pitch=pitch,
-                   lanes=plan_lanes(blocks, holder_order))
+    kw = dict(pitch=pitch, port_gap=port_gap, lead_in=lead_in)
+    cols = Columns(blocks, holder_order,
+                   lanes=plan_lanes(blocks, holder_order, **kw), **kw)
 
     p = lm.Program()
     g = lay.Layout(p)

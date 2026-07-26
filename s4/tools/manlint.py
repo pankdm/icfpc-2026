@@ -69,11 +69,37 @@ def literal_faults(rows):
     return faults
 
 
-def check(program):
+def dangling_pipes(program):
+    """Pipes whose first/last cell is not against a room or display border.
+
+    The loader wants both ends adjacent to a wall ("pipe ends without reaching
+    another room"), and a wall cannot be recognised by its glyph because pipe
+    bodies use the same '-' and '|'.
+    """
+    bad = []
+    for first, last, _n, back, fwd in program.pipes:
+        for cell, end in ((back, first), (fwd, last)):
+            if cell not in program.room_cells:
+                bad.append((end, cell))
+    return bad
+
+
+# The banked RAM servers hand out reply attachments *inside* their own component
+# (split_belts deletes the proxy I/O rooms and leaves a gap), so a correct build
+# still reports a few loose ends.  A search therefore compares against the count
+# its own baseline produces rather than demanding zero.
+def dangling_budget(program):
+    return len(dangling_pipes(program))
+
+
+def check(program, allow_dangling=0):
     """None when the grid is structurally plausible, else a reason string."""
     bad = bad_overwrites(program)
     if bad:
         return f"{len(bad)} collisions, first {bad[0]}"
+    loose = dangling_pipes(program)
+    if len(loose) > allow_dangling:
+        return f"{len(loose)} dangling pipe ends, first {loose[0]}"
     faults = literal_faults(program.render().split("\n"))
     if faults:
         return f"{len(faults)} malformed literals, first {faults[0]}"

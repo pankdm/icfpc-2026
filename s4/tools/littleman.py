@@ -43,11 +43,16 @@ class Program:
         # loader "pipe interrupted" much later).  Recording is free; nothing
         # reads this unless a caller chooses to.
         self.overwrites = []
-        # (first_cell, last_cell, length) per pipe.  A pipe's length is its FIFO
-        # capacity as well as its latency, so a floorplan search that reshapes a
-        # queue has to be able to check it did not shrink below the deepest
-        # frontier the program can enqueue.
+        # (first, last, length, back_neighbour, fwd_neighbour) per pipe.  Length
+        # is FIFO capacity as well as latency, so a floorplan search that
+        # reshapes a queue must check it did not shrink below the deepest
+        # frontier the program can enqueue; the two neighbour cells are what the
+        # loader requires to sit on a room border ("pipe ends without reaching
+        # another room" otherwise).
         self.pipes = []
+        # Cells written as a room/display border, so an endpoint check can tell a
+        # real wall from a pipe body -- both are drawn with '-' and '|'.
+        self.room_cells = set()
 
     # ---- primitives ----
     def put(self, x, y, ch, kind="cell"):
@@ -74,6 +79,12 @@ class Program:
     def room(self, x, y, w, h, glyphs="+-|"):
         """Draw a w×h room with top-left at (x,y). Returns its Rect (outer + interior)."""
         cor, hor, ver = glyphs
+        for i in range(w):
+            self.room_cells.add((x + i, y))
+            self.room_cells.add((x + i, y + h - 1))
+        for j in range(h):
+            self.room_cells.add((x, y + j))
+            self.room_cells.add((x + w - 1, y + j))
         for i in range(w):
             self.put(x + i, y, hor, "room")
             self.put(x + i, y + h - 1, hor, "room")
@@ -123,7 +134,10 @@ class Program:
                 self.put(x, y, VEC2ARROW[(dx, dy)], "pipe")
             else:
                 self.put(x, y, "-" if dx != 0 else "|", "pipe")
-        self.pipes.append((points[0], points[-1], len(cells)))
+        fx, fy, fdx, fdy = cells[0]
+        lx2, ly2, ldx, ldy = cells[-1]
+        self.pipes.append((points[0], points[-1], len(cells),
+                           (fx - fdx, fy - fdy), (lx2 + ldx, ly2 + ldy)))
         return self
 
     # ---- output / scoring ----

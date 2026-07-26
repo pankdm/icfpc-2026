@@ -79,7 +79,15 @@ squash`.** Diagnose first: count blocks vs edges with `tools/blockify3.py`.
    `src:-1`, silently detaching the pipe (matmul's live champion actually
    ships with such a detached pipe — it is unliftable but functions).
 2. Backtick literals parse on **both axes** and read **reversed westward** —
-   literal runs are rigid; never re-head or split one.
+   literal runs are rigid; never re-head or split one. The oracle pairs
+   same-COLUMN backticks vertically (consecutive pairs per column; the span
+   between must be digits/spaces or the grid won't load), so a column's
+   backtick count must be even. Literals must fit i64 read BOTH directions.
+   RUST-ENGINE DIVERGENCE (tl-q7a7): the Rust interp silently skips bad
+   vertical pairs, and digit cells inside literals are LIVE (A=digit) when a
+   man crosses them vertically in the oracle but NOP in Rust — grade_fast
+   can pass a build the server fails. Any build using vertical literals or
+   walks crossing literal digits MUST be wasm-cross-checked before submit.
 3. A pipe running alongside a room's wall reads as attached to that room and
    steals its `s`/`r` bindings (adjacency, not just endpoints) — and this is
    INVISIBLE to the binding-resolution gate when the graze is on a NEWLY

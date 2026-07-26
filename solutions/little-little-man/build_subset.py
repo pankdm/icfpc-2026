@@ -243,7 +243,7 @@ def build_flow():
 CTRL_CODE = 300
 
 
-def lay_controller(p, flow, x0=0, y0=0):
+def lay_controller(p, flow, x0=0, y0=0, code_x=CTRL_CODE):
     spec = {
         "ri": (10, "r"),
         "sp": (20, "s"),
@@ -255,15 +255,17 @@ def lay_controller(p, flow, x0=0, y0=0):
         "ss": (140, "s"),
     }
     layout = flowgrid.lay_cfg_controller(
-        p, flow, spec, code_x=CTRL_CODE, x0=x0, y0=y0
+        p, flow, spec, code_x=code_x, x0=x0, y0=y0
     )
     return layout["ports"]
 
 
-def build_program(flow, ram_size, display_addr=False):
+def build_program(
+    flow, ram_size, display_addr=False, controller_code=CTRL_CODE
+):
     """Attach a compiled Flow to the shared input/RAM/scratch/display hardware."""
     p = lm.Program()
-    ports = lay_controller(p, flow)
+    ports = lay_controller(p, flow, code_x=controller_code)
     inp = ports["ri"]
     ram_reply = ports["rr"]
     ram_cmd = ports["sc"]
@@ -271,7 +273,7 @@ def build_program(flow, ram_size, display_addr=False):
     swap = ports["ss"]
     # Place RAM and display below the controller, then route outside its bbox.
     cy = inp[1]
-    rox, roy = CTRL_CODE + 48, cy + 80
+    rox, roy = controller_code + 48, cy + 80
     ram = belt_ram.build(p, rox, roy, ram_size)
     # Input room.
     p.input_room(inp[0] - 1, cy + 12)
@@ -279,14 +281,14 @@ def build_program(flow, ram_size, display_addr=False):
     # One-value scratch echo used to stage a variable RAM address across payload
     # computation without nesting a RAM request inside a write transaction.
     sy = cy + 28
-    sx = CTRL_CODE + 18
+    sx = controller_code + 18
     p.room(sx, sy, 8, 4)
     p.text(sx + 1, sy + 1, "@>rsv")
     p.put(sx + 5, sy + 2, "<"); p.put(sx + 2, sy + 2, "^")
-    p.pipe([(CTRL_CODE + 20, cy), (CTRL_CODE + 20, sy - 3),
+    p.pipe([(controller_code + 20, cy), (controller_code + 20, sy - 3),
             (sx + 3, sy - 3), (sx + 3, sy - 1)])
     p.pipe([(sx + 4, sy - 1), (sx + 4, sy - 3),
-            (CTRL_CODE + 30, sy - 3), (CTRL_CODE + 30, cy)])
+            (controller_code + 30, sy - 3), (controller_code + 30, cy)])
     # Command dog-legs around the RAM's left wall, then enters bottom-col2.
     ram_cmd = ram["command"]
     p.pipe([(ram_cmd[0], cy), (ram_cmd[0], roy - 3), (rox - 3, roy - 3),
@@ -295,7 +297,7 @@ def build_program(flow, ram_size, display_addr=False):
     p.pipe([(read_reply[0], read_reply[1]), (ram_reply[0], read_reply[1]),
             (ram_reply[0], cy)])
     # 16x16 display, DATA on left and SWAP on bottom.
-    dx, dy = CTRL_CODE + 110, cy + 45
+    dx, dy = controller_code + 110, cy + 45
     p.display(dx, dy, 18, 18)
     p.pipe([(data[0], cy), (data[0], dy - 3), (dx - 3, dy - 3),
             (dx - 3, dy + 8),

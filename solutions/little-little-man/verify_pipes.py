@@ -47,12 +47,18 @@ def main():
             ((pipe.cells[-1][1] + top_offset) * 16
              + pipe.cells[-1][0] + left_offset,
              (pipe.cells[0][1] + top_offset) * 16
-             + pipe.cells[0][0] + left_offset)
+             + pipe.cells[0][0] + left_offset,
+             pipe.destination_room + 1,
+             pipe.source_room + 1)
             for pipe in program.pipes
         }
         count = ram[31]
         descriptors = ram[multi.DESC0:multi.DESC0 + count]
-        got_endpoints = {(value & 255, (value >> 8) & 255) for value in descriptors}
+        got_endpoints = {
+            (value & 255, (value >> 8) & 255,
+             (value >> 16) & 7, (value >> 19) & 7)
+            for value in descriptors
+        }
         assert count == len(program.pipes), case["name"]
         assert got_endpoints == expected_endpoints, case["name"]
         total_pipes += count

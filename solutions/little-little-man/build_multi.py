@@ -33,6 +33,10 @@ RAM_N = 288
 DESC0 = 288
 MAX_PIPES = 16
 PIPE_RAM_N = DESC0 + MAX_PIPES
+SEL_I, SEL_COUNT, SEL_BEST, SEL_BEST_DIST = range(304, 308)
+SEL_CAND, SEL_MAN, SEL_DESC, SEL_ROOM = range(308, 312)
+SEL_DX, SEL_DY, SEL_DIST = range(312, 315)
+PIPE_IO_RAM_N = 320
 
 
 class Flow(subset.Flow):
@@ -116,6 +120,30 @@ class Flow(subset.Flow):
             .const(addr).e("sc", "rp", "sc")
         )
 
+    def load_far(self, addr):
+        """Load a synthesized fixed address while preserving B."""
+        return (
+            self.e("W", "sp", "W")
+            .const(0).e("sc")
+            .const(addr).e("sc", "rr", "M", "rp", "W")
+        )
+
+    def far_field(self, addr, shift, mask):
+        return (
+            self.load_far(addr).e("sp")
+            .const(shift).e("M", "rp", "}", "sp")
+            .const(mask).e("M", "rp", "&")
+        )
+
+    def far_bin(self, op, left, right):
+        return self.load_far(right).e("M").load_far(left).e(op)
+
+    def array_addr_far(self, base, index_addr):
+        return (
+            self.load_far(index_addr).e("sp")
+            .const(base).e("M", "rp", "+")
+        )
+
     def raw(self, index_addr=None):
         if index_addr is not None:
             self.cell_load(index_addr)
@@ -184,7 +212,92 @@ def emit_pipe_next(f, prefix, source_addr, result_addr, done_label):
     f.at(f"{prefix}_BAD").const(1).store(DEAD).go(done_label)
 
 
-def build_flow(enable_pipes=False):
+def emit_pipe_backward(f, prefix, source_addr, result_addr, done_label):
+    """Emit blocks computing the cell behind a source arrowhead."""
+    f.at(prefix).cell_ascii(source_addr).store(CH).go(f"{prefix}_TEST_0")
+    directions = ((62, -1), (118, -16), (60, 1), (94, 16))
+    for index, (ascii_value, delta) in enumerate(directions):
+        label = f"{prefix}_TEST_{index}"
+        if label not in f.blocks:
+            f.at(label)
+        next_label = f"{prefix}_TEST_{index + 1}" if index < 3 else f"{prefix}_BAD"
+        move_label = f"{prefix}_MOVE_{index}"
+        f.subc(CH, ascii_value).br(next_label, move_label, next_label)
+        f.at(move_label)
+        if delta > 0:
+            f.addc(source_addr, delta, result_addr)
+        else:
+            f.subc(source_addr, -delta, result_addr)
+        f.go(done_label)
+    f.at(f"{prefix}_BAD").const(1).store(DEAD).go(done_label)
+
+
+def emit_endpoint_selection(f, prefix, incoming, success_label, none_label):
+    """Select the nearest endpoint owned by MID's room.
+
+    Ties resolve to the lowest row-major address, matching reading order.
+    The selected address remains in SEL_BEST.
+    """
+    room_shift = 16 if incoming else 19
+    address_shift = 0 if incoming else 8
+
+    f.at(f"{prefix}_INIT").const(0).store_far(SEL_I)
+    f.load(31).store_far(SEL_COUNT)
+    f.const(1).e("N").store_far(SEL_BEST)
+    f.const(1000).store_far(SEL_BEST_DIST)
+    f.load(POS).store_far(SEL_MAN).go(f"{prefix}_TEST")
+
+    f.at(f"{prefix}_TEST").far_bin("-", SEL_I, SEL_COUNT).br(
+        f"{prefix}_DONE", f"{prefix}_DONE", f"{prefix}_DESC"
+    )
+    f.at(f"{prefix}_DESC").array_addr_far(DESC0, SEL_I).loadv()
+    f.store_far(SEL_DESC)
+    f.far_field(SEL_DESC, room_shift, 7).store_far(SEL_ROOM)
+    f.addc(MID, 1).e("M").load_far(SEL_ROOM).e("-").br(
+        f"{prefix}_NEXT", f"{prefix}_CAND", f"{prefix}_NEXT"
+    )
+    f.at(f"{prefix}_CAND").far_field(SEL_DESC, address_shift, 255)
+    f.store_far(SEL_CAND)
+
+    # dx = abs((man & 15) - (candidate & 15)).
+    f.far_field(SEL_MAN, 0, 15).store_far(SEL_DX)
+    f.far_field(SEL_CAND, 0, 15).store_far(SEL_DY)
+    f.far_bin("-", SEL_DX, SEL_DY).br(
+        f"{prefix}_DX_POS", f"{prefix}_DX_POS", f"{prefix}_DX_NEG"
+    )
+    f.at(f"{prefix}_DX_POS").store_far(SEL_DX).go(f"{prefix}_DY")
+    f.at(f"{prefix}_DX_NEG").e("N").store_far(SEL_DX).go(f"{prefix}_DY")
+
+    # dy = abs((man >> 4) - (candidate >> 4)).
+    f.at(f"{prefix}_DY").far_field(SEL_MAN, 4, 15).store_far(SEL_DY)
+    f.far_field(SEL_CAND, 4, 15).store_far(SEL_DIST)
+    f.far_bin("-", SEL_DY, SEL_DIST).br(
+        f"{prefix}_DY_POS", f"{prefix}_DY_POS", f"{prefix}_DY_NEG"
+    )
+    f.at(f"{prefix}_DY_POS").store_far(SEL_DY).go(f"{prefix}_DIST")
+    f.at(f"{prefix}_DY_NEG").e("N").store_far(SEL_DY).go(f"{prefix}_DIST")
+    f.at(f"{prefix}_DIST").far_bin("+", SEL_DX, SEL_DY)
+    f.store_far(SEL_DIST)
+
+    f.far_bin("-", SEL_DIST, SEL_BEST_DIST).br(
+        f"{prefix}_NEXT", f"{prefix}_TIE", f"{prefix}_UPDATE"
+    )
+    f.at(f"{prefix}_TIE").far_bin("-", SEL_CAND, SEL_BEST).br(
+        f"{prefix}_NEXT", f"{prefix}_NEXT", f"{prefix}_UPDATE"
+    )
+    f.at(f"{prefix}_UPDATE").load_far(SEL_DIST).store_far(SEL_BEST_DIST)
+    f.load_far(SEL_CAND).store_far(SEL_BEST).go(f"{prefix}_NEXT")
+    f.at(f"{prefix}_NEXT").load_far(SEL_I).e("M").const(1).e("+")
+    f.store_far(SEL_I).go(f"{prefix}_TEST")
+
+    f.at(f"{prefix}_DONE").load_far(SEL_BEST).br(
+        success_label, success_label, none_label
+    )
+
+
+def build_flow(enable_pipes=False, enable_io=False):
+    if enable_io:
+        enable_pipes = True
     f = Flow()
     f.at("START").inp().store(W).inp().store(HH)
     for addr in (IX, IY, NMAN, MID, DEAD, K):
@@ -323,6 +436,9 @@ def build_flow(enable_pipes=False):
         f.at("PIPE_DEST_WALL_TEST").cell_low(p_next).store(CH)
         f.subc(CH, 4).br("PIPE_SCAN_ADV", "PIPE_DEST_FOUND", "PIPE_SCAN_ADV")
         f.at("PIPE_DEST_FOUND").load(p_scan).store(p_dest)
+        f.cell_field(p_next, 11, 7).e("sp")
+        f.const(16).e("M", "rp", "{", "M").load(p_dest).e("+")
+        f.array_store(DESC0, p_count)
         f.load(p_scan).store(p_cur).go("PIPE_PRED_0")
 
         candidate_deltas = (-1, 1, -16, 16)
@@ -352,10 +468,18 @@ def build_flow(enable_pipes=False):
         f.load(p_cur).store(p_next)
         f.load(p_pred).store(p_cur).go("PIPE_PRED_0")
 
-        # Descriptor packs destination in bits 0..7 and source in bits 8..15.
-        f.at("PIPE_SOURCE_FOUND").load(p_cur).store(p_source)
-        f.load(p_source).e("M").const(8).e("W", "{", "M")
-        f.load(p_dest).e("+").array_store(DESC0, p_count)
+        # Descriptor packs destination/source addresses in bits 0..15 and their
+        # one-based room IDs in bits 16..18 / 19..21.
+        f.at("PIPE_SOURCE_FOUND").load(p_cur).store(p_source).go("PIPE_SOURCE_BACK")
+        emit_pipe_backward(
+            f, "PIPE_SOURCE_BACK", p_source, p_pred, "PIPE_SOURCE_FINAL"
+        )
+        f.at("PIPE_SOURCE_FINAL").array_addr(DESC0, p_count).loadv().store(STAGE)
+        f.cell_field(p_pred, 11, 7).e("sp")
+        f.const(19).e("M", "rp", "{", "sp")
+        f.load(p_source).e("M").const(8).e("W", "{", "sp")
+        f.load(STAGE).e("M", "rp", "+", "M", "rp", "+")
+        f.array_store(DESC0, p_count)
         f.addc(p_count, 1, p_count).go("PIPE_SCAN_ADV")
 
         f.at("PIPE_SCAN_ADV").addc(p_scan, 1, p_scan).go("PIPE_SCAN_TEST")
@@ -424,6 +548,8 @@ def build_flow(enable_pipes=False):
         (94, "OP_N"), (62, "OP_E"), (118, "OP_S"), (60, "OP_W"),
         (77, "OP_M"), (43, "OP_ADD"), (45, "OP_SUB"), (88, "OP_X"), (72, "OP_H"),
     ]
+    if enable_io:
+        dispatch += [(115, "OP_SEND"), (114, "OP_RECV")]
     for index, (ascii_value, op_label) in enumerate(dispatch):
         here = "DISPATCH" if index == 0 else f"DISPATCH_{index}"
         if here not in f.blocks:
@@ -446,6 +572,42 @@ def build_flow(enable_pipes=False):
     f.at("OP_X").load(RA).br("X_POS", "MOVE", "X_NEG")
     f.at("X_POS").addc(DIR, 1).e("M").const(3).e("W", "&").store(DIR).go("MOVE")
     f.at("X_NEG").addc(DIR, 3).e("M").const(3).e("W", "&").store(DIR).go("MOVE")
+
+    if enable_io:
+        f.at("OP_SEND").go("SELECT_SEND_INIT")
+        f.at("SEND_SELECTED").load_far(SEL_BEST).store(DIR)
+        f.cell_field(DIR, 20, 31).br("PIPE_IO_BLOCK", "SEND_WRITE", "PIPE_IO_BLOCK")
+        f.at("SEND_WRITE").cell_load(DIR).store(STAGE)
+        f.addc(RA, 10).e("sp")
+        f.const(20).e("M", "rp", "{", "M").load(STAGE).e("+", "M")
+        f.const(8).e("+").cell_store(DIR)
+        f.load(DIR).e("sa")
+        f.const(14).e("sd").go("PIPE_IO_MOVE")
+
+        f.at("OP_RECV").go("SELECT_RECV_INIT")
+        f.at("RECV_SELECTED").load_far(SEL_BEST).store(DIR)
+        f.cell_field(DIR, 20, 31).store_far(SEL_DIST)
+        f.load_far(SEL_DIST).br("RECV_READ", "PIPE_IO_BLOCK", "PIPE_IO_BLOCK")
+        f.at("RECV_READ").cell_load(DIR).store(STAGE)
+        f.load_far(SEL_DIST).e("sp")
+        f.const(20).e("M", "rp", "{", "M").const(8).e("+", "M")
+        f.load(STAGE).e("-").cell_store(DIR)
+        f.load_far(SEL_DIST).e("sp")
+        f.const(10).e("M", "rp", "-").store(RA)
+        f.load(DIR).e("sa")
+        f.const(6).e("sd").go("PIPE_IO_MOVE")
+
+        f.at("PIPE_IO_BLOCK").state_load(S_DIR).store(DIR).go("MAN_SAVE")
+        f.at("PIPE_IO_MOVE").state_load(S_DIR).store(DIR).go("MOVE")
+
+        emit_endpoint_selection(
+            f, "SELECT_SEND", incoming=False,
+            success_label="SEND_SELECTED", none_label="PIPE_IO_BLOCK"
+        )
+        emit_endpoint_selection(
+            f, "SELECT_RECV", incoming=True,
+            success_label="RECV_SELECTED", none_label="PIPE_IO_BLOCK"
+        )
 
     # Restore the old pixel in the display's preserved next buffer.
     f.at("MOVE").load(POS).e("sa")

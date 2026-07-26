@@ -142,6 +142,23 @@ COMPACT_PORTS = {
     "cr": (127, "r", 88, 155),
 }
 
+# Queue overlay for compact mode. The queue component is translated 100 columns
+# west of its DEFAULT position (queue_x 268 -> 168), landing it just east of the
+# 52-wide cell RAM (code_x+112..163). The translation is RIGID: every segment of
+# the return pipe keeps its exact length, and that length IS the queue's
+# capacity, so occupancy bounds are unchanged by construction.
+#
+# Only cc/cr's band ceilings move (155 -> 130/143, the Voronoi midpoints against
+# the new qs/qr columns). Kept as an overlay rather than folded into
+# COMPACT_PORTS so compact-without-queue users (snake) keep the full 88..155.
+COMPACT_QUEUE_SHIFT = 100
+COMPACT_QUEUE_PORTS = {
+    "cc": (90, "s", 88, 130),
+    "cr": (127, "r", 88, 143),
+    "qr": (160, "r", 144, 200),
+    "qs": (170, "s", 131, 200),
+}
+
 
 # Port specs for the integer output room (problems with no display). The
 # column reuses the display band, so it is only valid with display=False.
@@ -149,8 +166,52 @@ OUTPUT_PORT_DEFAULT = (130, "s", 100, 135)
 OUTPUT_PORT_COMPACT = (60, "s", 46, 84)
 
 
+def _build_queue(p, ports, bottom, code_x, queue_rows, queue_right_off,
+                 cell_replicas, shift=0):
+    """Bounded FIFO service: short command pipe -> relay man -> long return pipe.
+
+    The return pipe is both transport AND storage; its length caps queue
+    occupancy (the BFS frontier of a 16x16 board never exceeds ~19 items,
+    measured). ``shift`` translates the whole component ``shift`` columns west
+    without changing ANY segment length, so capacity is invariant under it.
+    """
+    queue_x = code_x + (600 if cell_replicas > 1 else 268 - shift)
+    queue_y = bottom + 6
+    p.room(queue_x, queue_y, 8, 6)
+    p.text(queue_x + 1, queue_y + 1, "@>rsv")
+    p.put(queue_x + 5, queue_y + 2, "<")
+    p.put(queue_x + 2, queue_y + 2, "^")
+    p.pipe([
+        ports["qs"],
+        (ports["qs"][0], queue_y - 1),
+    ])
+    # queue_rows=6/right=320 keeps the original ~379-cell shape for legacy builds.
+    right = code_x + (652 if cell_replicas > 1 else queue_right_off - shift)
+    left = code_x + (612 if cell_replicas > 1 else 280 - shift)
+    tail_x = code_x + (598 if cell_replicas > 1 else 266 - shift)
+    queue_path = [
+        (queue_x + 4, queue_y + 6),
+        (queue_x + 4, queue_y + 8),
+        (right, queue_y + 8),
+    ]
+    current_x = right
+    for row in range(9, 9 + queue_rows):
+        queue_path.append((current_x, queue_y + row))
+        current_x = left if current_x == right else right
+        queue_path.append((current_x, queue_y + row))
+    tail_y = queue_y + 9 + queue_rows
+    queue_path.extend([
+        (current_x, tail_y),
+        (tail_x, tail_y),
+        (tail_x, bottom + 3),
+        (ports["qr"][0], bottom + 3),
+        ports["qr"],
+    ])
+    p.pipe(queue_path)
+
+
 def _compact_components(p, ports, bottom, code_x, scalar_size, scalar_belts,
-                        cell_belts, cell_size=256):
+                        cell_belts, cell_size=256, packed_cell=False):
     """Compact floor: components west->east in port order, short straight feeds.
 
     Matches COMPACT_PORTS. Every pipe descends from its port and jogs only
@@ -223,12 +284,32 @@ def _compact_components(p, ports, bottom, code_x, scalar_size, scalar_belts,
     # Cell RAM (cc/cr), banked.
     cell_x, cell_y = c + 112, b + 5
     cell = split_ram.build(p, cell_x, cell_y, cell_size, cell_belts)
-    p.pipe([
-        ports["cc"],
-        (ports["cc"][0], b + 2),
-        (cell["command"][0], b + 2),
-        cell["command"],
-    ])
+    if packed_cell:
+        # Protocol adapter (read = bare address, write = -(addr+1), value).
+        # The controller's macros speak THIS protocol, not raw split-RAM, so
+        # it must sit between cc and the cell RAM exactly as in the default
+        # floor. Same rows as that floor: command on b+1, expanded on cell_y-3.
+        packed = packed_ram_proxy.build(p, cell_x - 20, cell_y)
+        p.pipe([
+            ports["cc"],
+            (ports["cc"][0], b + 1),
+            (packed["command"][0], b + 1),
+            packed["command"],
+        ])
+        p.pipe([
+            packed["expanded"],
+            (cell_x - 3, packed["expanded"][1]),
+            (cell_x - 3, cell_y - 3),
+            (cell["command"][0], cell_y - 3),
+            cell["command"],
+        ])
+    else:
+        p.pipe([
+            ports["cc"],
+            (ports["cc"][0], b + 2),
+            (cell["command"][0], b + 2),
+            cell["command"],
+        ])
     p.pipe([
         cell["reply"],
         cell["reply_turn"],
@@ -275,8 +356,8 @@ def build_program(
     """
     if compact and not (fast_cell_ram and fast_scalar_ram):
         raise ValueError("compact mode requires fast_cell_ram and fast_scalar_ram")
-    if compact and queue:
-        raise ValueError("compact mode has no queue port map yet")
+    if compact and queue and cell_replicas > 1:
+        raise ValueError("compact queue map is single-cell-RAM only")
     if compact and cell_replicas > 1:
         raise ValueError("compact mode does not support replicated cell RAM")
     if output_port and display:
@@ -289,6 +370,8 @@ def build_program(
         name: spec for name, spec in base_ports.items()
         if name not in ("qs", "qr")
     }
+    if compact and queue:
+        port_spec.update(COMPACT_QUEUE_PORTS)
     if not display:
         for name in ("sa", "sd", "ss"):
             port_spec.pop(name, None)
@@ -328,8 +411,11 @@ def build_program(
     if compact:
         _compact_components(
             p, ports, bottom, code_x, scalar_size, scalar_belts, cell_belts,
-            cell_size=cell_size,
+            cell_size=cell_size, packed_cell=packed_cell,
         )
+        if queue:
+            _build_queue(p, ports, bottom, code_x, queue_rows, queue_right_off,
+                         cell_replicas, shift=COMPACT_QUEUE_SHIFT)
         return p
 
     # Components sit below the controller. All controller ports leave through
@@ -535,39 +621,6 @@ def build_program(
     # exceed the maximum useful 16x16 BFS frontier, while the relay provides
     # FIFO order at pipeline throughput.
     if queue:
-        queue_x = code_x + (600 if cell_replicas > 1 else 268)
-        queue_y = bottom + 6
-        p.room(queue_x, queue_y, 8, 6)
-        p.text(queue_x + 1, queue_y + 1, "@>rsv")
-        p.put(queue_x + 5, queue_y + 2, "<")
-        p.put(queue_x + 2, queue_y + 2, "^")
-        p.pipe([
-            ports["qs"],
-            (ports["qs"][0], queue_y - 1),
-        ])
-        # The return pipe is storage: its length caps queue occupancy.  The
-        # BFS frontier of a 16x16 board never exceeds ~19 items (measured),
-        # so the serpentine is parametric; queue_rows=6/right=320 keeps the
-        # original ~379-cell shape for legacy builds.
-        right = code_x + (652 if cell_replicas > 1 else queue_right_off)
-        left = code_x + (612 if cell_replicas > 1 else 280)
-        queue_path = [
-            (queue_x + 4, queue_y + 6),
-            (queue_x + 4, queue_y + 8),
-            (right, queue_y + 8),
-        ]
-        current_x = right
-        for row in range(9, 9 + queue_rows):
-            queue_path.append((current_x, queue_y + row))
-            current_x = left if current_x == right else right
-            queue_path.append((current_x, queue_y + row))
-        tail_y = queue_y + 9 + queue_rows
-        queue_path.extend([
-            (current_x, tail_y),
-            (code_x + (598 if cell_replicas > 1 else 266), tail_y),
-            (code_x + (598 if cell_replicas > 1 else 266), bottom + 3),
-            (ports["qr"][0], bottom + 3),
-            ports["qr"],
-        ])
-        p.pipe(queue_path)
+        _build_queue(p, ports, bottom, code_x, queue_rows, queue_right_off,
+                     cell_replicas)
     return p

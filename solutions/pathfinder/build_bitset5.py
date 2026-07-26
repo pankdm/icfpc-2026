@@ -276,8 +276,50 @@ def build_flow():
     return f
 
 
-def build_reflow(belts=9, scalar_belts=4, code_x=0, op_slack=0, verify=True):
+def _ram_literal_cols(origin, size, belts, margin=6):
+    """Columns holding split-RAM init backticks, as absolute columns.
+
+    Derived from the component itself rather than hardcoded, because compact
+    mode moves both RAMs (scalar code_x+48 -> +24, cell code_x+164 -> +112).
+    """
+    import littleman as lm
+    import split_ram
+
+    probe = lm.Program()
+    split_ram.build(probe, 0, 0, size, belts)
+    cols = {x for (x, _y), glyph in probe.cells.items() if glyph == "`"}
+    return set(range(origin + min(cols) - margin, origin + max(cols) + margin + 1))
+
+
+def build_reflow(belts=9, scalar_belts=4, code_x=0, op_slack=0, verify=True,
+                 compact=False):
+    """``code_x=None`` searches for the smallest legal offset (compact only).
+
+    boustro reserves columns [x0, opmin) for corridors, opmin = ncorr + 2, and
+    clamps every op to its port's Voronoi band. COMPACT_PORTS starts at ri@6,
+    so with code_x=0 the corridor zone swallows ri's band (hi = 13 < opmin =
+    14) and layout raises Conflict. Every extra column of code_x is pure glide
+    on the hot path, so the MINIMUM legal offset is the fastest: measured
+    cx=1 -> 1,331,538 ticks, cx=4 -> 1,349,791, cx=10 -> 1,377,578 (monotone).
+    ncorr is only known during layout, so search upward from 0; failures raise
+    early and are cheap.
+
+    (A general floorplanner should be solving this jointly with placement —
+    that is tl-5ywt/tl-2b6b, not this builder.)
+    """
     import boustro
+
+    if code_x is None:
+        if not compact:
+            return build_reflow(belts, scalar_belts, 0, op_slack, verify, compact)
+        for candidate in range(0, 25):
+            try:
+                return build_reflow(belts, scalar_belts, candidate, op_slack,
+                                    verify, compact)
+            except boustro.Conflict:
+                continue
+        raise boustro.Conflict("no legal code_x in 0..24 for compact layout")
+
     from build_reflow_banked import alias_empty_gotos
 
     flow = alias_empty_gotos(build_flow())
@@ -287,8 +329,12 @@ def build_reflow(belts=9, scalar_belts=4, code_x=0, op_slack=0, verify=True):
         # Columns occupied by component literals (split-RAM init backticks)
         # below the controller: a controller backtick sharing such a column
         # would form a bogus vertical literal in the wasm loader.
-        forbid = set(range(code_x + 40, code_x + 70))
-        forbid |= set(range(code_x + 156, code_x + 184))
+        if compact:
+            forbid = _ram_literal_cols(code_x + 24, SCALAR_RAM_N, scalar_belts)
+            forbid |= _ram_literal_cols(code_x + 112, 256, belts)
+        else:
+            forbid = set(range(code_x + 40, code_x + 70))
+            forbid |= set(range(code_x + 156, code_x + 184))
         result = boustro.lay_cfg_boustrophedon(
             program, graph, port_spec, code_x=code_x, op_slack=op_slack,
             lit_forbid=forbid,
@@ -312,6 +358,7 @@ def build_reflow(belts=9, scalar_belts=4, code_x=0, op_slack=0, verify=True):
         lay_fn=lay,
         queue_rows=1,
         queue_right_off=300,
+        compact=compact,
     )
     if verify:
         import boustro as b
@@ -323,19 +370,25 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--belts", type=int, default=9)
     parser.add_argument("--scalar-belts", type=int, default=4)
-    parser.add_argument("--code-x", type=int, default=0)
+    parser.add_argument("--code-x", default=0,
+                        help="integer, or 'auto' to search for the smallest "
+                             "legal offset (compact only)")
     parser.add_argument("--op-slack", type=int, default=0)
     parser.add_argument("--out")
     parser.add_argument("--no-verify", action="store_true")
+    parser.add_argument("--compact", action="store_true")
     args = parser.parse_args()
+    code_x = None if str(args.code_x) == "auto" else int(args.code_x)
+    program, layout = build_reflow(
+        args.belts, args.scalar_belts, code_x, args.op_slack,
+        verify=not args.no_verify, compact=args.compact,
+    )
+    resolved_cx = layout.get("x0_code_x", code_x)
     output = args.out or os.path.join(
         HERE,
         f"reverse-bfs-bitset5-b{args.belts}-s{args.scalar_belts}"
-        f"-reflow-cx{args.code_x}-o{args.op_slack}.man",
-    )
-    program, layout = build_reflow(
-        args.belts, args.scalar_belts, args.code_x, args.op_slack,
-        verify=not args.no_verify,
+        f"-reflow{'-compact' if args.compact else ''}"
+        f"-cx{'auto' if code_x is None else resolved_cx}-o{args.op_slack}.man",
     )
     program.save(output)
     print(

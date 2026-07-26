@@ -134,7 +134,11 @@ pub struct World {
     pipe_cells: HashMap<Pt, usize>, // pipe-glyph cell -> pipe index (informational)
     // literal lookup: for a backtick cell, value if it is the CLOSING backtick when moving in dir d.
     lit_close: HashMap<(Pt, Pt), i64>, // (backtick_cell, dir) -> value
-    lit_content: HashSet<Pt>,          // digit/space cells strictly between paired backticks (nop when walked)
+    // Digit/space cells strictly between a paired backtick, PER AXIS. A digit is a nop only
+    // for a man travelling along that literal's own axis; a man crossing it perpendicular
+    // executes the digit normally (A = digit) -- confirmed against the oracle.
+    lit_content_h: HashSet<Pt>,
+    lit_content_v: HashSet<Pt>,
     pub rooms: Vec<Room>,
     pub pipes: Vec<Pipe>,
     pub displays: Vec<Display>,
@@ -220,7 +224,8 @@ impl World {
             walls: vec![vec![false; w as usize]; h as usize],
             pipe_cells: HashMap::new(),
             lit_close: HashMap::new(),
-            lit_content: HashSet::new(),
+            lit_content_h: HashSet::new(),
+            lit_content_v: HashSet::new(),
             rooms: vec![], pipes: vec![], displays: vec![], runners: vec![],
             next_id: 0, step_count: 0, end: EndReason::Running, footprint, step_cap,
             output: vec![],
@@ -661,119 +666,53 @@ impl World {
     }
 
     fn parse_literals(&mut self) -> Result<(), String> {
-        // Horizontal literals: per row, backticks; between consecutive backticks the cells must
-        // be digits or spaces. Vertical similarly per column.
-        // For each closing backtick in a given travel direction, precompute the value.
-        // Pre-pass: which backticks participate in a valid vertical pair? A backtick that is
-        // the endpoint of a vertical literal routinely shares a row with unrelated horizontal
-        // literals (subset-sum's parallel workers); the reference does NOT reject the row when
-        // consecutive-row-pairing would span code across such a backtick. So when a horizontal
-        // pair has a non-digit between its ends, drop a vertically-paired endpoint and re-pair
-        // instead of erroring; only a dirty pair with no vertical excuse is a load error
-        // (the reference does reject a standalone `1x2`).
-        let mut v_paired: std::collections::HashSet<Pt> = std::collections::HashSet::new();
-        for x in 0..self.w {
-            let mut vt: Vec<i32> = vec![];
-            for y in 0..self.h { if self.at(x, y) == '`' { vt.push(y); } }
-            let mut i = 0;
-            while i + 1 < vt.len() {
-                let (a, b) = (vt[i], vt[i + 1]);
-                let mut clean = true;
-                for y in (a + 1)..b {
-                    let c = self.at(x, y);
-                    if c != ' ' && !c.is_ascii_digit() { clean = false; break; }
+        // Literals are parsed PER ORDINARY ROOM, over the room's interior only (matching the
+        // reference: `interpreter/parser.py::_parse_literals`). Within one interior row (and
+        // one interior column) the backticks pair up consecutively -- (0,1), (2,3), ... -- and
+        // the span between a pair must be digits or spaces on BOTH axes, else it is a load
+        // error. Room-scoping is what keeps two literals in different rooms on the same row
+        // from being paired across the wall between them; a global row/column scan rejects
+        // real programs the oracle loads (sort-numbers, subset-sum, sudoku all have this).
+        // For each closing backtick in a given travel direction we precompute the value.
+        let boxes: Vec<(Pt, Pt)> = self.rooms.iter()
+            .filter(|r| r.kind == RoomKind::Normal)
+            .map(|r| (r.min, r.max))
+            .collect();
+        let mut paired: HashSet<Pt> = HashSet::new();
+        for (min, max) in boxes {
+            // Horizontal.
+            for y in (min.1 + 1)..max.1 {
+                let ticks: Vec<i32> = ((min.0 + 1)..max.0).filter(|&x| self.at(x, y) == '`').collect();
+                for pair in ticks.chunks(2) {
+                    if pair.len() < 2 { break; }
+                    let (a, b) = (pair[0], pair[1]);
+                    let digits = self.literal_digits((a + 1..b).map(|x| self.at(x, y)))?;
+                    paired.insert((a, y));
+                    paired.insert((b, y));
+                    for x in (a + 1)..b { self.lit_content_h.insert((x, y)); }
+                    // eastward: closing tick = b, value = digits as-is; westward: closing = a, reversed
+                    self.record_literal(&digits, (b, y), (1, 0), (a, y), (-1, 0))?;
                 }
-                if clean { v_paired.insert((x, a)); v_paired.insert((x, b)); i += 2; }
-                else { i += 1; }
+            }
+            // Vertical.
+            for x in (min.0 + 1)..max.0 {
+                let ticks: Vec<i32> = ((min.1 + 1)..max.1).filter(|&y| self.at(x, y) == '`').collect();
+                for pair in ticks.chunks(2) {
+                    if pair.len() < 2 { break; }
+                    let (a, b) = (pair[0], pair[1]);
+                    let digits = self.literal_digits((a + 1..b).map(|y| self.at(x, y)))?;
+                    paired.insert((x, a));
+                    paired.insert((x, b));
+                    for y in (a + 1)..b { self.lit_content_v.insert((x, y)); }
+                    self.record_literal(&digits, (x, b), (0, 1), (x, a), (0, -1))?;
+                }
             }
         }
-        // Horizontal.
-        for y in 0..self.h {
-            let mut ticks: Vec<i32> = vec![];
-            for x in 0..self.w { if self.at(x, y) == '`' { ticks.push(x); } }
-            // pair consecutively (0,1),(2,3)...
-            let mut i = 0;
-            while i + 1 < ticks.len() {
-                let (a, b) = (ticks[i], ticks[i + 1]);
-                let mut dirty = false;
-                for x in (a + 1)..b {
-                    let c = self.at(x, y);
-                    if c != ' ' && !c.is_ascii_digit() { dirty = true; break; }
-                }
-                if dirty {
-                    if v_paired.contains(&(a, y)) { ticks.remove(i); continue; }
-                    if v_paired.contains(&(b, y)) { ticks.remove(i + 1); continue; }
-                    return Err("non-digit in literal".into());
-                }
-                let mut digits = String::new();
-                for x in (a + 1)..b {
-                    let c = self.at(x, y);
-                    self.lit_content.insert((x, y));
-                    if c == ' ' { continue; }
-                    if c.is_ascii_digit() { digits.push(c); }
-                    else { return Err("non-digit in literal".into()); }
-                }
-                // eastward: closing tick = b, value = digits as-is; westward: closing = a, value = reversed
-                let east = parse_lit(&digits, false)?;
-                let rev: String = digits.chars().rev().collect();
-                let west = parse_lit(&rev, false)?;
-                let overflow = lit_overflow(&digits) || lit_overflow(&rev);
-                if overflow { return Err(format!("numeric literal exceeds i64: {}", digits)); }
-                if !digits.is_empty() {
-                    self.lit_close.insert(((b, y), (1, 0)), east);
-                    self.lit_close.insert(((a, y), (-1, 0)), west);
-                }
-                i += 2;
-            }
-            // odd leftover backtick -> unmatched (only error if it has digits adjacent? reference: unmatched backtick = load error)
-            // A lone backtick with no partner in either axis is an error; handled after vertical pass.
-        }
-        // Vertical.
-        for x in 0..self.w {
-            let mut ticks: Vec<i32> = vec![];
-            for y in 0..self.h { if self.at(x, y) == '`' { ticks.push(y); } }
-            let mut i = 0;
-            while i + 1 < ticks.len() {
-                let (a, b) = (ticks[i], ticks[i + 1]);
-                // Vertical is NOT symmetric with horizontal. Backticks belonging to two
-                // unrelated horizontal literals on different rows routinely share a column,
-                // and pairing them vertically spans arbitrary code. Such a pair is simply
-                // not a vertical literal; treating it as an error rejects real programs the
-                // reference loads (it rejected our own sudoku champion).
-                let mut digits = String::new();
-                let mut is_literal = true;
-                for y in (a + 1)..b {
-                    let c = self.at(x, y);
-                    if c == ' ' { continue; }
-                    if c.is_ascii_digit() { digits.push(c); }
-                    else { is_literal = false; break; }
-                }
-                if !is_literal { i += 1; continue; }
-                for y in (a + 1)..b { self.lit_content.insert((x, y)); }
-                let south = parse_lit(&digits, false)?;
-                let rev: String = digits.chars().rev().collect();
-                let north = parse_lit(&rev, false)?;
-                if lit_overflow(&digits) || lit_overflow(&rev) {
-                    return Err(format!("numeric literal exceeds i64: {}", digits));
-                }
-                if !digits.is_empty() {
-                    self.lit_close.insert(((x, b), (0, 1)), south);
-                    self.lit_close.insert(((x, a), (0, -1)), north);
-                }
-                i += 2;
-            }
-        }
-        // Unmatched backtick detection: a backtick that is neither in a horizontal pair
-        // nor a vertical pair is an error.
+        // Unmatched backtick detection: a backtick with no partner on either axis is an error
+        // ("a numeric literal needs a matching ` on the same row or column").
         for y in 0..self.h {
             for x in 0..self.w {
-                if self.at(x, y) != '`' { continue; }
-                let in_h = self.lit_close.contains_key(&((x, y), (1, 0)))
-                    || self.lit_close.contains_key(&((x, y), (-1, 0)));
-                let in_v = self.lit_close.contains_key(&((x, y), (0, 1)))
-                    || self.lit_close.contains_key(&((x, y), (0, -1)));
-                // Also count membership even for empty literals: recompute pairing membership.
-                if !in_h && !in_v && !self.backtick_paired(x, y) {
+                if self.at(x, y) == '`' && !paired.contains(&(x, y)) {
                     return Err("unmatched backtick".into());
                 }
             }
@@ -781,24 +720,31 @@ impl World {
         Ok(())
     }
 
-    fn backtick_paired(&self, x: i32, y: i32) -> bool {
-        // horizontal: is there another backtick in the same row that pairs with this one?
-        let mut hticks = vec![];
-        for xx in 0..self.w { if self.at(xx, y) == '`' { hticks.push(xx); } }
-        let hpos = hticks.iter().position(|&c| c == x).unwrap();
-        if hticks.len() >= 2 && (hpos / 2) * 2 + 1 < hticks.len() && (hpos % 2 == 0 || hpos % 2 == 1) {
-            // paired if it belongs to a full pair
-            let pair_index = hpos - (hpos % 2);
-            if pair_index + 1 < hticks.len() { return true; }
+    fn literal_digits(&self, cells: impl Iterator<Item = char>) -> Result<String, String> {
+        let mut digits = String::new();
+        for c in cells {
+            if c == ' ' { continue; }
+            if c.is_ascii_digit() { digits.push(c); }
+            else { return Err(format!("expected a digit or a space between backticks, but found '{}'", c)); }
         }
-        let mut vticks = vec![];
-        for yy in 0..self.h { if self.at(x, yy) == '`' { vticks.push(yy); } }
-        let vpos = vticks.iter().position(|&c| c == y).unwrap();
-        if vticks.len() >= 2 {
-            let pair_index = vpos - (vpos % 2);
-            if pair_index + 1 < vticks.len() { return true; }
+        Ok(digits)
+    }
+
+    /// Register a parsed literal on both of its closing backticks. An all-space span carries
+    /// no value: the reference registers nothing, so crossing either tick is a nop.
+    fn record_literal(&mut self, digits: &str, fwd_tick: Pt, fwd_dir: Pt, rev_tick: Pt, rev_dir: Pt)
+        -> Result<(), String>
+    {
+        if digits.is_empty() { return Ok(()); }
+        let rev: String = digits.chars().rev().collect();
+        if lit_overflow(digits) || lit_overflow(&rev) {
+            return Err(format!("numeric literal exceeds i64: {}", digits));
         }
-        false
+        let fwd = parse_lit(digits, false)?;
+        let bwd = parse_lit(&rev, false)?;
+        self.lit_close.insert((fwd_tick, fwd_dir), fwd);
+        self.lit_close.insert((rev_tick, rev_dir), bwd);
+        Ok(())
     }
 
     // ------------------------------------------------------------------------------------
@@ -1037,8 +983,12 @@ impl World {
                 self.room_exec[room] += 1;
             }
             *self.room_glyph.entry((room, ch)).or_insert(0) += 1;
-            // literal content cell (digit/space between backticks) -> nop
-            if self.lit_content.contains(&(x, y)) { continue; }
+            // Literal content is a nop only ALONG the literal's own axis. A man crossing a
+            // horizontal literal from above executes the digit he lands on (A = digit) --
+            // only the closing backtick loads the whole literal.
+            let inside = if dir.1 == 0 { self.lit_content_h.contains(&(x, y)) }
+                         else { self.lit_content_v.contains(&(x, y)) };
+            if inside { continue; }
             // literal closing?
             if ch == '`' {
                 if let Some(&v) = self.lit_close.get(&((x, y), dir)) {

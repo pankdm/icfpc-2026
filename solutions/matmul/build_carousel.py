@@ -165,6 +165,42 @@ def build_seedA():
     return p
 
 
+def build_lap():
+    """The MAC lap: K iterations of  b<-input, a<-ring (re-pushed), emit a*b.
+
+    Retires the core risk of the whole machine -- re-reading `a` from a ring on
+    EVERY iteration (registers cannot hold it across a lap) inside a BP-counted
+    loop.  Verified at K=1,3,4,5 with negative values.
+
+    Nearest-pipe trap found here: with the output pipe on the RIGHT wall it was
+    nearer to the `s a` cell than aOut was, so `a` went to the OUTPUT instead of
+    back to its ring, the holder ran dry and the lap hung.  The output pipe is on
+    the BOTTOM wall for that reason -- when two pipes of the same direction compete
+    for one cell, move the loser away rather than shuffling the ops.
+    """
+    p = lm.Program()
+    p.room(5, 6, 20, 9)                        # ctrl x=5..24 y=6..14
+    relay(p, 12, 0)                            # a-holder relay
+    p.text(6, 7, "@rb..s v")                   # r K, BP=K, ... s(a -> aOut)
+    p.put(9, 7, "r")                           # r a
+    p.put(13, 7, "v")
+    p.put(13, 8, "<"); p.text(7, 8, "......"); p.put(6, 8, "v")
+    p.put(6, 9, ">")
+    p.put(7, 9, "r"); p.put(8, 9, "M")         # b <- input, B=b
+    p.text(9, 9, "......")
+    p.put(15, 9, "r"); p.text(16, 9, ".."); p.put(18, 9, "s")   # a <- ring, push back
+    p.put(19, 9, "*"); p.put(20, 9, "."); p.put(21, 9, "s")     # A=a*b, emit
+    p.put(22, 9, "m"); p.put(23, 9, "d")                        # BP--, loop
+    p.put(23, 10, "<"); p.text(7, 10, "................"); p.put(6, 10, "^")
+    p.input_room(0, 6)
+    p.output_room(22, 17)
+    p.pipe([(3, 7), (4, 7)])
+    p.pipe([(12, 5), (12, 4), (14, 4)], end_direction="N")
+    p.pipe([(16, 4), (16, 5), (15, 5)], end_direction="S")
+    p.pipe([(23, 15), (23, 16)], end_direction="S")
+    return p
+
+
 def grade(p, name, inp, exp, cap=5000):
     out = ("/private/tmp/claude-502/-Users-dmitrykorolev-projects-icfpc-2026/"
            "0580956d-53cb-4ded-b43a-408e532171a2/scratchpad")
@@ -182,7 +218,8 @@ if __name__ == "__main__":
     ap.add_argument("--stage", default="hdr")
     ap.add_argument("--out")
     a = ap.parse_args()
-    p = {"hdr": build_hdr}[a.stage]()
+    p = {"hdr": build_hdr, "ring": build_ring, "loop": build_loop,
+         "seedA": build_seedA, "lap": build_lap}[a.stage]()
     if a.out:
         p.save(a.out)
         print("saved", a.out, "footprint", p.footprint())

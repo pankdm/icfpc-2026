@@ -5,9 +5,6 @@ rooms, executing the glyph under them, talking over pipes) and submit them to th
 grader. `PROBLEM.md` is the language + scoring reference (read it before writing any grid).
 This file is the *operational* guide: how we work, what already exists, what not to redo.
 
-Task state lives in `tl` (a git-native tracker) — run `tl ready --json` for what to work on
-and `tl doctor` for health; load the tl skill or `tl help --json` for how to drive it.
-
 **Contest clock** (from `/api/v1/public/contest-clock`): started 2026-07-24 12:00Z,
 lightning ended 2026-07-25 12:00Z, **ends 2026-07-27 12:00Z**; final standings freeze
 2026-07-27 10:00Z. 20 problems, **16 graded** (Semesters 1–4) + 4 ungraded practice.
@@ -29,32 +26,6 @@ Node 20+ (v25 here) and Python 3 stdlib only — **no npm/pip install**.
 - **The submitted program text is not retrievable from anywhere** (checked: Bearer
   `GET /submissions/:id` and every `dashboard/*` route omit it). **git is the only copy of
   what we submitted — never submit a build that is not committed.**
-
-## Task tracking (`tl`)
-
-Work items live in `tl`, not in scratch notes — several people and agents run in parallel
-here, so claim before you start or two of you will fold the same grid.
-
-```bash
-tl ready --json                  # ranked, unblocked work; --json on ANY command
-tl claim <id>                    # take it (refuses, with reasons, if not actually ready)
-tl close <id> --as done          # finish; discharges anything it was blocking
-tl create "<title>" --description "…"
-tl dep add <id> <blocked-by>     # <id> becomes blocked by <blocked-by>
-tl why <id> / tl unblocks <id>   # transitive blockers / what closing this frees
-tl list        tl stats          tl doctor
-```
-
-Two things specific to this repo:
-
-- **State is gitignored** (`.tl/.gitignore` is `*`) and lives in `.tl/` at the **main
-  checkout only** — it is an append-only op log, not committed files. Sharing happens over
-  the `refs/tl/log` git ref via **`tl sync`**, which has **never run yet**, so teammates
-  cannot see anything you file until it does. Auto-publish is off; turn it on with
-  `git config tl.autosync true`.
-- **From the `optimizer` worktree `tl` finds nothing** (it searches up to that worktree's
-  own root). Point it at the real state dir:
-  `export TL_DIR=/Users/dmitrykorolev/projects/icfpc-2026/.tl` (or pass `--dir`).
 
 ## Dev loop
 

@@ -104,5 +104,5 @@ Honest, measured expectations:
 
 Related: `tools/polish.py` mutates a `.man` **directly** for solutions with no working builder;
 `tools/autotune_batch.py` sweeps the whole repo unattended; `tools/stress.py` generates the
-edge-case suites for `--cases`. Open work is tracked in `tl` under the `autotune-epic` —
-`tl ready --json`.
+edge-case suites for `--cases`; `tools/lift.py` + `tools/emit.py` are the compiler front end
+and emitter that a placement pass builds on.

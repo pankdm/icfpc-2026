@@ -26,10 +26,15 @@ The reason is now understood, and it is *structural*, not bad luck:
   the opposite end. LLLM's hot band went 33 → 214 columns (6.5x); the dense
   boustrophedon re-emit then folded 1469 rows into 251.
 
-Same shape of ceiling, recorded independently for gradebook (`git show
-053a6a0`): fuse fails there only because the hot input pipe owns columns 1-5.
-**When walkfold/fuse refuses, the answer is to move attachments, not to give
-up.**
+Same shape of ceiling was SUSPECTED for gradebook (`git show 053a6a0`) — but
+the gradebook reflow (771M -> 438M server, 2026-07-26) DISPROVED it there:
+with 22 branch states and ~30 CFG edges, every logical line is E-heading under
+any attachment order, so band-widening cannot enable fusion. **The band move
+pays on op-dense, control-sparse grids (LLLM: 14 blocks / 7 edges). On
+control-dense grids the waste is op-free CONNECTOR geometry — attack it with
+`tools/stairfold.py` (flatten walk staircases), `tools/reroute.py` (A* rip-up
+of connectors with an empty-row-cost objective), and `tools/walkfold.py
+squash`.** Diagnose first: count blocks vs edges with `tools/blockify3.py`.
 
 ## The method (`tools/reflow.py`)
 
@@ -64,7 +69,12 @@ up.**
 
 1. A pipe's **last cell must be an arrowhead pointing at the destination
    wall**. Ending a straight run on `|` silently disconnects it — the loader
-   reports `dst: -1` and nothing errors until the program hangs.
+   reports `dst: -1` and nothing errors until the program hangs. Moreover the
+   loader derives endpoints from MOVE DIRECTIONS, not glyphs: the FIRST move
+   must leave the source wall perpendicular (else `src -1`), and the LAST move
+   direction (`path[-1] - path[-2]`, see interp `border_cell_of_pipe_end`)
+   determines the attachment side — a sideways final approach to a display
+   fails with `display pipe bad side`.
 2. Backtick literals parse on **both axes** and read **reversed westward** —
    literal runs are rigid; never re-head or split one.
 3. A pipe running alongside a room's wall reads as attached to that room and

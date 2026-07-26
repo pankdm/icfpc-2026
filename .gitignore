@@ -224,3 +224,6 @@ node_modules/
 *.dcmp.txt
 *.pretty.js
 solutions/history-lesson/proposed-input-grid.txt
+
+# autotune stdout-fallback artifacts (a builder that only print()s has no .man name)
+<stdout>-tuned.*

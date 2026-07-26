@@ -217,7 +217,9 @@ def lay_cfg_controller(
                 slot = target_slot[target]
                 target_slot[target] += 1
                 merge_y = heads[target] - 2 - slot
-                pooled_routes.append((source_x, edge_y, target, merge_y))
+                pooled_routes.append(
+                    (source_x, edge_y, target, merge_y, source_index)
+                )
                 continue
             if direction == "W":
                 highway = left_highway
@@ -269,7 +271,7 @@ def lay_cfg_controller(
             else:
                 lanes[lane] = hi
             assigned.append((route, lane))
-        for (source_x, edge_y, target, merge_y), lane in assigned:
+        for (source_x, edge_y, target, merge_y, _source_index), lane in assigned:
             highway = code - 2 - lane
             target_x = target_col[target]
             put(highway, edge_y, "v" if merge_y > edge_y else "^")
@@ -307,4 +309,5 @@ def lay_cfg_controller(
         "height": height,
         "bottom": bottom,
         "code_x": code,
+        "pooled_assignments": assigned,
     }

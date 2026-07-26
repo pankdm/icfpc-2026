@@ -254,18 +254,19 @@ def lay_controller(
     direct_edges=False,
     banked=False,
     pooled_edges=False,
+    return_layout=False,
 ):
     if port_profile == "compact" and banked:
         spec = {
             "ri": (10, "r", 1, 19),
             "rp": (30, "r", 21, 51),
-            "rr": (74, "r", 53, 113),
-            "cr": (230, "r", 115, 240),
+            "rr": (74, "r", 53, 152),
+            "cr": (230, "r", 153, 240),
             "sp": (20, "s", 1, 34),
             "sc": (50, "s", 36, 64),
             "sd": (80, "s", 66, 98),
-            "sa": (118, "s", 100, 133),
-            "ss": (180, "s", 135, 189),
+            "sa": (118, "s", 100, 149),
+            "ss": (180, "s", 150, 189),
             "cc": (200, "s", 191, 240),
         }
     elif port_profile == "compact":
@@ -304,7 +305,7 @@ def lay_controller(
         direct_edges=direct_edges,
         pooled_edges=pooled_edges,
     )
-    return layout["ports"]
+    return layout if return_layout else layout["ports"]
 
 
 def build_program(

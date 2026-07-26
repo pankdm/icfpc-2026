@@ -27,9 +27,9 @@ class LayoutBuilderTest(unittest.TestCase):
         self.assertEqual(dictionary["width"], 52)
         self.assertEqual(dictionary["words"], 44)
 
-    def test_dictionary_is_right_aligned(self):
+    def test_dictionary_is_left_aligned(self):
         dictionary = self.metadata["dictionary"]
-        self.assertEqual(dictionary["right_edge"], 80)
+        self.assertEqual(dictionary["left_edge"], 0)
 
     def test_dp_packs_every_constant(self):
         dictionary = self.metadata["dictionary"]
@@ -39,11 +39,14 @@ class LayoutBuilderTest(unittest.TestCase):
         # width permits.
         self.assertEqual(dictionary["constants_per_band"][:2], [10, 8])
 
-    def test_service_rooms_are_side_by_side_on_the_right(self):
+    def test_service_rooms_are_stacked_on_the_right(self):
         rooms = self.metadata["service_rooms"]
-        for left, right in zip(rooms, rooms[1:]):
-            self.assertEqual(right[1], left[1] + left[3] + builder.ROOM_GAP)
-        self.assertGreaterEqual(rooms[0][1], 82)
+        for upper, lower in zip(rooms, rooms[1:]):
+            self.assertEqual(
+                lower[2], upper[2] + upper[4] + builder.ROOM_GAP
+            )
+        for _, x, _, width, _ in rooms:
+            self.assertEqual(x + width, self.metadata["feeder_width"])
 
     def test_no_pipes_are_declared(self):
         self.assertEqual(self.metadata["pipes"], 0)

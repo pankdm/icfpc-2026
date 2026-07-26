@@ -223,9 +223,7 @@ def build(
     if feeder_width < 8:
         raise ValueError("feeder width must be at least 8")
     if dictionary_width > feeder_width:
-        raise ValueError(
-            "dictionary width cannot exceed feeder width when it is right-aligned"
-        )
+        raise ValueError("dictionary width cannot exceed feeder width")
     if not MIN_DICTIONARY_WORDS <= dictionary_words <= MAX_DICTIONARY_WORDS:
         raise ValueError(
             "dictionary words must be in "
@@ -244,7 +242,7 @@ def build(
     feeder_rows = vertical.base.variable_feeder(program, bands, feeder_width)
 
     tail_y = feeder_rows + 2
-    dictionary_x = feeder_width - dictionary_width
+    dictionary_x = 0
     dictionary_values = [ring[position] for position in range(1, dictionary_words + 1)]
     dictionary_bands = pack_dictionary(dictionary_values, dictionary_width)
     _, dictionary_height = place_dictionary(
@@ -255,32 +253,38 @@ def build(
         dictionary_values,
     )
 
-    # These rooms are intentionally only juxtaposed.  A one-column empty gap
-    # keeps their walls distinct and leaves attachment choices for the next
-    # layout phase.
-    service_x = feeder_width + ROOM_GAP
+    # Stack the remaining rooms down the feeder's right boundary.  Their
+    # differing widths all share the same right edge, while one empty row
+    # between rooms keeps their walls distinct for later pipe attachments.
+    service_y = tail_y
     service_rooms = []
     for name, rows in [
         ("decoder", vertical.base.DECODER_ROWS),
         ("unpack", vertical.base.UNPACK_ROWS),
     ]:
-        width, height = vertical.base.paste_room(program, service_x, tail_y, rows)
-        service_rooms.append((name, service_x, tail_y, width, height))
-        service_x += width + ROOM_GAP
+        width = max(len(row) for row in rows) + 2
+        service_x = feeder_width - width
+        width, height = vertical.base.paste_room(
+            program, service_x, service_y, rows
+        )
+        service_rooms.append((name, service_x, service_y, width, height))
+        service_y += height + ROOM_GAP
 
-    output_x = service_x
-    program.output_room(output_x, tail_y)
-    service_rooms.append(("output", output_x, tail_y, 3, 3))
-    service_x += 3 + ROOM_GAP
+    output_x = feeder_width - 3
+    program.output_room(output_x, service_y)
+    service_rooms.append(("output", output_x, service_y, 3, 3))
+    service_y += 3 + ROOM_GAP
 
+    disp_width = max(len(row) for row in vertical.DISP_DELAYED_ROWS) + 2
+    service_x = feeder_width - disp_width
     disp_width, disp_height = vertical.base.paste_room(
         program,
         service_x,
-        tail_y,
+        service_y,
         vertical.DISP_DELAYED_ROWS,
     )
     service_rooms.append(
-        ("dispatcher", service_x, tail_y, disp_width, disp_height)
+        ("dispatcher", service_x, service_y, disp_width, disp_height)
     )
 
     bad_ticks = vertical.base.audit_vertical_ticks(program)
@@ -296,6 +300,7 @@ def build(
             "width": dictionary_width,
             "height": dictionary_height,
             "words": dictionary_words,
+            "left_edge": dictionary_x,
             "right_edge": dictionary_x + dictionary_width - 1,
             "bands": len(dictionary_bands),
             "constants_per_band": [

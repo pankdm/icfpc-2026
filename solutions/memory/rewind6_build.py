@@ -22,6 +22,46 @@ it BESIDE CONTROL.  The strip is irrelevant.  Layout:
   cols  0- 2 rows 24-26   input room
   cols 22-25 rows  0-13   the belt's column-snake
 
+*** NEXT LEVER: 4 RINGS x 2 RELAYS IN MEM.  MEASURED PREREQUISITES. ***
+A counted ring's lap is 2n+6 (the relays plus `m`, the guard and three turns),
+so R rings of n relays sustain R*n/(2n+6) val/tick, all arithmetic-neutral
+while R*n = 8 (the `M8W/` split is untouched):
+    2 x 4 (today)  lap 14  0.571 val/tick  1.75 t/value
+    4 x 2          lap 10  0.800           1.25   <- the target
+    8 x 1          lap  8  1.000           1.00   <- UNREACHABLE, see below
+The belt can never sustain 1.000: it must hold 100 values in L cells, so its
+ceiling is 100/L < 1. 1.25 t/value is MEM's practical floor.
+
+BELT IS ALREADY CLEAR -- DO NOT "FIX" IT FIRST.  L = p1 5 + p2 102 = 107 here
+(the builder prints it), so the ceiling is 100/107 = 0.935 against the 0.800
+four rings demand: 17% of margin. Lengthening p2 toward ~107/L~116 LOWERS the
+ceiling to 0.862 and is a regression. p2 = 102 already clears the >100 FIFO rule.
+
+PROFILE SAYS MEM IS COMPUTE-BOUND, WHICH IS WHY THIS LEVER WORKS: on case 0,
+MEM's main man is 0% stall (51% op, 22% turn, 28% nop) while HOP's two men
+stall 51-54% waiting for values. MEM never waits on the belt.
+
+THE LAYOUT PROBLEM, PARTLY SOLVED -- READ BEFORE BUILDING:
+  * Four westbound guards cannot share one row: a man travelling west would
+    enter the first ring it meets, and after its own laps BP=0 so it bypasses
+    the rest -- but it can never REACH a later ring with BP>0. So each ring
+    needs its OWN guard row.  With n=2 a ring spans top..top+5, so staggered
+    tops 4/5/6/7 end at rows 9/10/11/12 -- MEM's interior already runs to row
+    12, so THE 4-RING VERSION NEED NOT GROW MEM AT ALL (a taller MEM would
+    push the box to 29 and give the whole win back).
+  * Columns: rings take 8 of cols 12-19, leaving 8/9 for ring1, 10/11 for
+    b/W and 20 for `H` -- exactly fits a 22-wide MEM.
+  * THE OPEN PROBLEM IS THE FORK SPINE.  `Y` births to the right and left of
+    the parent's HEADING, so a south-facing spine births EAST and WEST. A
+    spine at col 20 births into (21,y) = MEM's wall, and birth in a wall is
+    fatal. A spine further west births into a ring column, and a copy born
+    onto a guard cell executes it while still heading SOUTH ('a' then turns it
+    east, not into the ring). A west-facing spine births north/south instead,
+    but the north copy lands on row 3, the compute row. Unsolved: either widen
+    MEM to 23 (costs a column the belt needs, and col 23 would then be
+    wall-adjacent, which pipes may not be) or find a spine orientation whose
+    both birth cells are free and turn their copies west.
+
 *** THE BELT ROUTE IS THE HARD PART -- DO NOT "SIMPLIFY" IT. ***
 Four separate constraints pin it, and every shortcut I tried violated one:
   (a) p2 must END at (9,14) via (9,15), and col 9 is inside CONTROL below row

@@ -144,6 +144,12 @@ VARIANTS = {
         code_x=60, fast_cell_ram=True, cell_belts=8,
         fast_scalar_ram=True, scalar_belts=4,
     ),
+    # COMPACT_PORTS floor: walks 250->155 cols, display feeds drop straight in.
+    # cell_belts=4 hangs (no verdict on every case); 8 belts is the config.
+    "linked-compact-cx60-cb8.man": dict(
+        code_x=60, compact=True, fast_cell_ram=True, cell_belts=8,
+        fast_scalar_ram=True, scalar_belts=4,
+    ),
 }
 
 

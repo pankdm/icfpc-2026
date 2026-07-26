@@ -18,12 +18,15 @@ sys.path.insert(0, os.path.join(HERE, "..", "..", "tools"))
 import stateflow
 
 
-I, ROBOT, FLAG, WORD, BIT, TMP, CAND, TAKE = range(8)
-OPEN = 8
-UNVIS = 12
-FRONT = 16
-PARENT = (20, 24, 28, 32)  # U/R/D/L
-NEXT = 36
+# Keep the two hottest arrays below address 10. stateflow's high-address
+# preservation path borrows the shared scratch FIFO; nesting it inside a
+# multi-word expression is both very expensive and unsafe.
+FRONT = 0
+UNVIS = 4
+NEXT = 8
+ROBOT, FLAG, WORD, BIT, TMP, CAND, TAKE, I = range(12, 20)
+OPEN = 20
+PARENT = (24, 28, 32, 36)  # U/R/D/L
 SCALAR_SIZE = 40
 RAM_N = SCALAR_SIZE
 BANKED = False
@@ -46,11 +49,45 @@ class Flow(stateflow.Flow):
         return self.e("`", *str(value), "`")
 
     def shift(self, addr, amount, left=True):
-        return self.load(addr).e("M").const(amount).e("W", "{" if left else "}")
+        # flowgrid.const_ops(>=10) uses M/+ and therefore clobbers B. Stash the
+        # value first, materialize the shift count, then reload the value.
+        return (
+            self.load(addr).store(TMP)
+            .const(amount).e("M").load(TMP)
+            .e("{" if left else "}")
+        )
+
+    def shift_a(self, amount, left=True):
+        return (
+            self.store(TMP).const(amount).e("M").load(TMP)
+            .e("{" if left else "}")
+        )
 
     def masked(self, mask):
         # A &= mask, preserving neither prior register.
         return self.e("M").literal(mask).e("&")
+
+    def col0_mask(self):
+        """A := bits 0,16,32,48 without a large literal."""
+        self.const(1)
+        for _ in range(3):
+            self.shift_a(16).e("M").const(1).e("+")
+        return self
+
+    def masked_not_column(self, column15=False):
+        """A &= ~(COL0 or COL15), synthesizing the mask from shifts."""
+        self.store(TAKE).col0_mask()
+        if column15:
+            self.shift_a(15)
+        # A=column mask -> B=mask; A=-1; XOR gives its 64-bit complement.
+        self.e("M").const(1).e("N", "~", "M").load(TAKE).e("&")
+        return self
+
+    def masked_low16(self):
+        """A &= 0xffff without a large literal."""
+        self.store(TAKE).const(1).shift_a(16)
+        self.e("M").const(1).e("W", "-", "M").load(TAKE).e("&")
+        return self
 
     def or_saved(self):
         # A is the second term; the first is waiting in scratch.
@@ -85,19 +122,19 @@ def contribution(f, direction, word):
     if direction == 0:  # U parent: previous frontier is immediately above
         f.shift(FRONT + word, 16, left=True)
         if word:
-            f.store(TMP).shift(FRONT + word - 1, 48, left=False)
-            f.e("M").load(TMP).e("|")
+            f.store(CAND).shift(FRONT + word - 1, 48, left=False)
+            f.e("M").load(CAND).e("|")
         return f
     if direction == 1:  # R parent
-        return f.shift(FRONT + word, 1, left=False).masked(WORD_MASK ^ COL15)
+        return f.shift(FRONT + word, 1, left=False).masked_not_column(column15=True)
     if direction == 2:  # D parent
         f.shift(FRONT + word, 16, left=False)
         if word < 3:
-            f.store(TMP).load(FRONT + word + 1).masked(ROW_MASK)
-            f.e("M").const(48).e("W", "{")
-            f.e("M").load(TMP).e("|")
+            f.store(CAND).load(FRONT + word + 1).masked_low16()
+            f.shift_a(48, left=True)
+            f.e("M").load(CAND).e("|")
         return f
-    return f.shift(FRONT + word, 1, left=True).masked(WORD_MASK ^ COL0)
+    return f.shift(FRONT + word, 1, left=True).masked_not_column(column15=False)
 
 
 def apply_direction(f, direction, word):
@@ -162,11 +199,11 @@ def build_flow():
     return f
 
 
-def build():
+def build(scalar_belts=5):
     return stateflow.build_program(
         build_flow(),
         scalar_size=SCALAR_SIZE,
-        scalar_belts=5,
+        scalar_belts=scalar_belts,
         code_x=60,
         pooled_edges=True,
         tight_gaps=True,
@@ -178,7 +215,11 @@ def build():
 
 
 if __name__ == "__main__":
-    program = build()
-    output = os.path.join(HERE, "wavefront-v1.man")
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--scalar-belts", type=int, default=5)
+    args = parser.parse_args()
+    program = build(args.scalar_belts)
+    output = os.path.join(HERE, f"wavefront-v1-s{args.scalar_belts}.man")
     program.save(output)
     print("saved", output, "footprint", program.footprint())

@@ -135,6 +135,18 @@ class Lift:
                 outs = [TURNS[ch]]
             elif ch in BRANCH:
                 outs = [d, CW[d], CCW[d]]              # sign/backpack decides at runtime
+            elif ch == "Y":
+                # A fork BIRTHS two men beside the cell, one clockwise and one
+                # counter-clockwise of the incoming heading, each facing away. Their walks
+                # are reachable code that no straight-line successor covers. Treating `Y`
+                # as "continue straight" under-approximates reachability, and anything
+                # built on that (dead-code elimination, fold safety) is then unsound.
+                outs = [CW[d], CCW[d]]
+            elif ch == "U":
+                # `U` receives and then turns AWAY FROM THE PIPE, so the resulting heading
+                # depends on where the pipe sits relative to this cell, not on the incoming
+                # direction. Fan out to every heading rather than guess.
+                outs = [d, CW[d], CCW[d], CW[CW[d]]]
             else:
                 outs = [d]
             for nd in outs:
@@ -182,6 +194,11 @@ class Lift:
             self.men.append({
                 "start": list(start),
                 "room": self.room_of(*start),
+                # The FULL reachable set, not just cells that landed in a block. Consumers
+                # that reconstruct reachability from blocks + op_cells silently miss turn
+                # glyphs and glides, and anything built on that (dead-code elimination) then
+                # deletes cells the man actually walks.
+                "reach": [f"{x},{y}" for (x, y) in sorted(cells)],
                 "reachable": len(cells),
                 "ops": len(ops),
                 "turns": len(turns),

@@ -34,10 +34,30 @@ class LayoutBuilderTest(unittest.TestCase):
     def test_dp_packs_every_constant(self):
         dictionary = self.metadata["dictionary"]
         self.assertEqual(sum(dictionary["constants_per_band"]), 44)
-        self.assertEqual(dictionary["bands"], 8)
-        # The DP's first tie-break fills earlier bands as much as the fixed
-        # width permits.
-        self.assertEqual(dictionary["constants_per_band"][:2], [10, 8])
+        self.assertEqual(dictionary["bands"], 7)
+        self.assertEqual(
+            len(dictionary["slots_per_band"]),
+            dictionary["bands"],
+        )
+
+    def test_dp_changes_layout_with_available_width(self):
+        values = [
+            1,
+            22,
+            333,
+            4444,
+            55555,
+            666666,
+            7777777,
+            88888888,
+        ]
+        narrow = builder.pack_dictionary(values, 18)
+        wide = builder.pack_dictionary(values, 30)
+        self.assertGreater(len(narrow), len(wide))
+        self.assertNotEqual(
+            [len(band.widths) for band in narrow],
+            [len(band.widths) for band in wide],
+        )
 
     def test_service_rooms_are_stacked_on_the_right(self):
         rooms = self.metadata["service_rooms"]
@@ -47,6 +67,23 @@ class LayoutBuilderTest(unittest.TestCase):
             )
         for _, x, _, width, _ in rooms:
             self.assertEqual(x + width, self.metadata["feeder_width"])
+
+    def test_service_alignment_moves_past_wide_dictionary(self):
+        self.assertEqual(builder.right_aligned_after(81, 25, 52), 56)
+        self.assertEqual(builder.right_aligned_after(81, 25, 60), 60)
+        self.assertEqual(builder.right_aligned_after(81, 11, 75), 75)
+
+    def test_rooms_do_not_overlap_dictionary(self):
+        dictionary = self.metadata["dictionary"]
+        dictionary_right = dictionary["x"] + dictionary["width"]
+        dictionary_bottom = dictionary["y"] + dictionary["height"]
+        for _, x, y, _, height in self.metadata["service_rooms"]:
+            vertical_overlap = (
+                y < dictionary_bottom
+                and dictionary["y"] < y + height
+            )
+            if vertical_overlap:
+                self.assertGreaterEqual(x, dictionary_right)
 
     def test_no_pipes_are_declared(self):
         self.assertEqual(self.metadata["pipes"], 0)

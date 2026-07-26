@@ -37,37 +37,102 @@ ROOM_GAP = 1
 class DictionaryBand:
     """Two rows of dictionary values sharing aligned literal columns."""
 
-    top: tuple[int, ...]
-    bottom: tuple[int, ...]
+    top_slots: tuple[int | None, ...]
+    bottom_slots: tuple[int | None, ...]
     widths: tuple[int, ...]
+    constant_count: int
 
 
-def _band(values: tuple[int, ...], slots: int) -> DictionaryBand | None:
-    """Return one paired band, or None when ``values`` needs too many slots."""
-    if not values or len(values) > 2 * slots:
-        return None
-    top_count = min(slots, len(values))
+def _slot_width(top: int | None, bottom: int | None) -> int:
+    """Source width of one vertically paired literal slot."""
+    top_digits = len(str(top)) if top is not None else 1
+    bottom_digits = len(str(bottom)) if bottom is not None else 1
+    return max(top_digits, bottom_digits)
+
+
+def _best_band(values: tuple[int, ...], top_count: int) -> DictionaryBand:
+    """Find the narrowest column alignment for one chosen top/bottom split.
+
+    Top constants retain their preload order from left to right. Bottom
+    constants are reversed physically because that row is walked right to
+    left. The alignment DP may pair a top and bottom literal in one column or
+    leave a dummy partner on either row. This removes the old assumption that
+    every band has a fixed number of half-and-half slots.
+    """
+    if not values or not 1 <= top_count <= len(values):
+        raise ValueError("invalid dictionary band split")
     top = values[:top_count]
-    bottom = values[top_count:]
-    widths = []
-    for slot in range(slots):
-        top_digits = len(str(top[slot])) if slot < len(top) else 1
-        # The bottom row walks west, so its first logical value is physically
-        # in the rightmost slot.
-        bottom_index = len(bottom) - 1 - slot
-        bottom_digits = (
-            len(str(bottom[bottom_index])) if bottom_index >= 0 else 1
+    bottom_physical = tuple(reversed(values[top_count:]))
+
+    @lru_cache(maxsize=None)
+    def align(top_index: int, bottom_index: int):
+        if top_index == len(top) and bottom_index == len(bottom_physical):
+            return (0, ())
+
+        candidates = []
+        if top_index < len(top) and bottom_index < len(bottom_physical):
+            top_value = top[top_index]
+            bottom_value = bottom_physical[bottom_index]
+            tail_width, tail_slots = align(top_index + 1, bottom_index + 1)
+            candidates.append(
+                (
+                    _slot_width(top_value, bottom_value) + 3 + tail_width,
+                    0,
+                    ((top_value, bottom_value),) + tail_slots,
+                )
+            )
+        if top_index < len(top):
+            top_value = top[top_index]
+            tail_width, tail_slots = align(top_index + 1, bottom_index)
+            candidates.append(
+                (
+                    _slot_width(top_value, None) + 3 + tail_width,
+                    1,
+                    ((top_value, None),) + tail_slots,
+                )
+            )
+        if bottom_index < len(bottom_physical):
+            bottom_value = bottom_physical[bottom_index]
+            tail_width, tail_slots = align(top_index, bottom_index + 1)
+            candidates.append(
+                (
+                    _slot_width(None, bottom_value) + 3 + tail_width,
+                    2,
+                    ((None, bottom_value),) + tail_slots,
+                )
+            )
+
+        # Prefer the narrowest representation, then fewer columns, then
+        # paired columns over top-only and bottom-only columns.
+        width, _, slots = min(
+            candidates,
+            key=lambda candidate: (
+                candidate[0],
+                len(candidate[2]),
+                candidate[1],
+            ),
         )
-        widths.append(max(top_digits, bottom_digits))
-    return DictionaryBand(top, bottom, tuple(widths))
+        return width, slots
+
+    _, slots = align(0, 0)
+    top_slots = tuple(slot[0] for slot in slots)
+    bottom_slots = tuple(slot[1] for slot in slots)
+    widths = tuple(_slot_width(*slot) for slot in slots)
+    return DictionaryBand(
+        top_slots,
+        bottom_slots,
+        widths,
+        len(values),
+    )
 
 
 def pack_dictionary(values: list[int], room_width: int) -> list[DictionaryBand]:
     """Pack as many constants per paired band as possible with dynamic programming.
 
     Each slot costs its decimal width plus two backticks and one send cell.
-    Two cells at the left are reserved for the descent lane, and two at the
-    right for the turn lane.  The objective is, in order:
+    The outer DP chooses band boundaries. For every boundary candidate, an
+    inner alignment DP chooses the top/bottom split and shared literal
+    columns. The objective is, in order:
 
     1. use the fewest paired bands;
     2. put the most constants in earlier bands;
@@ -77,8 +142,10 @@ def pack_dictionary(values: list[int], room_width: int) -> list[DictionaryBand]:
     """
     if room_width < 8:
         raise ValueError("dictionary width must be at least 8")
-    capacity = room_width - 7
+    capacity = room_width - 5
+    final_capacity = room_width - 7
     values_tuple = tuple(values)
+    max_constants_per_band = 2 * (capacity // 4)
 
     @lru_cache(maxsize=None)
     def solve(index: int):
@@ -86,24 +153,28 @@ def pack_dictionary(values: list[int], room_width: int) -> list[DictionaryBand]:
             return (0, (), 0, ())
         best = None
         remaining = len(values_tuple) - index
-        for count in range(1, remaining + 1):
-            slots = (count + 1) // 2
-            band = _band(values_tuple[index:index + count], slots)
-            assert band is not None
-            used = sum(width + 3 for width in band.widths)
-            if used > capacity:
-                continue
-            tail = solve(index + count)
-            if tail is None:
-                continue
-            candidate = (
-                1 + tail[0],
-                (-count,) + tail[1],
-                (capacity - used) + tail[2],
-                (band,) + tail[3],
+        for count in range(1, min(remaining, max_constants_per_band) + 1):
+            segment = values_tuple[index:index + count]
+            band_capacity = (
+                final_capacity if index + count == len(values_tuple)
+                else capacity
             )
-            if best is None or candidate[:3] < best[:3]:
-                best = candidate
+            for top_count in range(1, count + 1):
+                band = _best_band(segment, top_count)
+                used = sum(width + 3 for width in band.widths)
+                if used > band_capacity:
+                    continue
+                tail = solve(index + count)
+                if tail is None:
+                    continue
+                candidate = (
+                    1 + tail[0],
+                    (-count,) + tail[1],
+                    (band_capacity - used) + tail[2],
+                    (band,) + tail[3],
+                )
+                if best is None or candidate[:3] < best[:3]:
+                    best = candidate
         return best
 
     result = solve(0)
@@ -120,6 +191,20 @@ def _put_row(program: Program, x: int, y: int, cells) -> None:
     for dx, glyph in enumerate(cells):
         if glyph != " ":
             program.put(x + dx, y, glyph)
+
+
+def right_aligned_after(
+    feeder_width: int,
+    room_width: int,
+    occupied_left_width: int,
+) -> int:
+    """Right-align a room unless that would overlap the left-side block.
+
+    When the two widths do not fit inside the feeder boundary, the room
+    touches the left block at its next free column and is allowed to extend
+    past the feeder's right edge.
+    """
+    return max(feeder_width - room_width, occupied_left_width)
 
 
 def place_dictionary(
@@ -152,7 +237,7 @@ def place_dictionary(
             cursor += width + 3
 
         for slot, width in enumerate(band.widths):
-            top_value = band.top[slot] if slot < len(band.top) else None
+            top_value = band.top_slots[slot]
             if top_value is not None:
                 _put_row(
                     program,
@@ -168,11 +253,8 @@ def place_dictionary(
                     ["`", *("0" * width), "`", " "],
                 )
 
-        physical_bottom = list(reversed(band.bottom))
         for slot, width in enumerate(band.widths):
-            bottom_value = (
-                physical_bottom[slot] if slot < len(physical_bottom) else None
-            )
+            bottom_value = band.bottom_slots[slot]
             if bottom_value is not None:
                 _put_row(
                     program,
@@ -253,9 +335,10 @@ def build(
         dictionary_values,
     )
 
-    # Stack the remaining rooms down the feeder's right boundary.  Their
-    # differing widths all share the same right edge, while one empty row
-    # between rooms keeps their walls distinct for later pipe attachments.
+    # Stack the remaining rooms down the feeder's right boundary. If a room
+    # cannot fit between the dictionary and that boundary, put it immediately
+    # after the dictionary and let it extend rightward. This makes overlap
+    # impossible for every supported dictionary width.
     service_y = tail_y
     service_rooms = []
     for name, rows in [
@@ -263,20 +346,24 @@ def build(
         ("unpack", vertical.base.UNPACK_ROWS),
     ]:
         width = max(len(row) for row in rows) + 2
-        service_x = feeder_width - width
+        service_x = right_aligned_after(
+            feeder_width, width, dictionary_width
+        )
         width, height = vertical.base.paste_room(
             program, service_x, service_y, rows
         )
         service_rooms.append((name, service_x, service_y, width, height))
         service_y += height + ROOM_GAP
 
-    output_x = feeder_width - 3
+    output_x = right_aligned_after(feeder_width, 3, dictionary_width)
     program.output_room(output_x, service_y)
     service_rooms.append(("output", output_x, service_y, 3, 3))
     service_y += 3 + ROOM_GAP
 
     disp_width = max(len(row) for row in vertical.DISP_DELAYED_ROWS) + 2
-    service_x = feeder_width - disp_width
+    service_x = right_aligned_after(
+        feeder_width, disp_width, dictionary_width
+    )
     disp_width, disp_height = vertical.base.paste_room(
         program,
         service_x,
@@ -304,7 +391,13 @@ def build(
             "right_edge": dictionary_x + dictionary_width - 1,
             "bands": len(dictionary_bands),
             "constants_per_band": [
-                len(band.top) + len(band.bottom)
+                band.constant_count for band in dictionary_bands
+            ],
+            "slots_per_band": [
+                len(band.widths) for band in dictionary_bands
+            ],
+            "used_width_per_band": [
+                sum(width + 3 for width in band.widths)
                 for band in dictionary_bands
             ],
         },
@@ -378,7 +471,9 @@ def main() -> None:
         f"{dictionary['width']}x{dictionary['height']} at "
         f"({dictionary['x']},{dictionary['y']}), "
         f"right edge={dictionary['right_edge']}; "
-        f"words={dictionary['words']}"
+        f"words={dictionary['words']}; "
+        f"bands={dictionary['bands']} "
+        f"{dictionary['constants_per_band']}"
     )
 
 

@@ -1,28 +1,25 @@
 #!/usr/bin/env python3
 """snake micro-design: a small, O(1)-state Snake solver.
 
-ARCHITECTURE
+ARCHITECTURE (see the header comment blocks below for the exact op sequences)
 
   STATE RING   a FIFO ring holding 8 scalars in a fixed canonical order
-
-                   [dy, hy, dx, hx, da, ha, fa, K]
-
-               dy,dx  direction step in board coords      (-1/0/1)
+                   [dx, hx, dy, hy, da, ha, fa, K]
+               dx,dy  direction step in board coords      (-1/0/1)
                da     direction step in DISPLAY ADDRESS   (-16/-1/+1/+16)
-               hy,hx  head row/column                     (0..15)
+               hx,hy  head column/row                     (0..15)
                ha     head display address = 16*hy + hx   (0..255)
                fa     fruit display address, or -1        (-1..255)
                K      snake length
                Every round pops the 8 values in order and pushes them back in
-               the same order, so the ring is a rotating register file.  A
-               value can also be PARKED in the ring past K (SPAWN does that
-               with the fruit's x) and recovered by one extra lap -- which is
-               why this build needs NO scratch ring at all.  See BINDING for
-               why deleting that one ring is worth so much.
+               the same order, so the ring is a rotating register file.
 
   BODY RING    a FIFO ring holding the K body cells as display addresses,
                oldest (tail) first.  Sized for the worst case: at most 100
                rounds per case => at most 49 growths => K <= 50.
+
+  SCRATCH RING a short FIFO used to stash one or three values (spawn / dir /
+               init only -- the tick path needs no scratch).
 
   DRIVER       owns the display's ADDR/DATA/SWAP pipes.  Protocol on its single
                incoming pipe:   addr (>=0) then colour     -> write one pixel
@@ -43,24 +40,14 @@ ARCHITECTURE
                pushed back, the ring is intact whatever the outcome, so the
                death repaint can just pop K values and paint them red.
 
-BINDING -- why the state ring is the only ring.
-`s`/`r` pick the nearest attached pipe (Manhattan to the pipe's first/last
-cell, ties in reading order).  Every controller pipe attaches to the TOP wall,
-so the y term is identical for all of them and the binding is decided by the
-column alone: the interior splits into vertical LANES and a pipe op may only be
-emitted inside its lane's window.
-
-That window WIDTH sets the program's height, because a token that cannot reach
-its lane on the current row forces the serpentine to WRAP -- a whole row, and
-(via the dispatch highways, which then have to run further) ticks as well.
-With four in-pipes and four out-pipes on a 34-wide room the state lane was five
-columns and one `r:S s:S` pair cost half a row.  Deleting the scratch ring
-leaves three of each, so the state lane is fifteen columns and seven pairs fit
-on one row.  The canonical ring order, the SPAWN parking trick and the inline
-DIR arms below all exist only to make that deletion possible.
-
-`_assert_bindings()` re-derives every binding from the finished grid and checks
-it against what the emitter intended.
+PIPE BINDING.  `s`/`r` pick the nearest attached pipe (Manhattan to the pipe's
+first/last cell, ties in reading order).  Every controller pipe attaches to the
+TOP wall of the controller room, so the y term is identical for all of them and
+the binding is decided by the column alone.  The controller interior is
+therefore divided into four vertical LANES; a pipe op is only ever placed in
+the part of a lane where both the send- and the receive-binding are
+unambiguous, and _assert_bindings() re-derives every binding from the finished
+grid and checks it against what the emitter intended.
 """
 import os
 import sys
@@ -69,30 +56,32 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(os.path.dirname(HERE))
 sys.path.insert(0, os.path.join(REPO, "tools"))
 
-import littleman as lm                      # noqa: E402,F401
-from layout import Layout, pipelen          # noqa: E402
+import littleman as lm                      # noqa: E402
+from layout import Layout, place_pipe       # noqa: E402
 
+GREEN = 10
+RED = 9
+BLACK = 0
 GRID = 16
-COLOUR = {"snake": 10, "dead": 9, "fruit": 9, "empty": 0}
-# round op code -> (dy, dx, da) that the direction change installs
-DIRSTEP = {2: (-1, 0, -GRID),    # up
-           3: (0, 1, 1),         # right
-           4: (1, 0, GRID),      # down
-           5: (0, -1, -1)}       # left
 
 
 # ──────────────────────────────────────────────────────────────────────────
 # geometry knobs (integers -- autotune can sweep them)
 # ──────────────────────────────────────────────────────────────────────────
-def geometry(CX0=0, CY0=16, CW=40, CBOT=100,
-             BD_OUT=2, BD_IN=4, ST_OUT=16, ST_IN=18, IN_IN=34, DRV_OUT=36):
+def geometry(CX0=0, CY0=16, CW=36, CBOT=66,
+             IN_IN=3, ST_OUT=9, ST_IN=11, BD_OUT=17, BD_IN=21,
+             SC_OUT=27, SC_IN=29, DRV_OUT=33,
+             DRVX=34, DRVY=10, DRVW=9, DRVH=22,
+             DISX=45, DISY=12):
     g = dict(CX0=CX0, CY0=CY0, CW=CW, CBOT=CBOT)
-    g["CX1"] = CX0 + CW - 1                       # controller right wall
+    g["CX1"] = CX0 + CW - 1                      # controller right wall
     g["IXLO"], g["IXHI"] = CX0 + 1, CX0 + CW - 2  # interior columns
     g["IYLO"], g["IYHI"] = CY0 + 1, CBOT - 1      # interior rows
     g["ATT"] = CY0 - 1                            # pipe attach row
-    g["attach_out"] = {"B": BD_OUT, "S": ST_OUT, "D": DRV_OUT}
-    g["attach_in"] = {"B": BD_IN, "S": ST_IN, "I": IN_IN}
+    g["attach_out"] = {"S": ST_OUT, "B": BD_OUT, "C": SC_OUT, "D": DRV_OUT}
+    g["attach_in"] = {"I": IN_IN, "S": ST_IN, "B": BD_IN, "C": SC_IN}
+    g["DRVX"], g["DRVY"], g["DRVW"], g["DRVH"] = DRVX, DRVY, DRVW, DRVH
+    g["DISX"], g["DISY"] = DISX, DISY
     return g
 
 
@@ -104,16 +93,20 @@ def lane_windows(g):
         return min(table, key=lambda k: (abs(table[k] - x), table[k]))
 
     win = {}
-    for lane in set(out) | set(inc):
+    for lane in ("S", "B", "C", "D", "I"):
         cols = []
         for x in range(g["IXLO"], g["IXHI"] + 1):
-            ok = True
-            if lane in out:
-                ok = ok and near(out, x) == lane
-            if lane in inc:
-                ok = ok and near(inc, x) == lane
-            if ok:
+            ok_s = lane not in out or near(out, x) == lane
+            ok_r = lane not in inc or near(inc, x) == lane
+            if lane in out and lane in inc:
+                good = ok_s and ok_r
+            elif lane in out:
+                good = ok_s
+            else:
+                good = ok_r
+            if good:
                 cols.append(x)
+        # longest contiguous run
         best = cur = []
         for x in cols:
             cur = cur + [x] if cur and x == cur[-1] + 1 else [x]
@@ -133,15 +126,13 @@ class Emit:
     ``"<op>:<lane>"`` for a pipe op that has to land inside ``lane``'s window.
     """
 
-    def __init__(self, L, g, win, forbidden, wrapcols=()):
+    def __init__(self, L, g, win, forbidden):
         self.L, self.g, self.win = L, g, win
         self.forbidden = set(forbidden)
-        self.wrapcols = set(wrapcols)          # reserved landing spots for wrap()
         self.xlo, self.xhi = g["IXLO"], g["IXHI"]
         self.x = self.y = 0
         self.d = "E"
         self.ops = []                     # (x, y, ch, lane) for binding checks
-        self.wraps = 0
 
     # -- cursor ------------------------------------------------------------
     def at(self, x, y, d="E"):
@@ -158,18 +149,15 @@ class Emit:
 
     def wrap(self):
         """Turn down onto the next row, reversing direction."""
-        self.wraps += 1
-        bad = self.forbidden - self.wrapcols
+        x = self.x
         if self.d == "E":
-            x = min(self.x, self.g["IXHI"])
-            while x <= self.g["IXHI"] and (x in bad
+            while x <= self.g["IXHI"] and (x in self.forbidden
                                            or self.L.get(x, self.y) != " "
                                            or self.L.get(x, self.y + 1) != " "):
                 x += 1
             assert x <= self.g["IXHI"], "no room to wrap east at row %d" % self.y
         else:
-            x = max(self.x, self.g["IXLO"])
-            while x >= self.g["IXLO"] and (x in bad
+            while x >= self.g["IXLO"] and (x in self.forbidden
                                            or self.L.get(x, self.y) != " "
                                            or self.L.get(x, self.y + 1) != " "):
                 x -= 1
@@ -180,6 +168,7 @@ class Emit:
         self.y += 1
         self.d = nd
         self.x = x + (-1 if nd == "W" else 1)
+        self.rows_used = max(getattr(self, "rows_used", self.y), self.y)
         return self
 
     def _ok(self, x):
@@ -293,135 +282,110 @@ class Rows:
         return y
 
 
-# Dispatch/branch highway columns: one vertical wire per destination.  They are
-# deliberately kept OUT of the state lane (10..26) -- see BINDING above.
-HW_RET, HW_TICK, HW_SPAWN, HW_DIR = 37, 35, 33, 31
-D_EAT, D_NOEAT = 27, 29
-D_REP, D_COLL, D_HX, D_HY = 8, 6, 4, 2
-WRAP_W, WRAP_E = 1, 38               # reserved: wrap() must always find a landing
-# One drop column per direction arm.  They REUSE the death highways: every death
-# column's traffic terminates in a block that is emitted above DIR, so the two
-# uses never share a row range.  That keeps the state lane (12..26) unbroken.
-ARMCOL = {2: D_HY, 3: D_HX, 4: D_COLL, 5: D_REP}
-FORBID = {HW_RET, HW_TICK, HW_SPAWN, HW_DIR, D_EAT, D_NOEAT,
-          D_REP, D_COLL, D_HX, D_HY, WRAP_W, WRAP_E}
+FORBID = {7, 13, 14, 15, 16, 21, 22, 23, 24, 25, 29}
+HW_TICK, HW_SPAWN, HW_DIR, HW_RET = 14, 15, 16, 25
+D_HX, D_HY, D_EAT, D_NOEAT, D_COLL, D_REP = 22, 23, 7, 21, 29, 13
 
 
-def _lit(v):
-    """Tokens that leave the constant v in A.
-
-    NO backtick literals: the oracle pairs backticks per row AND per column, so
-    two unrelated `16` literals that happen to line up vertically make the whole
-    program a loaderror ("expected a digit or a space between backticks").  The
-    Rust engine does not reproduce that, so it graded 5/5 while the oracle
-    refused to load.  |16| is built as 8 M + instead, which costs B -- harmless
-    everywhere _lit is used.
-    """
-    if v == 0:
-        return ["0"]
-    if abs(v) < 10:
-        return [str(abs(v))] + (["N"] if v < 0 else [])
-    assert abs(v) == 16, v
-    return ["8", "M", "+"] + (["N"] if v < 0 else [])
-
-
-def build(save_to=None, CBOT=100, CW=40, CY0=16,
-          BD_OUT=2, BD_IN=4, ST_OUT=16, ST_IN=18, IN_IN=34, DRV_OUT=36,
-          BODY_X=7, BODY_Y=13, BODY_R=10, RELAY_Y=4, DRVX=42, DISX=53,
-          BRX=12, BRE=26, LOOPX=9, LOOPM=7, LOOPR=5):
-    g = geometry(CY0=CY0, CW=CW, CBOT=CBOT, BD_OUT=BD_OUT, BD_IN=BD_IN,
-                 ST_OUT=ST_OUT, ST_IN=ST_IN, IN_IN=IN_IN, DRV_OUT=DRV_OUT)
+def build(save_to=None, CBOT=66, RING_PAD=0):
+    g = geometry(CBOT=CBOT)
     win = lane_windows(g)
-    ATT = g["ATT"]
     L = Layout()
     p = L.p
 
     # ---- rooms ----------------------------------------------------------
-    p.room(g["CX0"], CY0, CW, CBOT - CY0 + 1)          # controller
-    p.room(1, 0, BODY_R + 1, 4)                        # body relay
-    p.room(ST_OUT - 1, RELAY_Y, 6, 4)                  # state relay
-    p.input_room(IN_IN - 1, RELAY_Y + 1)
-    p.room(DRVX, 10, 9, 22)                            # display driver
-    p.display(DISX, 12, 18, 18)
+    p.room(g["CX0"], g["CY0"], g["CW"], CBOT - g["CY0"] + 1)     # controller
+    p.room(8, 8, 6, 4)                                           # state relay
+    p.room(26, 4, 6, 4)                                          # scratch relay
+    p.room(16, 0, 7, 4)                                          # body relay
+    p.input_room(2, 11)
+    p.room(38, 10, 9, 22)                                        # display driver
+    p.display(49, 12, 18, 18)
 
-    for x, y in ((2, 1), (ST_OUT, RELAY_Y + 1)):
+    for x, y in ((9, 9), (27, 5), (17, 1)):
         L.put(x, y, "@"); L.put(x + 1, y, ">"); L.put(x + 2, y, "R")
         L.put(x + 3, y, "v")
         L.put(x + 1, y + 1, "^"); L.put(x + 2, y + 1, "s"); L.put(x + 3, y + 1, "<")
 
     # ---- pipes ----------------------------------------------------------
-    p.pipe([(IN_IN, RELAY_Y + 4), (IN_IN, ATT)])                    # input -> ctrl
-    p.pipe([(ST_OUT, ATT), (ST_OUT, RELAY_Y + 4)])                  # ctrl  -> state
-    p.pipe([(ST_IN, RELAY_Y + 4), (ST_IN, ATT)])                    # state -> ctrl
-    feed = [(BD_OUT, ATT), (BD_OUT, BODY_Y), (BODY_X, BODY_Y), (BODY_X, BODY_Y - 2),
-            (BD_OUT, BODY_Y - 2), (BD_OUT, BODY_Y - 4), (BODY_X, BODY_Y - 4),
-            (BODY_X, BODY_Y - 6), (BD_OUT, BODY_Y - 6), (BD_OUT, 4)]
-    ret = [(BODY_R, 4), (BODY_R, 6), (BODY_R + 2, 6), (BODY_R + 2, 8),
-           (BODY_R, 8), (BODY_R, 10), (BODY_R + 2, 10), (BODY_R + 2, 12),
-           (BODY_R, 12), (BODY_R, BODY_Y + 1), (BD_IN, BODY_Y + 1), (BD_IN, ATT)]
-    p.pipe(feed)                                                    # ctrl  -> body
-    p.pipe(ret)                                                     # body  -> ctrl
+    p.pipe([(3, 14), (3, 15)])                                   # input  -> ctrl
+    p.pipe([(9, 15), (9, 12)])                                   # ctrl   -> state
+    p.pipe([(11, 12), (11, 15)])                                 # state  -> ctrl
+    p.pipe([(27, 15), (27, 8)])                                  # ctrl   -> scratch
+    p.pipe([(29, 8), (29, 15)])                                  # scratch-> ctrl
+    feed = [(17, 15), (17, 13), (15, 13), (15, 11), (19, 11), (19, 9),
+            (15, 9), (15, 7), (19, 7), (19, 5), (17, 5), (17, 4)]
+    ret = [(21, 4), (21, 5), (24, 5), (24, 7), (22, 7), (22, 9), (24, 9),
+           (24, 11), (22, 11), (22, 13), (24, 13), (24, 14), (21, 14), (21, 15)]
+    p.pipe(feed)                                                 # ctrl   -> body
+    p.pipe(ret)                                                  # body   -> ctrl
+    p.pipe([(33, 15), (33, 14), (37, 14)])                       # ctrl   -> driver
+    p.pipe([(47, 11), (48, 11), (48, 10), (52, 10), (52, 11)])   # driver -> ADDR
+    p.pipe([(47, 20), (48, 20)])                                 # driver -> DATA
+    p.pipe([(41, 32), (41, 33), (57, 33), (57, 30)])             # driver -> SWAP
+
+    from layout import pipelen
     cap = pipelen(feed) + 1 + pipelen(ret)
-    assert cap >= 55, "body ring capacity %d too small" % cap
-    p.pipe([(DRV_OUT, ATT), (DRV_OUT, ATT - 1), (DRVX - 1, ATT - 1)])  # ctrl -> driver
 
     # ---- driver man -----------------------------------------------------
-    off = DRVX - 38                                    # driver block was built at x=38
     for (x, y, ch) in [
-            (43, 29, "@"),                             # born on the return leg
+            (43, 29, "@"),                                   # born on the return leg
             (39, 12, ">"), (40, 12, "r"), (42, 12, "v"), (42, 13, "X"),
             (41, 13, "^"), (42, 14, "<"), (41, 14, "^"), (41, 11, ">"),
             (44, 11, "s"), (45, 11, "v"), (45, 19, "r"), (45, 20, "s"),
             (45, 29, "<"), (39, 29, "^"),
             (43, 13, "1"), (44, 13, "v"), (44, 30, "<"), (41, 30, "s"),
             (39, 30, "^")]:
-        L.put(x + off, y, ch)
-    p.pipe([(47 + off, 11), (48 + off, 11), (48 + off, 10),
-            (DISX + 3, 10), (DISX + 3, 11)])                        # -> ADDR
-    p.pipe([(47 + off, 20), (DISX - 1, 20)])                        # -> DATA
-    p.pipe([(41 + off, 32), (41 + off, 33), (DISX + 4, 33), (DISX + 4, 30)])  # -> SWAP
+        L.put(x, y, ch)
 
     # ---- controller -----------------------------------------------------
-    E = Emit(L, g, win, FORBID, wrapcols=(WRAP_W, WRAP_E))
+    E = Emit(L, g, win, FORBID)
+    E.xhi = 32
     R = Rows(g["IYLO"])
+    blocks = {}
 
-    def block(hw=None):
+    def block(name, hw=None):
         """Enter a block straight off the highway: the turn-off IS the first op row."""
         y_ops = R.take()
         if hw is not None:
             L.put(hw, y_ops, "<")
+            blocks[name] = (y_ops, hw)
             E.at(hw - 1, y_ops, "W")
         else:
-            L.put(3, y_ops, ">")
-            E.at(4, y_ops, "E")
+            L.put(1, y_ops, ">")
+            E.at(2, y_ops, "E")
         return y_ops
 
     def endblock():
         R.y = max(R.y, E.y + 1)
 
-    def face(col, d="E"):
-        """Leave the cursor heading `d` with `col` still reachable ahead of it."""
-        for _ in range(8):
-            if d == "E" and E.d == "E" and E.x <= col:
-                return
-            if d == "W" and E.d == "W" and E.x >= col:
-                return
-            if E.d == "E":
-                while E.x < E.xhi and E.x < col + 1 and _blank(L, E.x, E.y):
-                    E._step()
-            else:
-                while E.x > E.xlo and E.x > col - 1 and _blank(L, E.x, E.y):
-                    E._step()
-            E.wrap()
-        raise RuntimeError("cannot face column %d heading %s" % (col, d))
-
-    def goto(col, ch="v"):
-        face(col, "E")
-        glide(E, col)
-        L.put(col, E.y, ch)
-
     def ret_dispatch():
         goto(HW_RET, "^")                      # the dispatcher sits ABOVE every block
+
+    def branch_row(col_in):
+        """Move onto a fresh 3-row group and return (row, entry cursor)."""
+        y_prev = R.take(); yb = R.take(); y_next = R.take()
+        vjump(E, col_in, yb, "E")
+        return y_prev, yb, y_next
+
+    # helpers that need E/R/L in scope -------------------------------------
+    def face(col):
+        """Leave the cursor heading EAST at a column <= col."""
+        for _ in range(6):
+            if E.d == "E" and E.x <= col:
+                return
+            if E.d == "E":
+                E.wrap()                       # -> heading west
+            else:
+                while E.x > col - 1 and E.x > E.xlo and _blank(L, E.x, E.y):
+                    E._step()
+                E.wrap()                       # -> heading east
+        raise RuntimeError("cannot face column %d" % col)
+
+    def goto(col, ch="v"):
+        face(col)
+        glide(E, col)
+        L.put(col, E.y, ch)
 
     def arm(x, y, col, ch="v"):
         """Turn the branch outcome at (x,y) toward `col` and drop/rise there."""
@@ -432,176 +396,184 @@ def build(save_to=None, CBOT=100, CW=40, CY0=16,
         L.put(col, y, ch)
 
     def rows(n=1):
-        R.y = max(R.y, E.y + 1)
+        R.y = max(R.y, E.y + 2)
         return R.take(n)
 
-    def branch(ch, bx, arrive, head="W"):
-        """Fresh 3-row group; place `ch` at (bx, yb) with the man heading `head`."""
-        face(arrive, "E")
+    def branch(ch, bx=8, arrive=34):
+        """Fresh 3-row group; place `ch` at (bx, yb) with the man heading WEST."""
+        face(arrive)
         yprev = rows(); yb = R.take(); ynext = R.take()
-        vjump(E, arrive, yb, head)
+        vjump(E, arrive, yb, "W")
         glide(E, bx)
         L.put(bx, yb, ch)
         return yprev, yb, ynext
 
+
     # ═══ DISPATCH (first: every block returns UP to it) ══════════════════
-    block(HW_RET)
+    block("DISP", HW_RET)
     E.seq(["1", "M", "r:I", "-"])
-    _, yb, _ = branch("X", 28, 36, "W")
+    _, yb, _ = branch("X")
     yextra = rows()
-    arm(28, yb + 1, HW_TICK)       # A<0  (op 0)  -> tick
-    arm(28, yb - 1, HW_DIR)        # A>0  (op>1)  -> direction
-    L.put(26, yb, "v")             # A==0 (op 1)  -> spawn
-    assert _blank(L, 26, yb + 1)
-    arm(26, yextra, HW_SPAWN)
+    arm(8, yb + 1, HW_TICK)        # op 0 -> tick
+    arm(8, yb - 1, HW_DIR)         # op>1 -> direction
+    L.put(7, yb, "v")                                    # op 1 -> spawn
+    assert _blank(L, 7, yb + 1)
+    arm(7, yextra, HW_SPAWN)
     endblock()
 
     # ═══ INIT ════════════════════════════════════════════════════════════
-    y0 = R.take()
-    L.put(3, y0, "@")
-    E.at(4, y0, "E")
-    E.seq(["4", "M",                       # B = 4  (the shift count for *16)
-           "r:I", "s:S",                   # park sx
-           "r:I", "s:S",                   # park sy   (A = sy)
-           "{", "M",                       # B = 16*sy
-           "r:S", "s:S",                   # A = sx, re-park it
-           "+", "s:S",                     # A = ha = sx + 16*sy, park it
-           "0", "s:S",                     # dy = 0
-           "r:S", "s:S",                   # hy = sy
-           "1", "s:S",                     # dx = 1
-           "r:S", "s:S",                   # hx = sx
-           "1", "s:S",                     # da = 1
-           "r:S", "s:S", "s:B", "s:D",     # ha -> state, body ring, display addr
-           "5", "M", "+", "s:D",           # green
-           "1", "N", "s:S", "s:D",         # fa = -1 ; commit the frame
-           "1", "s:S"])                    # K = 1
+    y = R.take()
+    L.put(1, y, "@")
+    E.at(2, y, "E")
+    E.seq(["r:I", "s:C", "s:C", "8", "M", "+", "M", "r:I", "s:C", "*", "M", "r:C", "+",
+           "s:C",
+           "1", "s:S",                       # dx = 1
+           "r:C", "s:S",                     # hx = sx
+           "0", "s:S",                       # dy = 0
+           "r:C", "s:S",                     # hy = sy
+           "1", "s:S",                       # da = 1
+           "r:C", "s:S", "s:B", "s:D",       # ha  -> state, body, display addr
+           "5", "M", "+", "s:D",                     # green
+           "1", "N", "s:S", "s:D",           # fa = -1 ; commit frame
+           "1", "s:S"])                      # K = 1
     ret_dispatch()
     endblock()
 
     # ═══ TICK ════════════════════════════════════════════════════════════
-    block(HW_TICK)
+    block("TICK", HW_TICK)
     E.seq(["r:S", "s:S", "M", "r:S", "+", "s:S", "b", "]", "]", "]", "]"])
-    _, yb, _ = branch("x", BRX, BRE, "W")
-    arm(BRX, yb - 1, D_HY)                                    # out of range -> death
-    L.put(BRX, yb + 1, ">"); E.at(BRX + 1, yb + 1, "E")       # in range -> carry on
+    _, yb, _ = branch("x")
+    arm(8, yb - 1, D_HX)          # out of range -> death
+    L.put(8, yb + 1, ">"); E.at(9, yb + 1, "E")          # in range -> carry on
 
     E.seq(["r:S", "s:S", "M", "r:S", "+", "s:S", "b", "]", "]", "]", "]"])
-    _, yb, _ = branch("x", BRX, BRE, "W")
-    arm(BRX, yb - 1, D_HX)
-    L.put(BRX, yb + 1, ">"); E.at(BRX + 1, yb + 1, "E")
+    _, yb, _ = branch("x")
+    arm(8, yb - 1, D_HY)
+    L.put(8, yb + 1, ">"); E.at(9, yb + 1, "E")
 
     E.seq(["r:S", "s:S", "M", "r:S", "+", "s:S", "M", "r:S", "W", "~"])
-    _, yb, _ = branch("X", BRE, BRX, "E")
-    arm(BRE, yb - 1, D_NOEAT)      # A>0  -> no eat
-    arm(BRE, yb + 1, D_NOEAT)      # A<0  -> no eat (merges)
-    L.put(D_EAT, yb, "v")          # A==0 -> eat (straight on, heading east)
+    _, yb, _ = branch("X")
+    arm(8, yb - 1, D_NOEAT)       # A>0  -> no eat
+    arm(8, yb + 1, D_NOEAT)                              # A<0  -> no eat (merges)
+    L.put(D_EAT, yb, "v")                                # A==0 -> eat
     endblock()
 
     # ═══ NO EAT: scan the body, then move ════════════════════════════════
-    block(D_NOEAT)
+    block("NOEAT", D_NOEAT)
     E.seq(["W", "s:S", "~", "M", "r:S", "s:S", "b", "r:B", "s:B", "m"])
-    face(LOOPR, "E")
+    face(18)
     ys = rows(6)
-    vjump(E, LOOPR, ys, "E")
-    for (x, y, ch) in [(LOOPX, ys, "d"), (LOOPX, ys + 1, "r"), (LOOPX, ys + 2, "s"),
-                       (LOOPX, ys + 3, "~"), (LOOPX, ys + 4, "X"),
-                       (LOOPM, ys + 4, "m"), (LOOPR, ys + 4, "^")]:
+    vjump(E, 18, ys, "E")
+    for (x, y, ch) in [(20, ys, "d"), (20, ys + 1, "r"), (20, ys + 2, "s"),
+                       (20, ys + 3, "~"), (20, ys + 4, "X"), (19, ys + 4, "m"),
+                       (18, ys + 4, "^"), (20, ys + 5, ">")]:
         L.put(x, y, ch)
-    E.ops.append((LOOPX, ys + 1, "r", "B"))
-    E.ops.append((LOOPX, ys + 2, "s", "B"))
-    arm(LOOPX, ys + 5, D_COLL)                               # collision -> repaint
-    E.at(LOOPX + 1, ys, "E")
-    face(BRE, "E")
+    E.ops.append((20, ys + 1, "r", "B"))
+    E.ops.append((20, ys + 2, "s", "B"))
+    arm(20, ys + 5, D_COLL)                              # collision -> repaint
+    E.at(21, ys, "E")
+    face(34)
     yn = rows()
-    vjump(E, BRE, yn, "W")
+    vjump(E, 34, yn, "W")
     E.seq(["r:B", "s:D", "0", "s:D", "W", "s:B", "s:D", "5", "M", "+", "s:D",
            "1", "N", "s:D"])
     ret_dispatch()
     endblock()
 
     # ═══ EAT ═════════════════════════════════════════════════════════════
-    block(D_EAT)
-    E.seq(["W", "s:B", "s:D",              # A = ha' : grow, and draw the new head
-           "r:S", "M", "1", "+", "M",      # B = K+1
-           "1", "N", "s:S",                # fa = -1
-           "W", "s:S",                     # K = K+1
-           "5", "M", "+", "s:D",           # green
-           "1", "N", "s:D"])               # commit
+    block("EAT", D_EAT)
+    E.seq(["1", "N", "s:S", "W", "s:C", "1", "M", "r:S", "+", "s:S",
+           "r:C", "s:B", "s:D", "5", "M", "+", "s:D", "1", "N", "s:D"])
     ret_dispatch()
     endblock()
 
     # ═══ deaths ══════════════════════════════════════════════════════════
-    # how deep K sits in the ring when each test fires: hy 6, hx 4, collision 8
-    for hw, pops in ((D_HY, 6), (D_HX, 4), (D_COLL, 8)):
-        block(hw)
-        E.seq(["r:S"] * pops + ["b"])
-        goto(D_REP)
-        endblock()
+    block("DHX", D_HX)
+    E.seq(["r:S"] * 6 + ["b"])
+    goto(D_REP)
+    endblock()
 
-    block(D_REP)
-    face(LOOPR, "E")
+    block("DHY", D_HY)
+    E.seq(["r:S"] * 4 + ["b"])
+    goto(D_REP)
+    endblock()
+
+    block("COLL", D_COLL)
+    E.seq(["r:S"] * 8 + ["b"])
+    goto(D_REP)
+    endblock()
+
+    block("REP", D_REP)
+    face(18)
     yr = rows(4)
-    vjump(E, LOOPR, yr, "E")
-    for (x, y, ch) in [(LOOPX, yr, "d"), (LOOPX, yr + 1, "r"), (LOOPX, yr + 2, ">"),
-                       (28, yr + 2, "s"), (30, yr + 2, "9"), (32, yr + 2, "s"),
-                       (34, yr + 2, "v"), (34, yr + 3, "<"),
-                       (LOOPM, yr + 3, "m"), (LOOPR, yr + 3, "^")]:
+    vjump(E, 18, yr, "E")
+    for (x, y, ch) in [(20, yr, "d"), (20, yr + 1, "r"), (20, yr + 2, ">"),
+                       (31, yr + 2, "s"), (32, yr + 2, "9"), (33, yr + 2, "s"),
+                       (34, yr + 2, "v"), (34, yr + 3, "<"), (19, yr + 3, "m"),
+                       (18, yr + 3, "^")]:
         L.put(x, y, ch)
-    E.ops.append((LOOPX, yr + 1, "r", "B"))
-    E.ops.append((28, yr + 2, "s", "D"))
-    E.ops.append((32, yr + 2, "s", "D"))
-    E.at(LOOPX + 1, yr, "E")
-    face(BRE, "E")
+    E.ops.append((20, yr + 1, "r", "B"))
+    E.ops.append((31, yr + 2, "s", "D"))
+    E.ops.append((33, yr + 2, "s", "D"))
+    E.at(21, yr, "E")
+    face(30)
     yn = rows()
-    vjump(E, BRE, yn, "W")
+    vjump(E, 30, yn, "W")
     E.seq(["1", "N", "s:D", "H"])
     endblock()
 
     # ═══ SPAWN ═══════════════════════════════════════════════════════════
-    block(HW_SPAWN)
-    E.seq(["4", "M",
-           "r:I", "s:S",                   # park fx past K
-           "r:I", "{", "M"]                # B = 16*fy
-          + ["r:S", "s:S"] * 8             # one lap: fx comes back to the front
-          + ["r:S", "+", "M"]              # B = fa = fx + 16*fy
-          + ["r:S", "s:S"] * 6             # rotate up to the old fa
-          + ["r:S", "W", "s:S", "s:D",     # drop the old fa, push the new one, draw
-             "r:S", "s:S",                 # K
-             "9", "s:D", "1", "N", "s:D"])
+    block("SPAWN", HW_SPAWN)
+    E.seq(["r:I", "s:C", "8", "M", "+", "M", "r:I", "*", "M", "r:C", "+", "s:C", "s:C"])
+    E.seq(["r:S", "s:S"] * 6)
+    E.seq(["r:S", "r:C", "s:S"])
+    E.seq(["r:S", "s:S"])
+    E.seq(["r:C", "s:D", "9", "s:D", "1", "N", "s:D"])
     ret_dispatch()
     endblock()
 
     # ═══ DIR ═════════════════════════════════════════════════════════════
-    block(HW_DIR)
-    E.seq(["b"])                                     # BP = op-1 (1..4)
-    _, yb1, _ = branch("x", BRX, BRE, "W")
+    block("DIR", HW_DIR)
+    E.seq(["b"])
+    _, yb1, _ = branch("x")
     arm_entry = {}
-    for bit0, dy in ((1, -1), (0, +1)):              # bit set -> N, clear -> S
-        col = 20 if bit0 else 24
-        arm(BRX, yb1 + dy, col)
-        yq = rows(3) + 1                             # middle of a 3-row group
+    for bit0, dy in ((1, -1), (0, +1)):                  # cw=N (bit 1), ccw=S
+        col = 17 if bit0 else 30
+        arm(8, yb1 + dy, col)
+        yq = rows(3) + 1                               # middle of a 3-row group
         L.put(col, yq, ">")
         L.put(col + 1, yq, "]")
         L.put(col + 2, yq, "x")
-        arm_entry[(bit0, 1)] = (col + 2, yq + 1)     # heading E: bit set -> S
-        arm_entry[(bit0, 0)] = (col + 2, yq - 1)     # heading E: bit clear -> N
-    # (low bit of op-1, low bit of (op-1)>>1) -> round op code
-    OPKEY = {(1, 0): 2, (0, 1): 3, (1, 1): 4, (0, 0): 5}
-    for key, op in OPKEY.items():
+        arm_entry[(bit0, 1)] = (col + 2, yq + 1)         # heading E: cw -> S
+        arm_entry[(bit0, 0)] = (col + 2, yq - 1)         # heading E: ccw -> N
+    ROT = 24
+    DIRVEC = {(1, 0): (0, -1, -16),                      # op 2  up
+              (0, 1): (1, 0, 1),                         # op 3  right
+              (1, 1): (0, 1, 16),                        # op 4  down
+              (0, 0): (-1, 0, -1)}                       # op 5  left
+    ARMCOL = {(1, 1): 21, (0, 1): 22, (1, 0): 23, (0, 0): 29}
+    for key, (dx, dy, da) in DIRVEC.items():
         ax, ay = arm_entry[key]
-        acol = ARMCOL[op]
+        acol = ARMCOL[key]
         arm(ax, ay, acol)
-        y_ops = rows()
-        L.put(acol, y_ops, ">")
-        E.at(acol + 1, y_ops, "E")
-        sdy, sdx, sda = DIRSTEP[op]
-        E.seq(["r:S"] + _lit(sdy) + ["s:S", "r:S", "s:S"]     # dy, hy
-              + ["r:S"] + _lit(sdx) + ["s:S", "r:S", "s:S"]   # dx, hx
-              + ["r:S"] + _lit(sda) + ["s:S", "r:S", "s:S",   # da, ha
-                                       "r:S", "s:S",          # fa
-                                       "r:S", "s:S"])         # K
-        ret_dispatch()
+        y_app = rows(); y_ops = R.take()
+        L.put(acol, y_app, "<"); L.put(1, y_app, "v"); L.put(1, y_ops, ">")
+        E.at(2, y_ops, "E")
+        toks = []
+        for v in (dx, dy, da):
+            mag = ["8", "M", "+"] if abs(v) == 16 else [str(abs(v))]
+            toks += mag + (["N"] if v < 0 else []) + ["s:C"]
+        E.seq(toks)
+        goto(ROT)
         endblock()
+
+    block("ROT", ROT)
+    E.seq(["r:S", "r:C", "s:S", "r:S", "s:S",
+           "r:S", "r:C", "s:S", "r:S", "s:S",
+           "r:S", "r:C", "s:S", "r:S", "s:S",
+           "r:S", "s:S", "r:S", "s:S"])
+    ret_dispatch()
+    endblock()
 
     # ---- verification ---------------------------------------------------
     _assert_bindings(L, g, E.ops)
@@ -624,7 +596,8 @@ def _assert_bindings(L, g, ops):
 
 
 if __name__ == "__main__":
-    path = sys.argv[1] if len(sys.argv) > 1 else os.path.join(HERE, "micro4.man")
-    prog, cap, nrows = build(save_to=path)
+    import json
+    path = os.path.join(HERE, "micro.man")
+    prog, cap, rows = build(save_to=path)
     print("saved", path)
-    print("footprint", prog.footprint(), "body-ring capacity", cap, "ctrl rows", nrows)
+    print("footprint", prog.footprint(), "body-ring capacity", cap, "ctrl rows", rows)

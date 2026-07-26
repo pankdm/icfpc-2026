@@ -71,6 +71,10 @@ class Cursor:
         self.opmax = opmax
         self.x = self.y = None
         self.d = E
+        # Columns already holding a backtick.  The wasm loader pairs
+        # backticks per COLUMN as vertical literals (cells between a pair
+        # must be digits or spaces), so every backtick gets a fresh column.
+        self.lit_cols = set()
 
     def put(self, x, y, ch):
         old = self.cells.get((x, y))
@@ -84,6 +88,48 @@ class Cursor:
         self.put(turn_x, self.y + 1, "<" if self.d == E else ">")
         self.d = W if self.d == E else E
         self.x, self.y = turn_x, self.y + 1
+
+    def place_run(self, chars, lo, hi):
+        """Place consecutive glyphs with no newline inside (atomic literal).
+
+        Backtick columns must be globally fresh (vertical-literal pairing).
+        """
+        lo = max(lo, self.opmin)
+        hi = min(hi, self.opmax)
+        n = len(chars)
+        if lo + n - 1 > hi:
+            raise Conflict(f"literal {chars!r} wider than band [{lo},{hi}]")
+
+        def fresh(start):
+            a, b = start, start + (n - 1) * self.d[0]
+            return a not in self.lit_cols and b not in self.lit_cols
+
+        for _ in range(6):
+            start = None
+            if self.d == E:
+                candidate = max(self.x + 1, lo)
+                while candidate + n - 1 <= hi:
+                    if fresh(candidate):
+                        start = candidate
+                        break
+                    candidate += 1
+            else:
+                candidate = min(self.x - 1, hi)
+                while candidate - n + 1 >= lo:
+                    if fresh(candidate):
+                        start = candidate
+                        break
+                    candidate -= 1
+            if start is not None:
+                break
+            self.newline()
+        else:
+            raise Conflict(f"cannot place literal {chars!r} in [{lo},{hi}]")
+        for i, ch in enumerate(chars):
+            self.put(start + i * self.d[0], self.y, ch)
+        self.lit_cols.add(start)
+        self.lit_cols.add(start + (n - 1) * self.d[0])
+        self.x = start + (n - 1) * self.d[0]
 
     def place(self, ch, lo, hi):
         lo = max(lo, self.opmin)
@@ -170,6 +216,7 @@ def lay_cfg_boustrophedon(
     x0=0,
     y0=0,
     op_slack=6,
+    lit_forbid=(),
 ):
     cols = {
         name: x0 + code_x + spec[0]
@@ -202,6 +249,7 @@ def lay_cfg_boustrophedon(
             y0,
             corridor_count,
             opmax,
+            lit_forbid,
         )
         assignment, needed = _assign_corridors(edges, entry)
         if needed <= corridor_count:
@@ -240,9 +288,11 @@ def lay_cfg_boustrophedon(
     }
 
 
-def _lay_once(flow, labels, cols, glyphs, bands, x0, y0, ncorr, opmax):
+def _lay_once(flow, labels, cols, glyphs, bands, x0, y0, ncorr, opmax,
+              lit_forbid=()):
     opmin = x0 + ncorr + 2
     cursor = Cursor(opmin, opmax)
+    cursor.lit_cols.update(lit_forbid)
     entry = {}
     edges = []
     intent = {}
@@ -261,6 +311,8 @@ def _lay_once(flow, labels, cols, glyphs, bands, x0, y0, ncorr, opmax):
                 lo, hi = bands[token]
                 cursor.place(glyphs[token], lo, hi)
                 intent[(cursor.x, cursor.y)] = token
+            elif len(token) > 1 and token[0] == "`":
+                cursor.place_run(token, opmin, opmax)
             else:
                 cursor.place(token, opmin, opmax)
         if term is None:

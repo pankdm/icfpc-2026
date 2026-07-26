@@ -149,6 +149,7 @@ pub struct World {
     pub room_exec: Vec<u64>,
     pub room_glyph: HashMap<(usize, char), u64>,
     pub executed_cells: HashMap<Pt, u64>,
+    pub stall_cells: HashMap<Pt, u64>,
 
     // IO / rounds
     input_tokens: Vec<i64>,      // flattened across all rounds
@@ -224,7 +225,7 @@ impl World {
             next_id: 0, step_count: 0, end: EndReason::Running, footprint, step_cap,
             output: vec![],
             executed: HashMap::new(), room_exec: vec![], room_glyph: HashMap::new(),
-            executed_cells: HashMap::new(),
+            executed_cells: HashMap::new(), stall_cells: HashMap::new(),
             input_tokens: vec![], round_in_end: vec![], round_out_end: vec![],
             released_round: 0, input_read: 0, input_pipe: None, output_pipe: None,
             expected: vec![], expected_frames: vec![], round_frame_end: vec![], frame_w: 0, frame_h: 0,
@@ -835,6 +836,12 @@ impl World {
 
         // Cleanup: reap men that halted on a previous tick.
         self.runners.retain(|r| !r.halted);
+        for i in 0..self.runners.len() {
+            if self.runners[i].blocked {
+                let pos = self.runners[i].pos;
+                *self.stall_cells.entry(pos).or_insert(0) += 1;
+            }
+        }
         for r in &mut self.runners { r.spawned_this_tick = false; r.blocked = false; }
 
         // This tick's number (the oracle increments even on the tick a fault is reported).

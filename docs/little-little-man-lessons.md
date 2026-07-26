@@ -207,6 +207,15 @@ and men cannot cross a room wall. A sound decomposition keeps RAM/queue in the
 BFS owner and sends compact path/display messages to a playback room; blindly
 splitting basic blocks creates reply-routing and register-liveness problems.
 
+Before splitting the controller itself, split a measured service bottleneck.
+Replacing Pathfinder's single 32-cell scalar belt with four parallel belts kept
+the 381x496 footprint unchanged and reduced public average ticks from 6.582M to
+4.275M (35%). The official result improved from 13/18 to 17/18. Eight belts
+were slightly slower over complete cases because their extra initialization
+cost outweighed lower contention. This is a useful modularization rule:
+parallelize the smallest state service whose reply cell is measurably hot, and
+benchmark full multi-round cases rather than a single round.
+
 ## Emit display deltas, and understand round gating
 
 The interpreter advances rounds based on committed frames. A round that

@@ -79,9 +79,9 @@ impl Pipe {
     #[inline]
     fn count(&self) -> i64 { self.occupied.len() as i64 }
     #[inline]
-    fn src_cell(&self) -> Pt { self.path[0] }
+    pub fn src_cell(&self) -> Pt { self.path[0] }
     #[inline]
-    fn dst_cell(&self) -> Pt { *self.path.last().unwrap() }
+    pub fn dst_cell(&self) -> Pt { *self.path.last().unwrap() }
     #[inline]
     fn push(&mut self, value: i64) -> bool {
         if self.values[0].is_some() { return false; }

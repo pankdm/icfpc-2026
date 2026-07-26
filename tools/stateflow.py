@@ -244,8 +244,8 @@ def build_program(
         p.pipe([
             scalar["reply"],
             scalar["reply_turn"],
-            (scalar["reply_turn"][0], bottom + 4),
-            (ports["rr"][0], bottom + 4),
+            (scalar["reply_turn"][0], bottom + 1),
+            (ports["rr"][0], bottom + 1),
             ports["rr"],
         ])
     else:

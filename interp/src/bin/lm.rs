@@ -22,7 +22,12 @@ fn pipe_json(p: &Pipe) -> String {
         if let Some(v) = v { vals.push(format!("{{\"index\":{},\"value\":{}}}", i, v)); }
     }
     let values = if vals.is_empty() { "null".to_string() } else { format!("[{}]", vals.join(",")) };
-    format!("{{\"id\":{},\"values\":{}}}", p.id, values)
+    format!(
+        "{{\"id\":{},\"values\":{},\"src\":[{},{}],\"dst\":[{},{}],\"srcRoom\":{},\"dstRoom\":{}}}",
+        p.id, values,
+        p.src_cell().0, p.src_cell().1, p.dst_cell().0, p.dst_cell().1,
+        p.src_room, p.dst_room,
+    )
 }
 
 fn u8arr(v: &[u8]) -> String {

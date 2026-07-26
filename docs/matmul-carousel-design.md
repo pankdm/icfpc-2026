@@ -129,3 +129,78 @@ A controller man is needed alongside the workers: it pops the A-queue every K MA
 into the a-holder, and at row end drains the c-ring to output and pushes K zeros.
 At P>1 the row-end drain is a barrier, and a barrier means blocked workers — so
 step 3 must solve the drain without stalling the lap.
+
+---
+
+# Improving the design (measured 2026-07-26)
+
+**The 16x16x16 case is 78% of the average**, and at any useful P it is essentially
+pure compute (4096 MACs; I/O is 771 ticks, 9%). So one number sets the score:
+
+> **ticks per MAC = lap_cells / P = the spacing between workers.**
+
+Everything below is an attack on that number, and `score ~ box x ticks_per_MAC`.
+
+| ticks/MAC | 16^3 ticks | avg | box 2,025 | box 1,296 | box 900 |
+|---|---|---|---|---|---|
+| 14 (as designed) | 58,115 | 10,454 | 21,169,929 | 13,548,754 | 9,408,857 |
+| 10 | 41,731 | 7,525 | 15,237,257 | 9,751,845 | 6,772,114 |
+| 8 | 33,539 | 6,060 | 12,270,921 | 7,853,390 | 5,453,743 |
+| 4 | 17,155 | 3,130 | 6,338,829 | 4,056,850 | 2,817,257 |
+| **2 (floor)** | **8,963** | **1,684** | **3,409,232** | **2,181,909** | **1,515,214** |
+
+Board best is 8,320,307, so the design has **2.4x-5.5x of headroom below the leader**
+if it reaches the floor.
+
+## The four improvements, in priority order
+
+**1. Hoist the a-fetch out of the inner loop. lap 14 -> 10, ~28% off everything.**
+`a` is constant for K consecutive MACs, so `r a` / `s a` do not belong in the lap.
+Wrap the j-loop in a k-loop that fetches `a` once, counting K down in `BP` with
+`b`/`m`/`d`. Cheapest, safest win available; do this first.
+
+**2. Put the accumulators in MEN, not a c-ring. lap 10 -> 8, and -17 pipe cells.**
+K men circulate a short track, each holding `c_j` in register **B**, and each doing
+only `r` `+` `M` (3 ops) at a tap cell. This deletes the c-ring outright: no c pipe,
+no c transit, no c stall, and two fewer ops in the worker lap. This is the place where
+"dense storage" genuinely pays — accumulators live in registers, not cells.
+
+**3. Raise P with `Y`.** Linear in P, and free in area. This is the whole reason the
+carousel exists.
+
+**4. Tiered b-rings {17, 65, 257}, selected at seed time by M*K.** Worth only ~15%
+in ticks directly — but that is not its job. Its job is to **guarantee no stall**, and
+no-stall is what makes small spacing survivable (see below). Costs +82 pipe cells.
+
+## Why ticks/MAC cannot go below ~2
+
+Workers sit `lap/P` cells apart and *a mover entering a blocked man's cell kills both,
+silently*. Spacing 1 means any hiccup at all is fatal, so **spacing 2 is the hard
+floor** — and it is only safe if no ring ever runs dry, which is exactly what
+improvement 4 buys. Note the trap: shortening the lap (1 and 2) *reduces* spacing at
+fixed P, so improvements 1+2 must be paid for with tiering before P is raised.
+
+Stalls are not merely slow here; at low spacing they are silent wrong answers.
+
+## Revised build order
+
+1. lap 14, P=1 — correctness first, no collision risk at all.
+2. Improvement 1 (a-hoist) -> lap 10, still P=1. ~15.2M at box 2,025.
+3. Improvement 4 (tiering) -> stalls provably zero. No score change; it is the
+   safety interlock for step 5.
+4. Improvement 2 (accumulators in men) -> lap 8.
+5. Raise P to 4 (spacing 2) with `Y`, re-grading on the Rust engine after each step.
+
+## Ideas considered and rejected
+
+- **Strassen.** One level on 16x16 saves 12.5% of MACs for a large control-flow cost.
+  MAC count is otherwise irreducible at N*M*K.
+- **Two carousels sharing a b-ring** (ring routed room1 -> room2 -> room1) could reach
+  ticks/MAC ~1, but doubles the ring area, and score ~ box x ticks/MAC makes it roughly
+  neutral. Only worth it if the box turns out to be room-bound rather than ring-bound.
+- **Overlapping seed with compute.** B is complete at ~tick 515 and the first row needs
+  all of B within its first 256 MACs, so the overlap saves ~515 ticks (6%) for real
+  complexity. Not now.
+- **Men-as-storage for the b-ring.** A crowd of V men on a T-cell track still has cycle
+  time T, not V, so it does *not* fix the small-case stall — tiering does. Men only pay
+  where the value lives in a register permanently (the accumulators, improvement 2).

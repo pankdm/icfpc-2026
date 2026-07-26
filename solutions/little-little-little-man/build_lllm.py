@@ -109,7 +109,7 @@ def entry_labels(blocks):
 class Columns(object):
     def __init__(self, blocks, holder_order, pitch=HOLDER_PITCH,
                  port_gap=PORT_GAP, hwy_gap=HWY_GAP, lead_in=LEAD_IN,
-                 lanes=None, heat=None):
+                 lanes=None, heat=None, code_slack=CODE_SLACK):
         self.hwy_targets = sorted(entry_labels(blocks))
         # A highway column is only busy between its highest join row and its
         # target row, and men cross an idle one on a BLANK cell, so targets with
@@ -150,7 +150,7 @@ class Columns(object):
             self.hr[name] = x + 1
             self.hw[name] = x + 2
             x += pitch
-        self.code_hi = x + CODE_SLACK
+        self.code_hi = x + code_slack
         self.width = self.code_hi + 3
 
     def of(self, tok):
@@ -492,13 +492,13 @@ def checked_room(g, x, y, w, h, glyphs="+-|"):
 # 4.  whole program
 # ===========================================================================
 def build(holder_order=None, pitch=HOLDER_PITCH, ring_lift=RING_LIFT,
-          port_gap=PORT_GAP, lead_in=LEAD_IN):
+          port_gap=PORT_GAP, lead_in=LEAD_IN, code_slack=CODE_SLACK):
     flow = F.build_flow()
     blocks = split_blocks(flow)
     holder_order = holder_order or [h for h in HOLDER_ORDER if h in F.HOLDERS]
     assert sorted(holder_order) == sorted(F.HOLDERS), "HOLDER_ORDER is stale"
     kw = dict(pitch=pitch, port_gap=port_gap, lead_in=lead_in,
-              heat=SIM.block_heat())
+              code_slack=code_slack, heat=SIM.block_heat())
     cols = Columns(blocks, holder_order,
                    lanes=plan_lanes(blocks, holder_order, **kw), **kw)
 
@@ -667,9 +667,73 @@ def render(p):
     return p.render()
 
 
+# ===========================================================================
+# 4b.  binding verifier -- the assert_bindings() this file's docstring promises
+# ===========================================================================
+def verify_bindings(path, cols, verbose=True):
+    """Check every controller port op resolves to the device on ITS OWN column.
+
+    The whole layout rests on "ports are columns": an `r` or `s` standing on a
+    device's column is nearer that device's pipe than any other.  So far that
+    was only an argument.  This checks it through tools/pipecheck.py, i.e.
+    through the same loader the grader uses.  A rebound port does not crash --
+    it quietly computes the wrong thing, and the public cases may well not
+    notice -- so nothing that moves a pipe should ship without running this.
+
+    Returns the number of bad ops (0 == good).
+    """
+    import pipecheck
+
+    found, topo = pipecheck.bindings(path)
+    rooms = topo.get("rooms") or []
+    pipes = topo.get("pipes") or []
+    # rendering shifts the grid (the device band lives at negative y), so the
+    # controller is identified by being far and away the biggest room, not by
+    # its build-time coordinates.
+    def area(r):
+        return ((r["max"][0] - r["min"][0] + 1) * (r["max"][1] - r["min"][1] + 1))
+
+    ctrl = max(range(len(rooms)), key=lambda i: area(rooms[i]))
+    dx = rooms[ctrl]["min"][0]           # controller's left wall == build column 0
+
+    device = {}                     # (controller column, glyph) -> device name
+    for name, col in cols.hr.items():
+        device[(col + dx, "r")] = "holder %s in" % name
+    for name, col in cols.hw.items():
+        device[(col + dx, "s")] = "holder %s out" % name
+    for name, col in cols.port.items():
+        device[(col + dx, GLYPH[name])] = "port " + name
+
+    seen, owner, bad = {}, {}, []
+    for f in found:
+        if f["room"] != ctrl:
+            continue
+        key = (f["cell"][0], f["op"])
+        name = device.get(key)
+        if name is None:
+            bad.append((f, "no device owns column %d for '%s'" % key))
+            continue
+        if seen.setdefault(name, f["pipe"]) != f["pipe"]:
+            bad.append((f, "%s binds pipe %s here but %s elsewhere"
+                        % (name, f["pipe"], seen[name])))
+        elif owner.setdefault(f["pipe"], name) != name:
+            bad.append((f, "%s shares pipe %s with %s"
+                        % (name, f["pipe"], owner[f["pipe"]])))
+    if verbose:
+        n = len([f for f in found if f["room"] == ctrl])
+        print("verify_bindings: %d controller port ops, %d devices, "
+              "%d distinct pipes, %d bad"
+              % (n, len(seen), len(owner), len(bad)))
+        for f, why in bad[:10]:
+            print("   %s at %s -> pipe %s: %s" % (f["op"], f["cell"], f["pipe"], why))
+    return len(bad)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", default=None)
+    ap.add_argument("--verify", action="store_true",
+                    help="run verify_bindings() on the result (needs node)")
     ap.add_argument("--pitch", type=int, default=HOLDER_PITCH)
     ap.add_argument("--ring-lift", type=int, default=RING_LIFT)
     args = ap.parse_args()
@@ -681,6 +745,8 @@ def main():
     print("blocks=%d  width=%d  code_hi=%d  footprint=%dx%d box=%d"
           % (len(blocks), cols.width, cols.code_hi, w, h, box))
     print("saved", out)
+    if args.verify and verify_bindings(out, cols):
+        raise SystemExit("BINDINGS ARE WRONG -- do not ship this grid")
 
 
 if __name__ == "__main__":

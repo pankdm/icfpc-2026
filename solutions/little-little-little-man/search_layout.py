@@ -30,6 +30,7 @@ sys.path.insert(0, os.path.join(HERE, "..", "..", "tools"))
 import build_lllm as B
 import cost_model as CM
 import lllm_flow as F
+import lllm_sim as SIM
 
 # rows of chrome above and below the controller (device band, pipes, display)
 CHROME_ROWS = 30
@@ -41,6 +42,7 @@ class Objective(object):
         self.flow = F.build_flow()
         self.base = B.split_blocks(self.flow)
         self.by_label = dict(self.base)
+        self.heat = SIM.block_heat()
         self.cache = {}
 
     def blocks_for(self, order):
@@ -53,7 +55,8 @@ class Objective(object):
             return hit
         try:
             placer, cols = CM.placer_costs(holder_order=list(holder_order),
-                                           blocks=self.blocks_for(block_order))
+                                           blocks=self.blocks_for(block_order),
+                                           heat=self.heat)
             t = CM.avg_ticks(self.hits, placer)
             h = placer.y + CHROME_ROWS
             box = max(cols.width, h) ** 2

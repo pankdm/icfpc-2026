@@ -67,6 +67,131 @@ def emit_checker_folded2(L, cx, cy):
             'outS': (x(4), cy + 18)}                # south wall (any interior col)
 
 
+def emit_checker_folded3(L, cx, cy, attach_j=11):
+    """9-wide narrow checker: pipeline in col x6, corridor x7, gadgets bent to
+    end at x3 so the CI-seq riser (x2) stays clear.  Interior x1..x7 -> room 9
+    wide.  seq(west)/drain(east) attach at SAME row y(attach_j)."""
+    x = lambda i: cx + i
+    y = lambda j: cy + 1 + j
+    # ---- upper main (y1) ----
+    L.put(x(1), y(1), '@')
+    L.put(x(2), y(1), '>')              # TOP-merge
+    L.put(x(3), y(1), 'r')              # seq  (west-nearest)
+    L.put(x(4), y(1), '-')              # off = seq - Wt
+    L.put(x(6), y(1), 'v')              # glide x5, turn S into pipeline x6
+    # ---- shift col x6 ----
+    L.put(x(6), y(2), 'b')
+    L.put(x(6), y(3), ']'); L.put(x(6), y(4), ']'); L.put(x(6), y(5), ']'); L.put(x(6), y(6), ']')
+    # ---- overflow-d (x6,y7); gadget bends down x3 ----
+    L.put(x(6), y(7), 'd')
+    L.put(x(5), y(7), '1'); L.put(x(4), y(7), 'N'); L.put(x(3), y(7), 'v')
+    L.put(x(3), y(8), 's'); L.put(x(3), y(9), 'H')
+    # ---- merge (x6,y8) ----
+    L.put(x(6), y(8), 'v')
+    L.put(x(7), y(8), '<')             # merge entry from east corridor
+    # ---- q count drain (x6,y9) ----
+    L.put(x(6), y(9), 'q')
+    # ---- fwd-d (x6,y10); gadget bends down x3 ----
+    L.put(x(6), y(10), 'd')
+    L.put(x(5), y(10), 'r'); L.put(x(4), y(10), 's'); L.put(x(3), y(10), 'v')
+    L.put(x(3), y(11), '1'); L.put(x(3), y(12), '+'); L.put(x(3), y(13), 'M')
+    # loopback rail: (x3,y14)> -> E -> (x7,y14)^ -> up x7 -> merge (x7,y8)<
+    L.put(x(3), y(14), '>')
+    L.put(x(7), y(14), '^')
+    # ---- DP-empty riser: x6 glides y11..y15, turn W ----
+    L.put(x(6), y(16), '<')            # bottom rail turn W
+    # ---- CI bottom rail (y16) ----
+    L.put(x(3), y(16), 'q')            # count seq (west-nearest)
+    L.put(x(2), y(16), 'd')            # seq>0 -> CW(W->N) up x2 -> TOP-merge ; seq==0 -> W
+    L.put(x(1), y(16), '^')            # seq==0 -> up col1 (re-poll)
+    # ---- re-poll: (x1,y0)> -> E -> (x7,y0)v -> down x7 -> merge ----
+    L.put(x(1), y(0), '>')
+    L.put(x(7), y(0), 'v')
+    # ---- room: 9 wide, 19 tall (rows cy..cy+18) ----
+    L.room(cx, cy, 9, 19)
+    return {'seqW': (cx - 1, y(attach_j)),
+            'drainE': (cx + 9, y(attach_j)),
+            'outS': (x(4), cy + 19)}
+
+
+def build_full8(cy_checker=6, cx_checker=8, attach_row=20):
+    """build_full7 with the 9-wide checker (folded3) -> width 32."""
+    L = Layout()
+    CB = 21
+    ENTRY = CB + 15
+    yr = 2
+    y0 = yr + 1
+    LEAFROW = y0 + 12
+    RWX = 17
+    # ---- READER ----
+    L.put(19, 0, '@'); L.put(20, 0, 'r')
+    L.put(21, 0, 'v'); L.put(21, 1, '<')
+    L.put(18, 1, 'v')
+    L.put(18, yr, '>')
+    L.put(19, yr, 'r')
+    L.put(20, yr, 'M')
+    L.put(21, yr, 's')
+    L.put(ENTRY, yr, 'v')
+    leaves = emit_montree(L, ENTRY, y0, lambda *a: None)
+    for s in range(16):
+        c = leaves[s]
+        L.put(c, LEAFROW, 'r'); L.put(c, LEAFROW + 1, 's'); L.put(c, LEAFROW + 2, '<')
+    L.put(18, LEAFROW + 2, '^')
+    RWALL = LEAFROW + 3
+    L.room(RWX, -1, (ENTRY + 2) - RWX + 1, RWALL - (-1) + 1)
+    L.input_room(12, -1); L.pipe([(15, 0), (16, 0)])
+
+    # ---- LANES ----
+    TW = RWALL + 3
+    for s in range(16):
+        c = leaves[s]
+        L.pipe([(c, RWALL + 1), (c, TW - 1)])
+    # ---- SWEEPER ----
+    R0, R1, R2, R3, Rw = TW + 1, TW + 2, TW + 3, TW + 4, TW + 5
+    BW = TW + 6
+    for i in range(16):
+        c = CB + 15 - i
+        if i % 2 == 0:
+            L.put(c, R0, 'v'); L.put(c, R1, 'r'); L.put(c, R2, 's')
+            if i != 15: L.put(c, R3, '<')
+        else:
+            L.put(c, R3, '^'); L.put(c, R2, 'r'); L.put(c, R1, 's')
+            if i != 15: L.put(c, R0, '<')
+    L.put(CB, R0, '<')
+    wc = CB - 1; ec = CB + 16
+    L.put(wc, R0, 'v'); L.put(wc, Rw, '>')
+    L.put(ec, Rw, '^'); L.put(ec, R0, '<')
+    L.put(wc + 1, Rw, '@')
+    SWX = CB - 2
+    L.room(SWX, TW, (CB + 17) - SWX + 1, BW - TW + 1)
+
+    # ---- CHECKER (narrow folded3) ----
+    cx, cy = cx_checker, cy_checker
+    attach_j = attach_row - (cy + 1)
+    hints = emit_checker_folded3(L, cx, cy, attach_j=attach_j)
+
+    # ---- PIPES ----
+    seqW = hints['seqW']
+    seqcol = cx - 1
+    seqrow = seqW[1]
+    scells = [(xx, yr) for xx in range(RWX - 1, seqcol - 1, -1)] + \
+             [(seqcol, r) for r in range(yr + 1, seqrow + 1)]
+    place_pipe(L, scells, exit_dir=DIRS['E'])
+    drE = hints['drainE']
+    drow = drE[1]
+    ecol = drE[0]                       # vertical leg == drE column (exits W into east wall)
+    cells = [(SWX - 1, R2)]
+    for xx in range(SWX - 2, ecol - 1, -1):
+        cells.append((xx, R2))
+    for r in range(R2 - 1, drow - 1, -1):
+        cells.append((ecol, r))
+    place_pipe(L, cells, exit_dir=DIRS['W'])
+    outS = hints['outS']
+    L.output_room(outS[0] - 1, outS[1] + 2)
+    L.pipe([(outS[0], outS[1]), (outS[0], outS[1] + 1)])
+    return L
+
+
 def build_full7(cy_checker=12, cx_checker=7):
     """build_full6 geometry with the narrow checker (folded2)."""
     L = Layout()
@@ -151,11 +276,13 @@ def build_full7(cy_checker=12, cx_checker=7):
 
 if __name__ == '__main__':
     import sys
-    cy = 12
-    if len(sys.argv) > 1:
-        cy = int(sys.argv[1])
-    L = build_full7(cy_checker=cy)
+    base = '/Users/visenbaev/icfpc26/.claude/worktrees/agent-aaa4339681b1347a0/solutions/tcp'
+    if '--v7' in sys.argv:                       # 33x33 folded2 checker
+        L = build_full7(cy_checker=9)
+        out = base + '/tcp-sweep7.man'
+    else:                                        # 32x31 folded3 checker (best)
+        L = build_full8(cy_checker=6, attach_row=20)
+        out = base + '/tcp-sweep8.man'
     print('FOOT', L.footprint())
-    out = '/Users/visenbaev/icfpc26/.claude/worktrees/agent-aaa4339681b1347a0/solutions/tcp/tcp-sweep7.man'
     L.save(out)
     print('saved', out)

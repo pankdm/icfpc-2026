@@ -29,6 +29,7 @@ sys.path.insert(0, os.path.join(HERE, "..", "..", "tools"))
 sys.path.insert(0, HERE)
 
 import build_rail  # noqa: E402
+import manlint  # noqa: E402
 import stateflow  # noqa: E402
 
 PORTS = ["ri", "sp", "rp", "sc", "rr", "sd", "sa", "ss", "cc", "cr"]
@@ -62,7 +63,9 @@ def evaluate(cols, floor, code_x=10, verify=False):
             code_x=code_x, verify=False, ports=spec, floor=floor)
     except Exception:
         return None
-    if any(not (o[2] in WALL and o[3] in WALL) for o in program.overwrites):
+    if manlint.bad_overwrites(program):
+        return None
+    if manlint.literal_faults(program.render().split("\n")):
         return None
     if verify:
         try:
@@ -130,6 +133,9 @@ if __name__ == "__main__":
         print(f"restart {r}: box {best[0][0]:,} foot {best[0][1]}x{best[0][2]} "
               f"controller {best[0][3]}x{best[0][4]} rail {best[0][5]} "
               f"(accepted {acc})", flush=True)
+        print("  ports =", dict(sorted(best[1].items(), key=lambda kv: kv[1])),
+              flush=True)
+        print("  floor =", best[2], flush=True)
         if overall is None or best[0][0] < overall[0][0]:
             overall = best
     (box, w, h, cw, ch, nr), cols, floor = overall

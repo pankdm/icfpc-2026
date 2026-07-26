@@ -153,11 +153,14 @@ There are **no unsubmitted improvements** lying around. Two traps found doing it
   replica is ready — a guarantee that gets *weaker* as the layout compacts.
 - **Snake box is at its floor**: `code_x` ∈ {10,20,40,60} × `op_slack` ∈ {0,10,40,100} ×
   `scalar_belts` × `cell_belts` all leave `ctrlH = 200` and best box 64,009 (= the champion).
-- **History Lesson is at its layout floor**: `build_ring.py W` fails to build for W ≤ 82 and gets
-  worse above; 83×83 is exact. It is 93.3% dense (6427 non-space cells of 6889). Score is pure
-  footprint and it has **0 private cases**, so local pass ⇒ server pass. The only lever left is
-  better *compression*: 4473 digit cells ≈ 14.9 kbit encode 2810 bytes (ratio 0.66) where gzip
-  gets 1563 B — matching gzip would free ~700 cells and reach 76×76, which is the leader's box.
+- ~~**History Lesson is at its layout floor** (83×83 exact)~~ — **REFUTED 2026-07-26.** That
+  claim was about `build_ring.py` only, and a different construction beat it: a folded dispatcher
+  plus variable-width feeder bands reach **82×82, box 6724** (`solutions/history-lesson/best/82x82.man`,
+  oracle 1/1), with `candidates/81x82.man` also at 6724. Score is pure footprint and it has
+  **0 private cases**, so local pass ⇒ server pass. The remaining lever is still *compression*:
+  4473 digit cells ≈ 14.9 kbit encode 2810 bytes (ratio 0.66) where gzip gets 1563 B — matching
+  gzip would free ~700 cells and reach 76×76, which is the leader's box. **Lesson: "at its floor"
+  findings are scoped to the generator that produced them, not to the problem.**
 - **Sudoku `multi2` is not the champion** (see trap above); autotune on it found DX 16→15
   (box 1764→1681) and `DX=14` reaches 40×40 but dies with `loaderror: pipe ends without
   reaching another room`.

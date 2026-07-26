@@ -30,6 +30,9 @@ MAX_MEN = 3
 STATE_STRIDE = 8
 S_POS, S_DIR, S_A, S_B, S_HALT = range(5)
 RAM_N = 288
+DESC0 = 288
+MAX_PIPES = 16
+PIPE_RAM_N = DESC0 + MAX_PIPES
 
 
 class Flow(subset.Flow):
@@ -72,6 +75,47 @@ class Flow(subset.Flow):
     def cell_store(self, index_addr):
         return self.store(STAGE).cell_addr(index_addr).e("M").load(STAGE).storev()
 
+    def cell_low(self, index_addr):
+        return (
+            self.cell_load(index_addr).e("sp")
+            .const(15).e("M", "rp", "&")
+        )
+
+    def cell_ascii(self, index_addr):
+        return (
+            self.cell_load(index_addr).e("M")
+            .const(4).e("W", "}", "sp")
+            .const(127).e("M", "rp", "&")
+        )
+
+    def cell_field(self, index_addr, shift, mask):
+        """Extract a packed field from a cell record."""
+        return (
+            self.cell_load(index_addr).e("sp")
+            .const(shift).e("M", "rp", "}", "sp")
+            .const(mask).e("M", "rp", "&")
+        )
+
+    def array_addr(self, base, index_addr):
+        return (
+            self.load(index_addr).e("sp")
+            .const(base).e("M", "rp", "+")
+        )
+
+    def array_store(self, base, index_addr):
+        return (
+            self.store(STAGE).array_addr(base, index_addr)
+            .e("M").load(STAGE).storev()
+        )
+
+    def store_far(self, addr):
+        """Store A at a synthesized fixed address without requiring B."""
+        return (
+            self.e("sp")
+            .const(1).e("sc")
+            .const(addr).e("sc", "rp", "sc")
+        )
+
     def raw(self, index_addr=None):
         if index_addr is not None:
             self.cell_load(index_addr)
@@ -86,7 +130,7 @@ class Flow(subset.Flow):
         )
 
 
-def emit_color_dispatch(f):
+def emit_color_dispatch(f, tag_walls=False):
     """Dispatch CH to the static interior-cell color in A."""
     mapping = {
         72: 3, 118: 3, 94: 3, 62: 3, 60: 3, 88: 3,
@@ -105,14 +149,42 @@ def emit_color_dispatch(f):
             f"COLOR_MAP_{index + 1}" if index + 1 < len(items) else "COLOR_ZERO"
         )
         f.subc(CH, ascii_value).br(next_label, f"COLOR_C{color}", next_label)
-    f.at("COLOR_WALL").const(4).go("COLOR_WRITE")
+    f.at("COLOR_WALL")
+    if tag_walls:
+        # Walls are never executed as instructions. Reuse their high bits to
+        # identify the owning room from adjacent pipe endpoints.
+        f.addc(MID, 1).e("sp")
+        f.const(11).e("M", "rp", "{", "M").const(4).e("+")
+        f.cell_store(TMP).go("COLOR_ADV")
+    else:
+        f.const(4).go("COLOR_WRITE")
     f.at("COLOR_DIGIT").const(8).go("COLOR_WRITE")
     f.at("COLOR_ZERO").const(0).go("COLOR_WRITE")
     for color in sorted(set(mapping.values())):
         f.at(f"COLOR_C{color}").const(color).go("COLOR_WRITE")
 
 
-def build_flow():
+def emit_pipe_next(f, prefix, source_addr, result_addr, done_label):
+    """Emit blocks computing the address after one target-pipe arrow."""
+    f.at(prefix).cell_ascii(source_addr).store(CH).go(f"{prefix}_TEST_0")
+    directions = ((62, 1), (118, 16), (60, -1), (94, -16))
+    for index, (ascii_value, delta) in enumerate(directions):
+        label = f"{prefix}_TEST_{index}"
+        if label not in f.blocks:
+            f.at(label)
+        next_label = f"{prefix}_TEST_{index + 1}" if index < 3 else f"{prefix}_BAD"
+        move_label = f"{prefix}_MOVE_{index}"
+        f.subc(CH, ascii_value).br(next_label, move_label, next_label)
+        f.at(move_label)
+        if delta > 0:
+            f.addc(source_addr, delta, result_addr)
+        else:
+            f.subc(source_addr, -delta, result_addr)
+        f.go(done_label)
+    f.at(f"{prefix}_BAD").const(1).store(DEAD).go(done_label)
+
+
+def build_flow(enable_pipes=False):
     f = Flow()
     f.at("START").inp().store(W).inp().store(HH)
     for addr in (IX, IY, NMAN, MID, DEAD, K):
@@ -140,8 +212,29 @@ def build_flow():
     # state_store uses CHR as its staging register; restore the known source.
     f.const(64).store(CHR).go("READ_WRITE")
     f.at("READ_NOT_AT").go("READ_WRITE")
-    f.at("READ_WRITE").load(CHR).e("M").const(4).e("W", "{").cell_store(TMP)
-    f.go("READ_ADV")
+    f.at("READ_WRITE")
+    if enable_pipes:
+        f.go("READ_PIPE_TEST")
+        pipe_glyphs = (62, 118, 60, 94, 45, 124)
+        for index, ascii_value in enumerate(pipe_glyphs):
+            here = "READ_PIPE_TEST" if index == 0 else f"READ_PIPE_TEST_{index}"
+            if here not in f.blocks:
+                f.at(here)
+            next_label = (
+                f"READ_PIPE_TEST_{index + 1}"
+                if index + 1 < len(pipe_glyphs)
+                else "READ_NORMAL_REC"
+            )
+            f.subc(CHR, ascii_value).br(next_label, "READ_PIPE_REC", next_label)
+        f.at("READ_PIPE_REC").load(CHR).e("M").const(4).e(
+            "W", "{", "M"
+        ).const(6).e("+").cell_store(TMP).go("READ_ADV")
+        f.at("READ_NORMAL_REC").load(CHR).e("M").const(4).e(
+            "W", "{"
+        ).cell_store(TMP).go("READ_ADV")
+    else:
+        f.load(CHR).e("M").const(4).e("W", "{").cell_store(TMP)
+        f.go("READ_ADV")
     f.at("READ_ADV").addc(IX, 1, IX).go("READ_ROW")
 
     # For each man, find its rectangular room and color that room. This doubles
@@ -195,20 +288,126 @@ def build_flow():
         "COLOR_INTERIOR", "COLOR_WALL", "COLOR_INTERIOR"
     )
     f.at("COLOR_INTERIOR")
-    emit_color_dispatch(f)
+    emit_color_dispatch(f, tag_walls=enable_pipes)
     f.at("COLOR_WRITE").e("sp")
     f.load(CH).e("M").const(4).e("W", "{", "M", "rp", "+").cell_store(TMP)
-    f.addc(IX, 1, IX).go("COLOR_ROOM_TEST")
+    if enable_pipes:
+        f.go("COLOR_ADV")
+        f.at("COLOR_ADV").addc(IX, 1, IX).go("COLOR_ROOM_TEST")
+    else:
+        f.addc(IX, 1, IX).go("COLOR_ROOM_TEST")
     f.at("COLOR_ROOM_DONE").addc(MID, 1, MID).go("PREP_TEST")
 
-    f.at("PREP_DONE").const(0).store(DEAD).go("DRAW_FULL")
+    f.at("PREP_DONE")
+    if enable_pipes:
+        f.go("PIPE_SCAN_INIT")
+    else:
+        f.const(0).store(DEAD).go("DRAW_FULL")
+
+    if enable_pipes:
+        # Phase aliases: LEFT=count, RIGHT=scan, POS=current, DIR=predecessor,
+        # TMP=downstream, TOP=destination, BOTTOM=source. NMAN remains live.
+        p_count, p_scan, p_cur, p_pred = LEFT, RIGHT, POS, DIR
+        p_next, p_dest, p_source = TMP, TOP, BOTTOM
+
+        f.at("PIPE_SCAN_INIT").const(0).store(p_count)
+        f.const(0).store(p_scan).go("PIPE_SCAN_TEST")
+        f.at("PIPE_SCAN_TEST").subc(p_scan, 256).br(
+            "PIPE_SCAN_DONE", "PIPE_SCAN_DONE", "PIPE_SCAN_CELL"
+        )
+        f.at("PIPE_SCAN_CELL").cell_low(p_scan).store(CH)
+        f.subc(CH, 6).br("PIPE_SCAN_ADV", "PIPE_DEST_NEXT", "PIPE_SCAN_ADV")
+        emit_pipe_next(
+            f, "PIPE_DEST_NEXT", p_scan, p_next, "PIPE_DEST_WALL_TEST"
+        )
+        f.at("PIPE_DEST_WALL_TEST").cell_low(p_next).store(CH)
+        f.subc(CH, 4).br("PIPE_SCAN_ADV", "PIPE_DEST_FOUND", "PIPE_SCAN_ADV")
+        f.at("PIPE_DEST_FOUND").load(p_scan).store(p_dest)
+        f.load(p_scan).store(p_cur).go("PIPE_PRED_0")
+
+        candidate_deltas = (-1, 1, -16, 16)
+        for candidate_index, delta in enumerate(candidate_deltas):
+            candidate_label = f"PIPE_PRED_{candidate_index}"
+            if candidate_label not in f.blocks:
+                f.at(candidate_label)
+            if delta > 0:
+                f.addc(p_cur, delta, p_pred)
+            else:
+                f.subc(p_cur, -delta, p_pred)
+            f.cell_low(p_pred).store(CH)
+            next_candidate = (
+                f"PIPE_PRED_{candidate_index + 1}"
+                if candidate_index + 1 < len(candidate_deltas)
+                else "PIPE_SOURCE_FOUND"
+            )
+            neighbor_label = f"PIPE_PRED_NEIGHBOR_{candidate_index}"
+            f.subc(CH, 6).br(next_candidate, neighbor_label, next_candidate)
+            f.at(neighbor_label).bin("-", p_pred, p_next).br(
+                "PIPE_PRED_FOUND", next_candidate, "PIPE_PRED_FOUND"
+            )
+
+        f.at("PIPE_PRED_FOUND").cell_load(p_cur).store(STAGE)
+        f.addc(p_pred, 1).e("sp")
+        f.const(11).e("M", "rp", "{", "M").load(STAGE).e("+").cell_store(p_cur)
+        f.load(p_cur).store(p_next)
+        f.load(p_pred).store(p_cur).go("PIPE_PRED_0")
+
+        # Descriptor packs destination in bits 0..7 and source in bits 8..15.
+        f.at("PIPE_SOURCE_FOUND").load(p_cur).store(p_source)
+        f.load(p_source).e("M").const(8).e("W", "{", "M")
+        f.load(p_dest).e("+").array_store(DESC0, p_count)
+        f.addc(p_count, 1, p_count).go("PIPE_SCAN_ADV")
+
+        f.at("PIPE_SCAN_ADV").addc(p_scan, 1, p_scan).go("PIPE_SCAN_TEST")
+        f.at("PIPE_SCAN_DONE").load(p_count).store_far(31)
+        f.const(0).store(DEAD).go("DRAW_FULL")
+
+        # Pipe phase aliases: RA=count, MID=pipe index, RB=value code,
+        # POS=current cell, DIR=predecessor. Values move destination-to-source,
+        # matching the judge's reverse-index cascade.
+        f.at("PIPE_SHIFT_INIT").load(31).store(RA)
+        f.const(0).store(MID).go("PIPE_SHIFT_TEST")
+        f.at("PIPE_SHIFT_TEST").bin("-", MID, RA).br(
+            "PIPE_SHIFT_DONE", "PIPE_SHIFT_DONE", "PIPE_SHIFT_DESC"
+        )
+        f.at("PIPE_SHIFT_DESC").array_addr(DESC0, MID).loadv().e("sp")
+        f.const(255).e("M", "rp", "&").store(POS).go("PIPE_SHIFT_CELL")
+
+        f.at("PIPE_SHIFT_CELL").cell_field(POS, 11, 511).store(DIR)
+        f.load(DIR).br("PIPE_SHIFT_HAVE_PRED", "PIPE_SHIFT_NEXT", "PIPE_SHIFT_NEXT")
+        f.at("PIPE_SHIFT_HAVE_PRED").subc(DIR, 1, DIR)
+        f.cell_field(POS, 20, 31).store(RB)
+        f.load(RB).br("PIPE_SHIFT_ADV", "PIPE_SHIFT_PRED_VALUE", "PIPE_SHIFT_ADV")
+        f.at("PIPE_SHIFT_PRED_VALUE").cell_field(DIR, 20, 31).store(RB)
+        f.load(RB).br("PIPE_SHIFT_MOVE", "PIPE_SHIFT_ADV", "PIPE_SHIFT_ADV")
+
+        f.at("PIPE_SHIFT_MOVE").cell_load(POS).store(STAGE)
+        f.load(RB).e("sp")
+        f.const(20).e("M", "rp", "{", "M").load(STAGE).e("+", "M")
+        f.const(8).e("+").cell_store(POS)
+        f.cell_load(DIR).store(STAGE)
+        f.load(RB).e("sp")
+        f.const(20).e("M", "rp", "{", "M").const(8).e("+", "M")
+        f.load(STAGE).e("-").cell_store(DIR)
+        f.load(POS).e("sa")
+        f.const(14).e("sd")
+        f.load(DIR).e("sa")
+        f.const(6).e("sd").go("PIPE_SHIFT_ADV")
+
+        f.at("PIPE_SHIFT_ADV").load(DIR).store(POS).go("PIPE_SHIFT_CELL")
+        f.at("PIPE_SHIFT_NEXT").addc(MID, 1, MID).go("PIPE_SHIFT_TEST")
+        f.at("PIPE_SHIFT_DONE").const(0).store(MID).go("MAN_TEST")
 
     # Round/tick loop. Men act sequentially, which is equivalent for this
     # no-pipe slice; wall termination is observed after every man has acted.
     f.at("ROUND").inp().store(K).go("STEP_TEST")
     f.at("STEP_TEST").load(DEAD).br("DRAW_DELTA", "K_TEST", "DRAW_DELTA")
     f.at("K_TEST").load(K).br("TICK_START", "DRAW_DELTA", "DRAW_DELTA")
-    f.at("TICK_START").const(0).store(MID).go("MAN_TEST")
+    f.at("TICK_START")
+    if enable_pipes:
+        f.go("PIPE_SHIFT_INIT")
+    else:
+        f.const(0).store(MID).go("MAN_TEST")
     f.at("MAN_TEST").bin("-", MID, NMAN).br(
         "TICK_FINISH", "TICK_FINISH", "MAN_HALT"
     )

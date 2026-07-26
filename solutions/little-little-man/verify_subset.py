@@ -22,7 +22,13 @@ def s64(value):
     return value - (1 << 64) if value >= (1 << 63) else value
 
 
-def run_flow(rounds, limit=2_000_000, builder=build, return_ram=False):
+def run_flow(
+    rounds,
+    limit=2_000_000,
+    builder=build,
+    return_ram=False,
+    frame_hook=None,
+):
     blocks = builder.build_flow().blocks
     input_values = deque(int(value) for rnd in rounds for value in rnd["in"])
     ram = [0] * builder.RAM_N
@@ -125,6 +131,8 @@ def run_flow(rounds, limit=2_000_000, builder=build, return_ram=False):
                 display_cursor = 0
             elif a != 1:
                 raise AssertionError(f"display swap value {a} is not 0 or 1")
+            if frame_hook is not None:
+                frame_hook(len(frames), ram, next_pixels)
             if len(frames) == len(rounds):
                 if return_ram:
                     return frames, steps, ram

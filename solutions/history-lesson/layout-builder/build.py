@@ -31,7 +31,6 @@ DEFAULT_DICTIONARY_WIDTH = 52
 DEFAULT_DICTIONARY_WORDS = 44
 MIN_DICTIONARY_WORDS = 38
 MAX_DICTIONARY_WORDS = 91
-ROOM_GAP = 1
 LOGGER = logging.getLogger(__name__)
 
 
@@ -195,20 +194,6 @@ def _put_row(program: Program, x: int, y: int, cells) -> None:
             program.put(x + dx, y, glyph)
 
 
-def right_aligned_after(
-    feeder_width: int,
-    room_width: int,
-    occupied_left_width: int,
-) -> int:
-    """Right-align a room unless that would overlap the left-side block.
-
-    When the two widths do not fit inside the feeder boundary, the room
-    touches the left block at its next free column and is allowed to extend
-    past the feeder's right edge.
-    """
-    return max(feeder_width - room_width, occupied_left_width)
-
-
 def place_dictionary(
     program: Program,
     x0: int,
@@ -359,44 +344,37 @@ def build(
         dictionary_height,
     )
 
-    # Stack the remaining rooms down the feeder's right boundary. If a room
-    # cannot fit between the dictionary and that boundary, put it immediately
-    # after the dictionary and let it extend rightward. This makes overlap
-    # impossible for every supported dictionary width.
-    LOGGER.info("placing right-side service-room stack")
-    service_y = tail_y
+    # Put every remaining room in the same row as the dictionary. Adjacent
+    # room walls occupy neighbouring columns with no empty gap, so the tail
+    # grows only to the right.
+    LOGGER.info("placing touching horizontal service-room row")
+    service_x = dictionary_width
     service_rooms = []
     for name, rows in [
         ("decoder", vertical.base.DECODER_ROWS),
         ("unpack", vertical.base.UNPACK_ROWS),
     ]:
         width = max(len(row) for row in rows) + 2
-        service_x = right_aligned_after(
-            feeder_width, width, dictionary_width
-        )
         width, height = vertical.base.paste_room(
-            program, service_x, service_y, rows
+            program, service_x, tail_y, rows
         )
-        service_rooms.append((name, service_x, service_y, width, height))
-        service_y += height + ROOM_GAP
+        service_rooms.append((name, service_x, tail_y, width, height))
+        service_x += width
 
-    output_x = right_aligned_after(feeder_width, 3, dictionary_width)
-    program.output_room(output_x, service_y)
-    service_rooms.append(("output", output_x, service_y, 3, 3))
-    service_y += 3 + ROOM_GAP
+    output_x = service_x
+    program.output_room(output_x, tail_y)
+    service_rooms.append(("output", output_x, tail_y, 3, 3))
+    service_x += 3
 
     disp_width = max(len(row) for row in vertical.DISP_DELAYED_ROWS) + 2
-    service_x = right_aligned_after(
-        feeder_width, disp_width, dictionary_width
-    )
     disp_width, disp_height = vertical.base.paste_room(
         program,
         service_x,
-        service_y,
+        tail_y,
         vertical.DISP_DELAYED_ROWS,
     )
     service_rooms.append(
-        ("dispatcher", service_x, service_y, disp_width, disp_height)
+        ("dispatcher", service_x, tail_y, disp_width, disp_height)
     )
 
     LOGGER.info("validating vertical literals and layout metadata")

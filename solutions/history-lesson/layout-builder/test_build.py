@@ -59,31 +59,18 @@ class LayoutBuilderTest(unittest.TestCase):
             [len(band.widths) for band in wide],
         )
 
-    def test_service_rooms_are_stacked_on_the_right(self):
-        rooms = self.metadata["service_rooms"]
-        for upper, lower in zip(rooms, rooms[1:]):
-            self.assertEqual(
-                lower[2], upper[2] + upper[4] + builder.ROOM_GAP
-            )
-        for _, x, _, width, _ in rooms:
-            self.assertEqual(x + width, self.metadata["feeder_width"])
-
-    def test_service_alignment_moves_past_wide_dictionary(self):
-        self.assertEqual(builder.right_aligned_after(81, 25, 52), 56)
-        self.assertEqual(builder.right_aligned_after(81, 25, 60), 60)
-        self.assertEqual(builder.right_aligned_after(81, 11, 75), 75)
-
-    def test_rooms_do_not_overlap_dictionary(self):
+    def test_all_tail_rooms_form_one_touching_row(self):
         dictionary = self.metadata["dictionary"]
-        dictionary_right = dictionary["x"] + dictionary["width"]
-        dictionary_bottom = dictionary["y"] + dictionary["height"]
-        for _, x, y, _, height in self.metadata["service_rooms"]:
-            vertical_overlap = (
-                y < dictionary_bottom
-                and dictionary["y"] < y + height
-            )
-            if vertical_overlap:
-                self.assertGreaterEqual(x, dictionary_right)
+        rooms = self.metadata["service_rooms"]
+        self.assertEqual(rooms[0][1], dictionary["x"] + dictionary["width"])
+        self.assertTrue(all(room[2] == dictionary["y"] for room in rooms))
+        for left, right in zip(rooms, rooms[1:]):
+            self.assertEqual(right[1], left[1] + left[3])
+
+    def test_tail_touches_feeder_bottom(self):
+        dictionary = self.metadata["dictionary"]
+        feeder_bottom = self.metadata["feeder_rows"] + 1
+        self.assertEqual(dictionary["y"], feeder_bottom + 1)
 
     def test_no_pipes_are_declared(self):
         self.assertEqual(self.metadata["pipes"], 0)

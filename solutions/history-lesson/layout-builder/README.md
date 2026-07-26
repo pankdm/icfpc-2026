@@ -4,10 +4,9 @@ This directory contains a deliberately pipe-free geometry scaffold. It reuses
 the encoding and optimized feeder from `../build_vertical_p1.py`, places a
 fixed-width vertical dictionary below the feeder with its left wall aligned
 to the feeder's left wall. DECODER, UNPACK, the output room, and delayed DISP
-are stacked vertically beside it, each aligned to the feeder's right wall.
-If a service room cannot fit between the dictionary and that boundary, it
-touches the dictionary's next free column and extends beyond the feeder
-instead; the two blocks never overlap.
+follow it horizontally with touching walls and no empty columns between
+blocks. Every tail room touches the feeder's bottom boundary and the complete
+row extends to the right as far as necessary.
 
 The default is the current `81x90-vertical-p1` design point:
 

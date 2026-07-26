@@ -1,0 +1,346 @@
++----------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+|            @0M1         s3sWs0M1s0sWsv                                                                                                                                     |
+|v                                     <                                                                                                                                     |
+|>>           0           s0s      rv                                                                                                                                        |
+|                 v1M+1Mss          <                                                                                                                                        |
+|                 >       s0sWs1M+M+M+M+M+M+M+M+Mv                                                                                                                           |
+|                               v-r              <                                                                                                                           |
+|  v                            Xv                                                                                                                                           |
+|   v                           <                                                                                                                                            |
+|    v                           <                                                                                                                                           |
+|    >        rv                                                                                                                                                             |
+|    v         Xv                                                                                                                                                            |
+|     v        <                                                                                                                                                             |
+|      v        <                                                                                                                                                            |
+|    > >      1M+M+M+M1+M+M+M1+M+M+M+M1+M+Mv                                                                                                                                 |
+|            v{1MWs/W`33`       M+r        <                                                                                                                                 |
+|            >MrWsWsM0    sWs      rMv                                                                                                                                       |
+|                    v1sWs   WWrM|r  <                                                                                                                                       |
+|                    >    srsrs7                   sv                                                                                                                        |
+|^                                                  <                                                                                                                        |
+|     >        r0                                  sv                                                                                                                        |
+| ^                                                 <                                                                                                                        |
+|  >>          rv                                                                                                                                                            |
+|            vr <                                                                                                                                                            |
+|            >M1          s8sWsv                                                                                                                                             |
+|            vr                <                                                                                                                                             |
+|            >M1          s9sWs0s9srM4W{M0s8sr+M1s1v                                                                                                                         |
+|                                         vrs1s0sWs<                                                                                                                         |
+|                                         >                          s1M+M+M1+M+v                                                                                            |
+|                                                                 v1s           <                                                                                            |
+|                                                                 >              sv                                                                                          |
+|v                                                                                <                                                                                          |
+|>            rM1         s8sWsv                                                                                                                                             |
+|            vr                <                                                                                                                                             |
+|            >M1          s9sWs0s9srM4W{M0s8sr+M1s2v                                                                                                                         |
+|                                         vrs2s0sWs<                                                                                                                         |
+|                                         >                          s9v                                                                                                     |
+|                     v0Ws            WsWs3s1M+rs3s              0M1s  <                                                                                                     |
+|                     >   s1M+M+M+M1+M+srMv                                                                                                                                  |
+|                      v1s       Wr       <                                                                                                                                  |
+|                      >  s1M+M+M1+M+sv                                                                                                                                      |
+|                     v0Ws      Wsr   <                                                                                                                                      |
+|                     >   s1M+M+M+M1+M+M1+srMv                                                                                                                               |
+|                      v1s       Wr          <                                                                                                                               |
+|                      >  s1M+M+M1+M+M1+sv                                                                                                                                   |
+|                     v0Ws      Wsr      <                                                                                                                                   |
+|                     >   s1M+M+M1+M+M+srMv                                                                                                                                  |
+|                      v1s       Wr       <                                                                                                                                  |
+|                      >  s1M+M1+M+M+sv                                                                                                                                      |
+|                     v0Ws      Wsr   <                                                                                                                                      |
+|                     >   s1M+M+M1+M+M+M1+srMv                                                                                                                               |
+|                      v1s       Wr          <                                                                                                                               |
+|                      >  s1M+M1+M+M+M1+sv                                                                                                                                   |
+|                     v0Ws      Wsr      <                                                                                                                                   |
+|                     >   s1M+M+M1+M+M1+M+srMv                                                                                                                               |
+|                      v1s       Wr          <                                                                                                                               |
+|                      >  s1M+M1+M+M1+M+sv                                                                                                                                   |
+|                     v0Ws      Wsr      <                                                                                                                                   |
+|                     >   s1M+M+M1+M+M1+M+M1+srMv                                                                                                                            |
+|                      v1s       Wr             <                                                                                                                            |
+|                      >  s1M+M1+M+M1+M+M1+sv                                                                                                                                |
+|                     v0Ws      Wsr         <                                                                                                                                |
+|                     >   s1M+M1+M+M+M+srMv                                                                                                                                  |
+|                      v1s       Wr       <                                                                                                                                  |
+|                      >  s1M+M+M+M+sv                                                                                                                                       |
+|                     v0Ws      Wsr  <                                                                                                                                       |
+|                     >   s1M+M1+M+M+M+M1+srMv                                                                                                                               |
+|                      v1s       Wr          <                                                                                                                               |
+|                      >  s1M+M+M+M+M1+sv                                                                                                                                    |
+| v                              sr     <                                                                                                                                    |
+| >           1M+M+M1+M+M+M+M1+M+M+M1+M+M0s2sr+M`33`W/v                                                                                                                      |
+|            vMsWsWrM{1MWs                            <                                                                                                                      |
+|            >0           sWs      rMv                                                                                                                                       |
+|                    v1sWs   WWrM|r  <                                                                                                                                       |
+|                    >    srsrs0s3srM8W{M1+v                                                                                                                                 |
+|                      v0s                 <                                                                                                                                 |
+|                      >  s2s      rMv                                                                                                                                       |
+|                 vN+W1MWs        r  <                                                                                                                                       |
+|                 >                                                                      sv                                                                                  |
+|                                vr                                                       <                                                                                  |
+|                                >                                                       sM8W{M0v                                                                            |
+|                                            v+rs2s                                             <                                                                            |
+|                                            >                                                                                      sv                                       |
+| v                                                                                                                                  <                                       |
+| >>>>                                                                                                                                           rv                          |
+|             vM+M+M+M+M1s                                                                                                                        <                          |
+|             >rs}M0      s3s      r-v                                                                                                                                       |
+|     v                              Xv                                                                                                                                      |
+|      v                             <                                                                                                                                       |
+|       v                             <                                                                                                                                      |
+|     > >      rv                                                                                                                                                            |
+| ^             <                                                                                                                                                            |
+|      >       rsM8W}M1+M1s5sWsM1W-M8W{Mv                                                                                                                                    |
+|            vM+M+1M+M+M1ssWs4s1M-r     <                                                                                                                                    |
+|            >+M+M1+M+M+M1+M+Mr+M1s0sWs0s0sv                                                                                                                                 |
+| v                                        <                                                                                                                                 |
+|     >>>>    0           s5s      rv                                                                                                                                        |
+|                 vN+W1MWs          <                                                                                                                                        |
+|                 >                                                                      sv                                                                                  |
+|                                vr                                                       <                                                                                  |
+|                                >                                                       sv                                                                                  |
+|         v                                                                               <                                                                                  |
+| >                                rM8W--M`33`W/Wv                                                                                                                           |
+|                    v0MWs                       <                                                                                                                           |
+|                    >    sWs0s0s  rMv                                                                                                                                       |
+|                           v&1M}Wr  <                                                                                                                                       |
+| v                         Xv                                                                                                                                               |
+|          v                <                                                                                                                                                |
+|           v                <                                                                                                                                               |
+|          >                       rM8W--M `33`W/v                                                                                                                           |
+|            vMsWsWrM{1MWs                       <                                                                                                                           |
+|            >0           sWs0s0s  rMv                                                                                                                                       |
+|                    v1sWs   WWrM|r  <                                                                                                                                       |
+|                    >    srsrs    rM8W--v                                                                                                                                   |
+|            vM+M+1M+M+M1s               <                                                                                                                                   |
+|            >+M+M1+M+M+M1+M+Mr-M1s7sWsM0s1sr-v                                                                                                                              |
+|          v                                  Xv                                                                                                                             |
+|     ^                                       <                                                                                                                              |
+|     v                                        <                                                                                                                             |
+|     >    >  0           s5s      rWv                                                                                                                                       |
+|              v+rM{W8MsWs           <                                                                                                                                       |
+|              >                                                                                                                    sv                                       |
+|                           vs7s0Mr                                                                                                  <                                       |
+|                           >      rWv                                                                                                                                       |
+|                 vN+W1MWs           <                                                                                                                                       |
+|                 >                                                                      sv                                                                                  |
+|                                vr                                                       <                                                                                  |
+|                                >                                                       s0v                                                                                 |
+|     v                                         s0s                                        <                                                                                 |
+| >   >     >                      rM1W+M`33`W/Wv                                                                                                                            |
+|                    v0MWs                      <                                                                                                                            |
+|                    >    sWs0s0s  rMv                                                                                                                                       |
+|                           v&1M}Wr  <                                                                                                                                       |
+| v                         Xv                                                                                                                                               |
+|     v                     <                                                                                                                                                |
+|          v                 <                                                                                                                                               |
+|     >                            rM1W+M      `33`W/v                                                                                                                       |
+|            vMsWsWrM{1MWs                           <                                                                                                                       |
+|            >0           sWs0s0s  rMv                                                                                                                                       |
+|                    v1sWs   WWrM|r  <                                                                                                                                       |
+|                    >    srsrs    rM1W+v                                                                                                                                    |
+|            vM+M+1M+M+M1s              <                                                                                                                                    |
+|            >+M+M1+M+M+M1+M+Mr-M1s7sWsM0s1sr-v                                                                                                                              |
+|     v                                       Xv                                                                                                                             |
+|      ^                                      <                                                                                                                              |
+|      v                                       <                                                                                                                             |
+|     >>      0           s5s      rWv                                                                                                                                       |
+|              v+rM{W8MsWs           <                                                                                                                                       |
+|              >                                                                                                                    sv                                       |
+|                           vs7s0Mr                                                                                                  <                                       |
+|                           >      rWv                                                                                                                                       |
+|                 vN+W1MWs           <                                                                                                                                       |
+|                 >                                                                      sv                                                                                  |
+|                                vr                                                       <                                                                                  |
+|                                >                                                       s0v                                                                                 |
+|     v                                         s0s                                        <                                                                                 |
+| >   >    >                       rM8W++M       `33`W/Wv                                                                                                                    |
+|                    v0MWs                              <                                                                                                                    |
+|                    >    sWs0s0s  rMv                                                                                                                                       |
+|                           v&1M}Wr  <                                                                                                                                       |
+| v                         Xv                                                                                                                                               |
+|     v                     <                                                                                                                                                |
+|      v                     <                                                                                                                                               |
+|     >                            rM8W++M           `33`W/v                                                                                                                 |
+|            vMsWsWrM{1MWs                                 <                                                                                                                 |
+|            >0           sWs0s0s  rMv                                                                                                                                       |
+|                    v1sWs   WWrM|r  <                                                                                                                                       |
+|                    >    srsrs    rM8W++v                                                                                                                                   |
+|            vM+M+1M+M+M1s               <                                                                                                                                   |
+|            >+M+M1+M+M+M1+M+Mr-M1s7sWsM0s1sr-v                                                                                                                              |
+|     v                                       Xv                                                                                                                             |
+|       ^                                     <                                                                                                                              |
+|       v                                      <                                                                                                                             |
+|     > >     0           s5s      rWv                                                                                                                                       |
+|              v+rM{W8MsWs           <                                                                                                                                       |
+|              >                                                                                                                    sv                                       |
+|                           vs7s0Mr                                                                                                  <                                       |
+|                           >      rWv                                                                                                                                       |
+|                 vN+W1MWs           <                                                                                                                                       |
+|                 >                                                                      sv                                                                                  |
+|                                vr                                                       <                                                                                  |
+|                                >                                                       s0v                                                                                 |
+|     v                                         s0s                                        <                                                                                 |
+| >   >>                           rM1W-M             `33`W/Wv                                                                                                               |
+|                    v0MWs                                   <                                                                                                               |
+|                    >    sWs      rMv                                                                                                                                       |
+|                           v&1M}Wr  <                                                                                                                                       |
+|  ^                        Xv                                                                                                                                               |
+| v                         <                                                                                                                                                |
+|   ^                        <                                                                                                                                               |
+| >           0           s0s      rM1W-M              `33`W/v                                                                                                               |
+|            vMsWsWrM{1MWs                                   <                                                                                                               |
+|            >0           sWs      rMv                                                                                                                                       |
+|                    v1sWs   WWrM|r  <                                                                                                                                       |
+|                    >    srsrs0s0srM1W-v                                                                                                                                    |
+|            vM+M+1M+M+M1s              <                                                                                                                                    |
+|            >+M+M1+M+M+M1+M+Mr-M1s7sWsM0s1sr-v                                                                                                                              |
+| v                                           Xv                                                                                                                             |
+|        ^                                    <                                                                                                                              |
+|  v                                           <                                                                                                                             |
+| >>          0           s5s      rWv                                                                                                                                       |
+|              v+rM{W8MsWs           <                                                                                                                                       |
+|              >                                                                                                                    sv                                       |
+|                           vs7s0Mr                                                                                                  <                                       |
+|                           >      rWv                                                                                                                                       |
+|                 vN+W1MWs           <                                                                                                                                       |
+|                 >                                                                      sv                                                                                  |
+|                                vr                                                       <                                                                                  |
+|                                >                                                       sv                                                                                  |
+|    ^                                                                                    <                                                                                  |
+| >>      >   0           s1s      rM1s4sWs                                              srM8W}M8W{v                                                                         |
+|                      v0s                                                                         <                                                                         |
+|                      >  s4s      r                                                     srMv                                                                                |
+|                        v1M-W1M-Wr                                                         <                                                                                |
+|                        >s6sWsv                                                                                                                                             |
+|   v                          <                                                                                                                                             |
+|   >         0           s4s      rM8W--M1s7sWs                                         srv                                                                                 |
+|   v                                                                                      Xv                                                                                |
+|    v                                                                                     <                                                                                 |
+|     v                                                                                     <                                                                                |
+|   >         sM8W}M0     s3s      r-v                                                                                                                                       |
+|   v                                Xv                                                                                                                                      |
+|      v                             <                                                                                                                                       |
+|       v                             <                                                                                                                                      |
+|   >   >      rv                                                                                                                                                            |
+|   v           <                                                                                                                                                            |
+|      >      0           s3s      rM8W{Mv                                                                                                                                   |
+|                          vs6s0M-r      <                                                                                                                                   |
+|                          >       rW-v                                                                                                                                      |
+|      v                              Xv                                                                                                                                     |
+|       v                             <                                                                                                                                      |
+|        v                             <                                                                                                                                     |
+|   >>>> >    0           s4s      rM1W+M1s7sWs                                          srv                                                                                 |
+|   v                                                                                      Xv                                                                                |
+|    v                                                                                     <                                                                                 |
+|     v                                                                                     <                                                                                |
+|   >         sM8W}M0     s3s      r-v                                                                                                                                       |
+|   v                                Xv                                                                                                                                      |
+|      v                             <                                                                                                                                       |
+|        v                            <                                                                                                                                      |
+|   >    >     rv                                                                                                                                                            |
+|   v           <                                                                                                                                                            |
+|      >      0           s3s      rM8W{Mv                                                                                                                                   |
+|                          vs6s0M-r      <                                                                                                                                   |
+|                          >       rW-v                                                                                                                                      |
+|      v                              Xv                                                                                                                                     |
+|        v                            <                                                                                                                                      |
+|         v                            <                                                                                                                                     |
+|   >>>>  >   0           s4s      rM8W++M1s7sWs                                         srv                                                                                 |
+|   v                                                                                      Xv                                                                                |
+|    v                                                                                     <                                                                                 |
+|     v                                                                                     <                                                                                |
+|   >         sM8W}M0     s3s      r-v                                                                                                                                       |
+|   v                                Xv                                                                                                                                      |
+|      v                             <                                                                                                                                       |
+|         v                           <                                                                                                                                      |
+|   >     >    rv                                                                                                                                                            |
+|   v           <                                                                                                                                                            |
+|      >      0           s3s      rM8W{Mv                                                                                                                                   |
+|                          vs6s0M-r      <                                                                                                                                   |
+|                          >       rW-v                                                                                                                                      |
+|      v                              Xv                                                                                                                                     |
+|         v                           <                                                                                                                                      |
+|          v                           <                                                                                                                                     |
+|   >>>>   >  0           s4s      rM1W-M1s7sWs                                          srv                                                                                 |
+|   v                                                                                      Xv                                                                                |
+|    v                                                                                     <                                                                                 |
+|     v                                                                                     <                                                                                |
+|   >         sM8W}M0     s3s      r-v                                                                                                                                       |
+|   v                                Xv                                                                                                                                      |
+|      v                             <                                                                                                                                       |
+|          v                          <                                                                                                                                      |
+|   >      >   rv                                                                                                                                                            |
+|   v           <                                                                                                                                                            |
+|      >      0           s3s      rM8W{Mv                                                                                                                                   |
+|                          vs6s0M-r      <                                                                                                                                   |
+|                          >       rW-v                                                                                                                                      |
+|      v                              Xv                                                                                                                                     |
+|          v                          <                                                                                                                                      |
+|           v                          <                                                                                                                                     |
+|       >>>>  0           s1s      r                                 s0v                                                                                                     |
+|                                 vrs1s0sWs1s1Mrs7s                0s  <                                                                                                     |
+|                                 >                                  s1M+M+M1+M+v                                                                                            |
+|                                                                 v1s           <                                                                                            |
+|                                                                 >              s0v                                                                                         |
+|                                      v-rs1s0Mrs2s                                <                                                                                         |
+| ^                                    Xv                                                                                                                                    |
+|^                                     <                                                                                                                                     |
+|  ^                                    <                                                                                                                                    |
+|   >>>>    > H                                                                                                                                                              |
++----------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+       ^     v       ^                v         ^              v          v           v    v                                    ^                                ^         v
+       |    v<>------^      v---------<         |              |          |           |    >----v              >----v  >--------^                                ^----<    |
+       |    |>^             |                   |              |          |           |         |              |    v  ^<                                             |    |
+       |    |^<             |   >---------------^              |          |           |         |              | +----+ | +-----++--++--++--++--++--++--++--++--++--+ |    |
+       |    >v|             v   |                              |          v           |         v              | |@9Mv| | |@9M*v||@v||@v||@v||@v||@v||@v||@v||@v||@v| |    |
+       |     v^          +----+ | +-----++--++--++--++--+      |  +================+  |      +-------+         | |>>v*| | |>rXvW||>v||>v||>v||>v||>v||>v||>v||>v||>v| |    v
+       |  +------+       |@9Mv| | |@9M*v||@v||@v||@v||@v|      |  :                :  |      | >rv   |         | | +sW| | |  - *||sr||sr||sr||sr||sr||sr||sr||sr||sr| |  +------+
+       |  |@>rsv |       |>>v*| | |>rXvW||>v||>v||>v||>v|      |  :                :  |      |@^vXv  |         | |0r *| ^<|  s *||^<||^<||^<||^<||^<||^<||^<||^<||^<| |  |@>rsv |
+       |  | ^  < |       | +sW| | |  - *||sr||sr||sr||sr|      |  :                :  |      |  M<N  |         | |ss *|   |^ <<*|+--++--++--++--++--++--++--++--++--+ |  | ^  < |
+       |  +------+       |0r *| ^<|  s *||^<||^<||^<||^<|      |  :                :  |      |  0 M  |         | |rr *|   |^  W<| v^  v^  v^  v^  v^  v^  v^  v^  v^  |  |      |
+       |                 |ss *|   |^ <<*|+--++--++--++--+      |  :                :  |      |  s 1  |         | |X^ W|   +-----+v<^<v<^<v<^<v<^<v<^<v<^<v<^<v<^<v<^< |  |      |
+       ^                 |rr *|   |^  W<| v^  v^  v^  v^       |  :                :  |      |  W W  |         | |^r<<|        ^ >v>^>v>^>v>^>v>^>v>^>v>^>v>^>v>^>v>^ |  +------+
+      +-+                |X^ W|   +-----+v<^<v<^<v<^<v<^<      |  :                :  |      |  s -  |         | +----+>------v^ v<^<v<^<v<^<v<^<v<^<v<^<v<^<v<^<v<^< |      v
+      |I|                |^r<<|        ^ >v>^>v>^>v>^>v>^      >->:                :  |      | ^< M  |         | +-------------+ >v |>v |>v |>v |>v |>v |>v |>v |>v | ^----<v<
+      +-+                +----+>------v^ v<^<v<^<v<^<v<^<         :                :  |      |    1  |         | |vrbW/rW9<S<  | v< |v< |v< |v< |v< |v< |v< |v< |v< |      ||
+                         +-------------+ >v |>v |>v |>v |         :                :  |      |    s  |>--------^ |W > Ws  ^ 0  | >v |>v |>v |>v |>v |>v |>v |>v |>v |      ||
+                         |vrbW/rW4<S<  | v< |v< |v< |v< |         :                :  |      |    W  |           |>db> rdWXvdv<| v< |v< |v< |v< |v< |v< |v< |v< |v< |      ||
+                         |W > Ws  ^ 0  | >v |>v |>v |>v |         :                :  |      |    s  |           | m ^ms< sWmsW|<<  |>v |>v |>v |>v |>v |>v |>v |>v |      ||
+                         |>db> rdWXvdv<| v< |v< |v< |v< |         :                :  |      |    r  |           |    >sv 0s^<b|>--v|v< |v< |v< |v< |v< |v< |v< |v< |      ||
+                         | m ^ms< sWmsW|<<  |>v |>v |>v |         :                :  |      |    s  |           |v<^sXr<W<<>W^|   >^>v |>v |>v |>v |>v |>v |>v |>v |      ||
+                         |    >sv 0s^<b|>--v|v< |v< |v< |         :                :  |      | ^  <  |           |>db> rdWXvdv<|     v< |v< |v< |v< |v< |v< |v< |v< |      ||
+                         |v<^sXr<W<<>W^|   >^>v |>v |>v |         :                :  |      |       |           | m ^ms< sWmsW|<----<  |>v |>v |>v |>v |>v |>v |>v |      ||
+                         |>db> rdWXvdv<|     v< |v< |v< |         +================+  |      +-------+           |    >sv 0s^<b|>------v|v< |v< |v< |v< |v< |v< |v< |      ||
+                         | m ^ms< sWmsW|<----<  |>v |>v |                 ^           |                          |v<^sXr<W<<>W^|       >^>v |>v |>v |>v |>v |>v |>v |      ||
+                         |    >sv 0s^<b|>------v|v< |v< |                 |           |                          |>db> rdWXvdv<|         v< |v< |v< |v< |v< |v< |v< |      ||
+                         |v<^sXr<W<<>W^|       >^>v |>v |                 ^-----------<                          | m ^ms< sWmsW|<--------<  |>v |>v |>v |>v |>v |>v |      ||
+                         |>db> rdWXvdv<|         v< |v< |                                                        |    >sv 0s^<b|>----------v|v< |v< |v< |v< |v< |v< |      ||
+                         | m ^ms< sWmsW|<--------<  |>v |                                                        |v<^sXr<W<<>W^|           >^>v |>v |>v |>v |>v |>v |      ||
+                         |    >sv 0s^<b|>----------v|v< |                                                        |>db> rdWXvdv<|             v< |v< |v< |v< |v< |v< |      ||
+                         |v<^sXr<W<<>W^|           >^>v |                                                        | m ^ms< sWmsW|<------------<  |>v |>v |>v |>v |>v |      ||
+                         |> b> rdWXvdv<|             v< |                                                        |    >sv 0s^<b|>--------------v|v< |v< |v< |v< |v< |      ||
+                         |   ^ms< sWmsW|<------------<  |                                                        |v<^sXr<W<<>W^|               >^>v |>v |>v |>v |>v |      ||
+                         |    >sv 0s^<b|>--------------v|                                                        |>db> rdWXvdv<|                 v< |v< |v< |v< |v< |      ||
+                         |  ^sXr<W<<>W^|               >^                                                        | m ^ms< sWmsW|<----------------<  |>v |>v |>v |>v |      ||
+                         |   > `8` W^@v|                                                                         |    >sv 0s^<b|>------------------v|v< |v< |v< |v< |      ||
+                         |   ^W***W*M9<|                                                                         |v<^sXr<W<<>W^|                   >^>v |>v |>v |>v |      ||
+                         +-------------+                                                                         |>db> rdWXvdv<|                     v< |v< |v< |v< |      ||
+                                                                                                                 | m ^ms< sWmsW|<--------------------<  |>v |>v |>v |      ||
+                                                                                                                 |    >sv 0s^<b|>----------------------v|v< |v< |v< |      ||
+                                                                                                                 |v<^sXr<W<<>W^|                       >^>v |>v |>v |      ||
+                                                                                                                 |>db> rdWXvdv<|                         v< |v< |v< |      ||
+                                                                                                                 | m ^ms< sWmsW|<------------------------<  |>v |>v |      ||
+                                                                                                                 |    >sv 0s^<b|>--------------------------v|v< |v< |      ||
+                                                                                                                 |v<^sXr<W<<>W^|                           >^>v |>v |      ||
+                                                                                                                 |>db> rdWXvdv<|                             v< |v< |      ^<
+                                                                                                                 | m ^ms< sWmsW|<----------------------------<  |>v |
+                                                                                                                 |    >sv 0s^<b|>------------------------------v|v< |
+                                                                                                                 |v<^sXr<W<<>W^|                               >^>v |
+                                                                                                                 |> b> rdWXvdv<|                                 v< |
+                                                                                                                 |   ^ms< sWmsW|<--------------------------------<  |
+                                                                                                                 |    >sv 0s^<b|>----------------------------------v|
+                                                                                                                 |  ^sXr<W<<>W^|                                   >^
+                                                                                                                 |   > `29`W^@v|
+                                                                                                                 |   ^W***W*M9<|
+                                                                                                                 +-------------+

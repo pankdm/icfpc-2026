@@ -228,6 +228,10 @@ keeps that feeder byte-for-byte, then manually folds the service tail from 19
 rows to 18 and tightens the dictionary ring from `12+71` cells to its `2+33`
 minimum.  That final fold reaches 82×82.
 
+For the encoding-only analysis of adding more dictionary entries, using
+multiword entries, and minimizing feeder literal count independently of
+layout, see [`FEEDER-DICTIONARY.md`](FEEDER-DICTIONARY.md).
+
 ## Reproducing the champion
 
 From the repository root:

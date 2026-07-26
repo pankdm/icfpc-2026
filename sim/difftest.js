@@ -121,8 +121,19 @@ function compareFull(name, rows, steps, opt = {}) {
   const eo = endOfOracle(os_[os_.length - 1]);
   const er = endOfRust(rus[rus.length - 1]);
   if (eo !== er) return { r: `${name}: END DIVERGE oracle=${eo} rust=${er}`, ok: false };
-  if (os_.length !== rus.length)
-    return { r: `${name}: LENGTH ${os_.length} vs ${rus.length} (end=${eo})`, ok: false };
+  if (os_.length !== rus.length) {
+    // Not necessarily a divergence: the oracle keeps re-emitting its TERMINAL snapshot when
+    // stepped past the end, while the Rust CLI stops emitting at the end by design. Accept
+    // that only when rust is the shorter one, the ends already agree, and every extra oracle
+    // snapshot is identical to the last one both engines produced.
+    const ref = canonRunners(os_[n - 1].entities.runners).join('  ');
+    const tailIsTerminal = os_.length > rus.length &&
+      os_.slice(n).every(s2 => s2.type !== 'error' &&
+                               canonRunners(s2.entities.runners).join('  ') === ref);
+    if (!tailIsTerminal)
+      return { r: `${name}: LENGTH ${os_.length} vs ${rus.length} (end=${eo})`, ok: false };
+    return { r: `${name}: OK (${rus.length} steps then terminal, end=${eo})`, ok: true };
+  }
   return { r: `${name}: OK (${os_.length} steps, end=${eo})`, ok: true };
 }
 

@@ -4,7 +4,7 @@
 // successful `s` and `r` (execute-then-move). Reports steady-state ticks/rotation
 // = (tick_of_last_s - tick_of_first_steady_s) / (#s in that window), skipping the
 // first --warm ticks as priming.
-const { boot } = require('/Users/visenbaev/icfpc26/sim/harness.js');
+const { boot } = require((__dirname + '/../../sim/harness.js'));
 const fs = require('fs');
 
 (async () => {

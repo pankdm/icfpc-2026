@@ -1,7 +1,7 @@
 // Attribute every STALLED man-tick to (position, glyph, blocked-kind).
 // A man is stalled if pos+a+b+backpack unchanged since last tick.
 // Glyph r/R/U => blocked RECEIVE (upstream pipe empty); s/S => blocked SEND (downstream full).
-const { boot } = require('/Users/visenbaev/icfpc26/sim/harness.js');
+const { boot } = require((__dirname + '/../sim/harness.js'));
 const fs = require('fs'), path = require('path');
 function buildCase(tc){const rounds=tc.rounds||[{in:tc.in||[],out:tc.out||[]}];return{
   input:rounds.map(r=>(r.in||[]).join(' ')).join(' / '),

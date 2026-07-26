@@ -1,5 +1,5 @@
 // trace runner path. node tr.js file.man "input" [nsteps] [fromtick]
-const { boot } = require('/Users/visenbaev/icfpc26/sim/harness.js');
+const { boot } = require((__dirname + '/../sim/harness.js'));
 const fs = require('fs');
 (async () => {
   const file = process.argv[2], input = process.argv[3]||'';

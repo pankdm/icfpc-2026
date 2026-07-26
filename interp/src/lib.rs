@@ -158,6 +158,7 @@ pub struct World {
     // judging
     expected: Vec<i64>,
     expected_frames: Vec<u8>, // flattened frame pixels (each frame = w*h bytes)
+    round_frame_end: Vec<usize>, // cumulative expected frames per round (display gating)
     frame_w: i32,
     frame_h: i32,
     pub frame_mismatch: Option<usize>, // index of first mismatching committed frame
@@ -220,7 +221,7 @@ impl World {
             output: vec![],
             input_tokens: vec![], round_in_end: vec![], round_out_end: vec![],
             released_round: 0, input_read: 0, input_pipe: None, output_pipe: None,
-            expected: vec![], expected_frames: vec![], frame_w: 0, frame_h: 0,
+            expected: vec![], expected_frames: vec![], round_frame_end: vec![], frame_w: 0, frame_h: 0,
             frame_mismatch: None, frame_matched: 0, frame_mismatch_got: None, is_display_judged: false,
         };
 
@@ -258,9 +259,10 @@ impl World {
         }
         // frames (JSON): array of frames, each an array of strings of hex digits
         if !frames.trim().is_empty() {
-            if let Some((fw, fh, flat)) = parse_frames(frames) {
+            if let Some((fw, fh, flat, per_round)) = parse_frames_rounds(frames) {
                 self.frame_w = fw; self.frame_h = fh;
                 self.expected_frames = flat;
+                self.round_frame_end = per_round;
                 self.is_display_judged = true;
             }
         }
@@ -643,6 +645,8 @@ impl World {
             let mut i = 0;
             while i + 1 < ticks.len() {
                 let (a, b) = (ticks[i], ticks[i + 1]);
+                // Horizontal: a bad character between two backticks on one ROW is a genuine
+                // load error -- the reference rejects `1x2` outright.
                 let mut digits = String::new();
                 for x in (a + 1)..b {
                     let c = self.at(x, y);
@@ -673,14 +677,21 @@ impl World {
             let mut i = 0;
             while i + 1 < ticks.len() {
                 let (a, b) = (ticks[i], ticks[i + 1]);
+                // Vertical is NOT symmetric with horizontal. Backticks belonging to two
+                // unrelated horizontal literals on different rows routinely share a column,
+                // and pairing them vertically spans arbitrary code. Such a pair is simply
+                // not a vertical literal; treating it as an error rejects real programs the
+                // reference loads (it rejected our own sudoku champion).
                 let mut digits = String::new();
+                let mut is_literal = true;
                 for y in (a + 1)..b {
                     let c = self.at(x, y);
-                    self.lit_content.insert((x, y));
                     if c == ' ' { continue; }
                     if c.is_ascii_digit() { digits.push(c); }
-                    else { return Err("non-digit in literal".into()); }
+                    else { is_literal = false; break; }
                 }
+                if !is_literal { i += 1; continue; }
+                for y in (a + 1)..b { self.lit_content.insert((x, y)); }
                 let south = parse_lit(&digits, false)?;
                 let rev: String = digits.chars().rev().collect();
                 let north = parse_lit(&rev, false)?;
@@ -831,11 +842,23 @@ impl World {
             }
         }
         // advance round gating: release next round when current round's expected output emitted
-        while self.released_round + 1 < self.round_in_end.len().max(self.round_out_end.len())
-            && self.released_round < self.round_out_end.len()
-            && self.output.len() >= self.round_out_end[self.released_round]
-        {
-            self.released_round += 1;
+        // A DISPLAY round completes when its frames are committed and matched; it emits no
+        // integers, so gating on output.len() releases every round immediately and the
+        // program finishes early (measured: 84 ticks per round transition too soon).
+        if self.is_display_judged && !self.round_frame_end.is_empty() {
+            while self.released_round + 1 < self.round_in_end.len().max(self.round_frame_end.len())
+                && self.released_round < self.round_frame_end.len()
+                && self.frame_matched >= self.round_frame_end[self.released_round]
+            {
+                self.released_round += 1;
+            }
+        } else {
+            while self.released_round + 1 < self.round_in_end.len().max(self.round_out_end.len())
+                && self.released_round < self.round_out_end.len()
+                && self.output.len() >= self.round_out_end[self.released_round]
+            {
+                self.released_round += 1;
+            }
         }
         // feed input into input pipe source cell if free & a released token remains
         if let Some(pi) = self.input_pipe {
@@ -996,10 +1019,21 @@ impl World {
                         (splitter.id, splitter.a, splitter.b, splitter.bp, splitter.room)
                     };
 
-                    self.runners[i] = Runner {
-                        id, pos: right_pos, dir: right_dir,
-                        a, b, bp, halted: false, blocked: false, spawned_this_tick: true, room,
-                    };
+                    // Birth order and wall handling are ASYMMETRIC in the reference, and
+                    // both traces below were taken from it (sim/otrace.js):
+                    //   left(CCW) birth onto a wall  -> fatal on the SPLIT tick, and the
+                    //     splitter is still on its own cell (it never reaches right_pos);
+                    //   right(CW) birth onto a wall  -> NOT fatal on the split tick; both
+                    //     copies are placed, one standing on the wall, and it dies one tick
+                    //     later when the wall system runs.
+                    // So the left copy is created and wall-checked BEFORE the splitter is
+                    // moved, and the right birth is never wall-checked here.
+                    // The splitter is turned to the right copy's heading BEFORE the left
+                    // birth is resolved, but only MOVED after: on a fatal left birth the
+                    // reference leaves it on its own cell already facing the new heading.
+                    self.runners[i].dir = right_dir;
+                    self.runners[i].spawned_this_tick = true;
+
                     let left_index = self.runners.len();
                     self.runners.push(Runner {
                         id: self.next_id, pos: left_pos, dir: left_dir,
@@ -1007,12 +1041,15 @@ impl World {
                     });
                     self.next_id += 1;
 
-                    for birth_pos in [right_pos, left_pos] {
-                        if self.is_wall(birth_pos.0, birth_pos.1) {
-                            self.fatal("wall", birth_pos);
-                            return;
-                        }
+                    if self.is_wall(left_pos.0, left_pos.1) {
+                        self.fatal("wall", left_pos);
+                        return;
                     }
+
+                    self.runners[i] = Runner {
+                        id, pos: right_pos, dir: right_dir,
+                        a, b, bp, halted: false, blocked: false, spawned_this_tick: true, room,
+                    };
 
                     for birth_index in [i, left_index] {
                         let birth_pos = self.runners[birth_index].pos;
@@ -1259,6 +1296,26 @@ fn lit_overflow(digits: &str) -> bool {
 
 // Parse frames JSON. The oracle wants rounds x frames x rows ([][][]string); we also accept
 // frames x rows ([][]string). We collect every innermost array-of-strings as a frame, in order.
+// Also returns the CUMULATIVE frame count per round. The judged frames are flattened for
+// comparison, but round gating needs to know where each round's frames end (see the gate in
+// io_phase): a display round is finished when its frames are committed, not when integers
+// are emitted -- display programs emit no integers at all.
+fn parse_frames_rounds(s: &str) -> Option<(i32, i32, Vec<u8>, Vec<usize>)> {
+    let val = serde_frames::parse(s)?;
+    let mut per_round: Vec<usize> = vec![];
+    if let serde_frames::Val::Arr(rounds) = &val {
+        for r in rounds {
+            let mut fr: Vec<Vec<String>> = vec![];
+            serde_frames::collect_frames(r, &mut fr);
+            per_round.push(fr.len());
+        }
+    }
+    let mut cum = 0usize;
+    let round_frame_end: Vec<usize> = per_round.iter().map(|n| { cum += n; cum }).collect();
+    let (w, h, flat) = parse_frames(s)?;
+    Some((w, h, flat, round_frame_end))
+}
+
 fn parse_frames(s: &str) -> Option<(i32, i32, Vec<u8>)> {
     let val = serde_frames::parse(s)?;
     let mut frames: Vec<Vec<String>> = vec![];

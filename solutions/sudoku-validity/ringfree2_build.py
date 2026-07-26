@@ -9,8 +9,9 @@ Math validated 729/729 + 3000 random boards (scratchpad/computeman3.py).
 Targeted distributor: row-man<-r, col-man<-c, box-man<-r&c (computes box), v broadcast.
 6 check men (r&s r|M) + merger unchanged.
 """
+import os as _os; _REPO = _os.path.abspath(__file__).split('/solutions/')[0]
 import sys
-sys.path.insert(0, '/Users/visenbaev/icfpc26/tools')
+sys.path.insert(0, _REPO + '/tools')
 from littleman import Program
 from layout import Layout, place_pipe
 
@@ -180,7 +181,7 @@ def build_test(kind, path):
 if __name__ == '__main__' and len(sys.argv) > 1 and sys.argv[1] == 'test':
     import subprocess
     kind = sys.argv[2] if len(sys.argv) > 2 else 'row'
-    path = f'/private/tmp/claude-501/-Users-visenbaev-icfpc26/45d36e33-5a95-458c-9599-9b3faeeb9c09/scratchpad/cm3_{kind}.man'
+    path = f'{_REPO}/scratchpad/cm3_{kind}.man'
     build_test(kind, path)
     # craft input for the kind: two cells that duplicate in THIS kind
     if kind == 'row':   cells = [(0,0,5),(3,1,4),(0,7,5)]   # row0 v5 twice -> dup at cell2
@@ -191,14 +192,14 @@ if __name__ == '__main__' and len(sys.argv) > 1 and sys.argv[1] == 'test':
     inp = ' / '.join(f'{r} {c} {v}' for r,c,v in cells)
     ex = ' / '.join(exp)
     out = subprocess.run(['interp/target/release/lm','--grade',path,f'--input={inp}',f'--expected={ex}','--cap=100000'],
-                         cwd='/Users/visenbaev/icfpc26', capture_output=True, text=True)
+                         cwd=_REPO, capture_output=True, text=True)
     print(kind, out.stdout.strip()[:200])
 
 # ===========================================================================
 # FULL BUILD: distributor(broadcast) -> 3 compute -> 6 check -> merger
 # ===========================================================================
 import importlib.util as _ilu
-_spec = _ilu.spec_from_file_location('rf1', '/Users/visenbaev/icfpc26/solutions/sudoku-validity/ringfree_build.py')
+_spec = _ilu.spec_from_file_location('rf1', _REPO + '/solutions/sudoku-validity/ringfree_build.py')
 rf1 = _ilu.module_from_spec(_spec); _spec.loader.exec_module(rf1)
 
 def build_full(path, CW=20):
@@ -249,7 +250,7 @@ def build_full(path, CW=20):
     return L
 
 if __name__ == '__main__' and len(sys.argv) > 1 and sys.argv[1] == 'full':
-    build_full('/private/tmp/claude-501/-Users-visenbaev-icfpc26/45d36e33-5a95-458c-9599-9b3faeeb9c09/scratchpad/ringfree2_full.man')
+    build_full(_REPO + '/scratchpad/ringfree2_full.man')
 
 def merger6(prog, x0, y0, W):
     """6-input merger with SIGN-SAFE nonzero detection (handles 1<<63 dup flags).

@@ -1,8 +1,9 @@
 """Skeleton: controller forwards input[seq,val] -> CMD_WRITE(seq&15,val);
 CMD_READ(seq&15) to driver -> cell -> collector -> O. Validates command-pipe wiring.
 """
+import os as _os; _REPO = _os.path.abspath(__file__).split('/solutions/')[0]
 import sys
-sys.path.insert(0, '/Users/visenbaev/icfpc26/tools')
+sys.path.insert(0, _REPO + '/tools')
 from layout import Layout, route
 from driver_mod import build_driver
 
@@ -51,4 +52,4 @@ if __name__ == '__main__':
     L = build()
     txt = L.render()
     print(txt)
-    L.save('/Users/visenbaev/icfpc26/scratchpad/skel.man')
+    L.save(_REPO + '/scratchpad/skel.man')

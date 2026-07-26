@@ -1,5 +1,5 @@
 // Per-MAN breakdown: for each man, classify its non-stall ticks compute/turn/nop, count stall.
-const { boot } = require('/Users/visenbaev/icfpc26/sim/harness.js');
+const { boot } = require((__dirname + '/../sim/harness.js'));
 const fs=require('fs'),path=require('path');
 const TURN=new Set(['<','>','^','v','V']);const NOP=new Set([' ','.','']);
 const cls=ch=>TURN.has(ch)?'turn':NOP.has(ch)?'nop':'op';

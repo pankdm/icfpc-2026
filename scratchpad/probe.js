@@ -1,5 +1,5 @@
-const { boot } = require('/Users/visenbaev/icfpc26/sim/harness.js');
-const L = require('/Users/visenbaev/icfpc26/tools/lib.js');
+const { boot } = require((__dirname + '/../sim/harness.js'));
+const L = require((__dirname + '/../tools/lib.js'));
 (async()=>{
   const w=await boot();
   const rows=L.manRows(L.readMan('solutions/sort-numbers/select-v3.man'));

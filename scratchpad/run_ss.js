@@ -1,5 +1,5 @@
 // Run a .man on an input token list to settle. Usage: node run_ss.js file.man "4 3 5 2 6 8" [cap]
-const { boot } = require('/Users/visenbaev/icfpc26/sim/harness.js');
+const { boot } = require((__dirname + '/../sim/harness.js'));
 const fs = require('fs');
 (async () => {
   const file = process.argv[2];

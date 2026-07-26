@@ -12,8 +12,9 @@ Bit set -> glide east W, drop to child; clear -> straight south. Leaf col = CB+s
 Stage 1 (build_test): reader inserts val into lane[seq&15]; serpentine sweeper
 drains lanes in seq order straight to output. Validates drain ordering.
 """
+import os as _os; _REPO = _os.path.abspath(__file__).split('/solutions/')[0]
 import sys
-sys.path.insert(0, '/Users/visenbaev/icfpc26/tools')
+sys.path.insert(0, _REPO + '/tools')
 from layout import Layout
 
 def emit_montree(L, entry_col, y0, leaf_fn):
@@ -240,7 +241,7 @@ if __name__ == '__main__':
     else:
         L = build_test()
         print('FOOT', L.footprint())
-        L.save('/Users/visenbaev/icfpc26/solutions/tcp/tcp-sweep-test.man')
+        L.save(_REPO + '/solutions/tcp/tcp-sweep-test.man')
         print('saved')
 
 
@@ -321,5 +322,5 @@ def build_full2():
 if __name__ == '__main__' and '--full2' in sys.argv:
     L = build_full2()
     print('FOOT', L.footprint())
-    L.save('/Users/visenbaev/icfpc26/solutions/tcp/tcp-sweep2.man')
+    L.save(_REPO + '/solutions/tcp/tcp-sweep2.man')
     print('saved tcp-sweep2.man')

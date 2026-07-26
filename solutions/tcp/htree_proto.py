@@ -6,8 +6,9 @@ the oracle (final runner position).
 V-phase reuses the stage-1 vertical tree (re-orient to E between levels).
 H-phase: man heading S, x deflects W/E, re-orient to S between levels.
 """
+import os as _os; _REPO = _os.path.abspath(__file__).split('/solutions/')[0]
 import sys
-sys.path.insert(0, '/Users/visenbaev/icfpc26/tools')
+sys.path.insert(0, _REPO + '/tools')
 from layout import Layout
 
 WV = [10, 5]          # vertical weights -> bands spaced 10
@@ -78,4 +79,4 @@ if __name__ == '__main__':
     print('FOOT', L.footprint())
     print('leaf positions:', {s: leaf_pos(s) for s in range(16)})
     print('distinct:', len(set(leaf_pos(s) for s in range(16))) == 16)
-    L.save('/Users/visenbaev/icfpc26/scratchpad/htree.man')
+    L.save(_REPO + '/scratchpad/htree.man')

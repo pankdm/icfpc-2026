@@ -1,5 +1,6 @@
+import os as _os; _REPO = _os.path.abspath(__file__).split('/scratchpad/')[0]
 import sys
-sys.path.insert(0, '/Users/visenbaev/icfpc26/tools')
+sys.path.insert(0, _REPO + '/tools')
 import littleman as lm
 
 # FULL round-trip: HEAD reads v (top V pipe), sends to KEEPER (H2K), KEEPER
@@ -56,5 +57,5 @@ def build():
     return p
 
 if __name__=='__main__':
-    p=build(); p.save('/Users/visenbaev/icfpc26/scratchpad/ss_rt2.man'); print(p.render())
+    p=build(); p.save(_REPO + '/scratchpad/ss_rt2.man'); print(p.render())
     print('rows: HY',12,'HH',28,'BR',12+28-2,'KY',12+28+2)

@@ -27,8 +27,9 @@ Rings: SA=[a..,SENT], SB=[b..](cycled), SC; holders H1(a), HK(K), HM(M), HMR(Mre
 Columns are VARIABLES; 'tiny' uses a spread staggered (deeper-left) straight-ring layout
 that is collision-free (FSM correctness on small cases).  'run' will cluster+fold later.
 """
+import os as _os; _REPO = _os.path.abspath(__file__).split('/solutions/')[0]
 import sys, os
-sys.path.insert(0, "/Users/visenbaev/icfpc26/tools")
+sys.path.insert(0, _REPO + "/tools")
 import littleman as lm
 
 OFFSET=262144; SA_SENT=16384; SC_SENT=-1   # OFFSET=1<<18 (> max|c|~156816); SA_SENT=1<<14

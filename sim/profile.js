@@ -8,8 +8,8 @@
 // Output: per-man table (find the critical-path man), global class split,
 // stall attribution (empty-recv vs full-send), hottest cells, and two ASCII
 // heatmaps overlaid on the program grid (ACTIVITY = total visits, STALL = blocks).
-const { boot } = require('/Users/visenbaev/icfpc26/sim/harness.js');
-const lib = require('/Users/visenbaev/icfpc26/tools/lib.js');
+const { boot } = require(__dirname + '/harness.js');
+const lib = require(__dirname + '/../tools/lib.js');
 const fs = require('fs'), path = require('path');
 
 const TURN = new Set(['<', '>', '^', 'v', 'V']);
@@ -30,7 +30,7 @@ const pct = (k, tot) => (100 * k / (tot || 1)).toFixed(0) + '%';
   const maxTicks = capF ? parseInt(capF.split('=')[1], 10) : 80000;   // cap 1-tick stepping (big cases repeat)
   const asJson = flags.includes('--json');
 
-  const problem = JSON.parse(fs.readFileSync(path.join('/Users/visenbaev/icfpc26/tests', slug + '.json'), 'utf8'));
+  const problem = JSON.parse(fs.readFileSync(path.join(__dirname + '/../tests', slug + '.json'), 'utf8'));
   const tc = problem.publicTestData[ci];
   if (!tc) { console.log(`no case ${ci} for ${slug}`); process.exit(1); }
   const { input, expected, framesJson } = lib.buildCase(tc);

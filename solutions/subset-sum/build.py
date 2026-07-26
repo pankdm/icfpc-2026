@@ -1,5 +1,6 @@
+import os as _os; _REPO = _os.path.abspath(__file__).split('/solutions/')[0]
 import sys, os
-sys.path.insert(0, '/Users/visenbaev/icfpc26/tools')
+sys.path.insert(0, _REPO + '/tools')
 import littleman as lm
 
 # Subset-sum machine. Belt ring [CNT,T,v_{n-1..0},SENT].
@@ -180,4 +181,4 @@ if __name__ == '__main__':
     p, _ = build()
     print(p.render())
     print('footprint', p.footprint())
-    p.save('/Users/visenbaev/icfpc26/solutions/subset-sum/ss.man')
+    p.save(_REPO + '/solutions/subset-sum/ss.man')

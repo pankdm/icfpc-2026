@@ -8,8 +8,9 @@ ADJACENT to a room wall (or a pipe attach) is misread as a spurious pipe attach
 wall. r/s/instructions may sit against walls. Pipe endpoints sit one cell OUTSIDE
 the destination wall (fwd/bwd neighbour = the wall), matching simple_pipe.py.
 """
+import os as _os; _REPO = _os.path.abspath(__file__).split('/scratchpad/')[0]
 import os, sys
-REPO = "/Users/visenbaev/icfpc26"
+REPO = _REPO
 sys.path.insert(0, os.path.join(REPO, "tools"))
 import littleman as lm
 

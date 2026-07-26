@@ -1,5 +1,6 @@
+import os as _os; _REPO = _os.path.abspath(__file__).split('/scratchpad/')[0]
 import os, sys
-sys.path.insert(0, "/Users/visenbaev/icfpc26/tools")
+sys.path.insert(0, _REPO + "/tools")
 import littleman as lm
 
 # Snake v5: v4 (XL=4 + count-col3 + O-left) with the readout LOOP replaced by a
@@ -80,7 +81,7 @@ def build(NL=16, o_left=True):
 if __name__ == "__main__":
     NL = int(sys.argv[1]) if len(sys.argv) > 1 else 16
     p = build(NL)
-    out = "/Users/visenbaev/icfpc26/scratchpad/snake/snake6.man"
+    out = _REPO + "/scratchpad/snake/snake6.man"
     p.save(out)
     print(p.render())
     print("footprint:", p.footprint())

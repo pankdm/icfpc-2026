@@ -9,6 +9,7 @@ Man op semantics used:
   storeW(A)/loadW()->A ; storeF/loadF : the two fixed storage men (persist in B)
 Halts on -1 (off>=16) as the final output.
 """
+import os as _os; _REPO = _os.path.abspath(__file__).split('/solutions/')[0]
 
 
 class Driver:
@@ -78,7 +79,7 @@ def run_rounds(rounds):
 
 if __name__ == '__main__':
     import json
-    d = json.load(open('/Users/visenbaev/icfpc26/scratchpad/tcp_problem.json'))
+    d = json.load(open(_REPO + '/scratchpad/tcp_problem.json'))
     allok = True
     for i, c in enumerate(d['publicTestData']):
         rounds = c['rounds']

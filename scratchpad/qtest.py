@@ -1,5 +1,6 @@
+import os as _os; _REPO = _os.path.abspath(__file__).split('/scratchpad/')[0]
 import sys, os
-sys.path.insert(0, '/Users/visenbaev/icfpc26/tools')
+sys.path.insert(0, _REPO + '/tools')
 import littleman as lm
 
 # ---------------- Q1: successive r on a FLAT row pull successive input values ----
@@ -66,7 +67,7 @@ if __name__ == '__main__':
     p = {'q1b': build_q1b, 'q2p0': lambda: build_q2_prim('0'),
          'q2p1': lambda: build_q2_prim('1'), 'q2pN': lambda: build_q2_prim('1N'),
          'q2comb': build_q2_comb}[which]()
-    out = '/Users/visenbaev/icfpc26/scratchpad/q_%s.man' % which
+    out = _REPO + '/scratchpad/q_%s.man' % which
     p.save(out)
     print(p.render())
     print('SAVED', out)

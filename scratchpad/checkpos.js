@@ -1,6 +1,6 @@
 // checkpos.js <file.man> <addr0,addr1,...>  -> for each addr, run "0 <addr>"? no,
 // just feed the addr as a single input token, run to halt, print final runner pos.
-const { boot } = require('/Users/visenbaev/icfpc26/sim/harness.js');
+const { boot } = require((__dirname + '/../sim/harness.js'));
 const fs = require('fs');
 (async () => {
   const [file, addrs] = process.argv.slice(2);

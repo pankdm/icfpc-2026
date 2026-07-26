@@ -1,6 +1,6 @@
 // Run a .man on the oracle with a custom single-round input; report ticks + output.
 // usage: node orun.js <file.man> "<space-separated ints>" [cap]
-const { boot } = require('/Users/visenbaev/icfpc26/sim/harness.js');
+const { boot } = require((__dirname + '/../sim/harness.js'));
 const fs = require('fs');
 (async () => {
   const [file, inp, capRaw] = process.argv.slice(2);

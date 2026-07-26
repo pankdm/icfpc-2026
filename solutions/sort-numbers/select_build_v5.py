@@ -10,8 +10,9 @@ extraction).  Two levers combined:
 
 Registers: A scratch ; B = bias(LOAD)/min(SCAN) ; BP = count(LOAD).
 """
+import os as _os; _REPO = _os.path.abspath(__file__).split('/solutions/')[0]
 import sys
-sys.path.insert(0, '/Users/visenbaev/icfpc26/tools')
+sys.path.insert(0, _REPO + '/tools')
 from layout import Layout, place_pipe, relay_man, DIRS
 
 OUT = 'solutions/sort-numbers/select-v5.man'

@@ -1,7 +1,8 @@
 """4-cell H-tree SEND test: each leaf sends [mode,val]; cell does r r M (store val in B).
 Cells placed outside decoder on the nearer wall side. Verify correct cell gets value."""
+import os as _os; _REPO = _os.path.abspath(__file__).split('/scratchpad/')[0]
 import sys
-sys.path.insert(0, '/Users/visenbaev/icfpc26/tools')
+sys.path.insert(0, _REPO + '/tools')
 from layout import Layout
 
 WV=[8]; WH=[8]; R0=16; XV=[14]; XH0=18; RG=2
@@ -61,4 +62,4 @@ print(L.render())
 print('FOOT',L.footprint())
 print('mouths',{a:mouth(a) for a in range(4)})
 print('cellrooms',cellrooms)
-L.save('/Users/visenbaev/icfpc26/scratchpad/sendtest.man')
+L.save(_REPO + '/scratchpad/sendtest.man')

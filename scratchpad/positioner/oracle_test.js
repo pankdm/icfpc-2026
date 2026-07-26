@@ -1,7 +1,7 @@
 // Confirm the positioner on the littleman.wasm ORACLE (ground truth).
 // usage: node oracle_test.js <file.man> <numSlots>
 const fs = require('fs');
-const { boot } = require('/Users/visenbaev/icfpc26/sim/harness.js');
+const { boot } = require((__dirname + '/../../sim/harness.js'));
 
 async function main() {
   const file = process.argv[2];

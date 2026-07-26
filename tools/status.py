@@ -18,7 +18,9 @@ def main():
         st = lib.problem_standings(p["id"])
         best, solvers, total = "-", 0, "?"
         if st and isinstance(st.get("rows"), list):
-            full = [r for r in st["rows"] if r.get("rank") is not None and r.get("score") is not None]
+            # full passers only — the board's cheapest scores are partial-passers (see ours.py)
+            full = [r for r in st["rows"] if r.get("rank") is not None and r.get("score") is not None
+                    and r.get("casesPassed") == r.get("casesTotal")]
             solvers = len(full)
             if full:
                 best = round(min(r["score"] for r in full), 2)

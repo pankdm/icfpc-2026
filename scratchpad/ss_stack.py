@@ -1,5 +1,6 @@
+import os as _os; _REPO = _os.path.abspath(__file__).split('/scratchpad/')[0]
 import sys
-sys.path.insert(0, '/Users/visenbaev/icfpc26/tools')
+sys.path.insert(0, _REPO + '/tools')
 import littleman as lm
 
 # STACK-MAN (decstack coprocessor), isolated & input-fed.
@@ -49,4 +50,4 @@ def build():
     return p
 
 if __name__=='__main__':
-    p=build(); p.save('/Users/visenbaev/icfpc26/scratchpad/ss_stack.man'); print(p.render())
+    p=build(); p.save(_REPO + '/scratchpad/ss_stack.man'); print(p.render())

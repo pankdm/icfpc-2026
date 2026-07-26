@@ -5,8 +5,9 @@ Router model: man snakes E/W across columns [XL..XR]. Each pipe-op must land on 
 pipe's column; if the target is 'behind' the heading, wrap to next row. Non-pipe ops
 placed at current cell advancing 1. Count rows used = controller height.
 """
+import os as _os; _REPO = _os.path.abspath(__file__).split('/solutions/')[0]
 import importlib.util, sys
-sys.path.insert(0,'/Users/visenbaev/icfpc26/tools')
+sys.path.insert(0,_REPO + '/tools')
 
 def load(path, name):
     spec = importlib.util.spec_from_file_location(name, path)
@@ -43,7 +44,7 @@ def sim_height(prog, target_of, XL, XR):
     return y+1
 
 # ---- 1-ring ----
-m1 = load('/Users/visenbaev/icfpc26/solutions/sudoku-validity/ctrl_onering.py','m1')
+m1 = load(_REPO + '/solutions/sudoku-validity/ctrl_onering.py','m1')
 p1 = m1.build_dispatch()
 cols1 = dict(rIN=2, rS=4, sS=6, sD=8)  # I, ret, feed, dispatch (all south)
 def t1(op):
@@ -53,7 +54,7 @@ for W in (10,12,14,16,20):
     print('1-ring W',W,'height', sim_height(p1, t1, 1, W-2), 'ops', len(p1))
 
 # ---- 3-ring (ctrl_opstream) in dispatch form ----
-m3 = load('/Users/visenbaev/icfpc26/solutions/sudoku-validity/ctrl_opstream.py','m3')
+m3 = load(_REPO + '/solutions/sudoku-validity/ctrl_opstream.py','m3')
 p3raw = m3.controller()
 # convert: OUT sinks -> 'sD'; ring ops sIDX/rIDX/sVR/rVR/sT/rT/rIN
 SINKS3 = {'rowLo','rowHi','colLo','colHi','boxLo','boxHi'}

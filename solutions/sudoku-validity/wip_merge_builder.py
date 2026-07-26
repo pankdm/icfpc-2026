@@ -1,4 +1,5 @@
-import sys; sys.path.insert(0,'/Users/visenbaev/icfpc26/tools')
+import os as _os; _REPO = _os.path.abspath(__file__).split('/solutions/')[0]
+import sys; sys.path.insert(0,_REPO + '/tools')
 import littleman as lm
 from layout import Layout, auto_pipe
 L=Layout(); occ=set()
@@ -45,4 +46,4 @@ L.output_room(7,52)
 apipe((8,48),(8,52))          # merger->O
 print(L.render())
 print("FOOT",L.footprint())
-L.save('/private/tmp/claude-501/-Users-visenbaev-icfpc26/45d36e33-5a95-458c-9599-9b3faeeb9c09/scratchpad/merge.man')
+L.save(_REPO + '/scratchpad/merge.man')

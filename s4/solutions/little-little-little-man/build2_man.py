@@ -64,21 +64,66 @@ def path_len(pts):
     return n
 
 
-def relay_ring(p, x0, ytop, width, stations):
-    """A 4-row room holding one relay man walking an `r s r s ...` ring."""
-    p.room(x0, ytop, width, 4)
-    r0, r1 = ytop + 1, ytop + 2
-    p.put(x0 + 1, r0, '@')
-    p.put(x0 + 2, r0, '>')
-    c = x0 + 3
-    end = x0 + 3 + 2 * stations
-    while c + 1 <= end:
-        p.put(c, r0, 'r'); p.put(c + 1, r0, 's'); c += 2
-    p.put(c, r0, 'v'); p.put(c, r1, '<')
-    c -= 1
-    while c - 1 >= x0 + 3:
-        p.put(c, r1, 'r'); p.put(c - 1, r1, 's'); c -= 2
-    p.put(x0 + 2, r1, '^')
+def relay_ring(p, x0, ytop, width, stations, rings=2):
+    """Relay room with `rings` INDEPENDENT `r s r s ...` rings, one man each.
+
+    A single relay man moves (2s+2)/(4s+9) values per tick -- strictly below the
+    0.5 that the main man's `r`,`s` belt rotation demands, so with one relay the
+    belt, not the compute, sets the tick count.  Two men in ONE ring kill each
+    other (contention is strict ascending id: the older man takes every value,
+    laps, and rams the younger, halting both silently), so each man gets a ring
+    that shares no cell with the other, and the second man is `Y`-forked because
+    the loader rejects a room with two `@`s.
+
+        row 0   v  r s r s ... <          ring A, westward return
+        row 1   >  r s r s ... ^          ring A, eastward
+        row 2   @ Y                       spine: fork north and south
+        row 3   >  r s r s ... v          ring B, eastward
+        row 4   ^  r s r s ... <          ring B, westward return
+    """
+    width = max(width, 2 * stations + 8)
+    h = 7 if rings == 2 else 4
+    p.room(x0, ytop, width, h)
+    c0 = x0 + 2
+    cE = c0 + 2 * stations + 1
+
+    def chain_e(row, lo, hi):
+        """relays for an EASTWARD walk: r then s."""
+        c = lo
+        while c + 1 <= hi:
+            p.put(c, row, 'r'); p.put(c + 1, row, 's'); c += 2
+
+    def chain_w(row, lo, hi):
+        """relays for a WESTWARD walk: r must come first in walking order, so the
+        `r` sits at the higher column.  Getting this backwards makes the man `s`
+        a stale A into the belt -- the belt fills with garbage and the main man
+        eventually walks into a wall, with no hint of where it came from."""
+        c = hi
+        while c - 1 >= lo:
+            p.put(c, row, 'r'); p.put(c - 1, row, 's'); c -= 2
+
+    if rings == 1:
+        y = ytop + 1
+        p.put(x0 + 1, y, '@'); p.put(c0, y, '>')
+        chain_e(y, c0 + 1, cE)
+        p.put(cE + 1, y, 'v'); p.put(cE + 1, y + 1, '<')
+        chain_w(y + 1, c0 + 1, cE)
+        p.put(c0, y + 1, '^')
+        return
+    ya, yb = ytop + 1, ytop + 2
+    ys, yc, yd = ytop + 3, ytop + 4, ytop + 5
+    # ring A (above the spine)
+    p.put(c0, yb, '>'); chain_e(yb, c0 + 1, cE)
+    p.put(cE + 1, yb, '^'); p.put(cE + 1, ya, '<')
+    chain_w(ya, c0 + 1, cE)
+    p.put(c0, ya, 'v')
+    # spine
+    p.put(x0 + 1, ys, '@'); p.put(c0, ys, 'Y')
+    # ring B (below the spine)
+    p.put(c0, yc, '>'); chain_e(yc, c0 + 1, cE)
+    p.put(cE + 1, yc, 'v'); p.put(cE + 1, yd, '<')
+    chain_w(yd, c0 + 1, cE)
+    p.put(c0, yd, '^')
 
 
 def main():
@@ -87,10 +132,13 @@ def main():
     ap.add_argument('--gw', type=int, default=180, help='code room width')
     ap.add_argument('--cell-legs', type=int, default=7)
     ap.add_argument('--cell-h', type=int, default=20)
-    ap.add_argument('--state-legs', type=int, default=3)
-    ap.add_argument('--state-h', type=int, default=6)
-    ap.add_argument('--cell-relay', type=int, default=6)
-    ap.add_argument('--state-relay', type=int, default=3)
+    ap.add_argument('--state-legs', type=int, default=1)
+    ap.add_argument('--state-h', type=int, default=10)
+    ap.add_argument('--cell-relay', type=int, default=20)
+    ap.add_argument('--rings', type=int, default=1,
+                    help='2 relay men double belt throughput but REORDER the belt '
+                         '(measured 8/10, wrong frames) -- both belts are FIFOs')
+    ap.add_argument('--state-relay', type=int, default=14)
     args = ap.parse_args()
 
     GW = args.gw
@@ -139,7 +187,7 @@ def main():
         p.pipe(list(reversed(in_pts)))
         relay_lo = min(out_pts[-1][0], in_pts[-1][0]) - 2
         relay_hi = max(out_pts[-1][0], in_pts[-1][0]) + 2
-        relay_ring(p, relay_lo, cb + 3, relay_hi - relay_lo + 1, args.cell_relay)
+        relay_ring(p, relay_lo, cb + 3, relay_hi - relay_lo + 1, args.cell_relay, args.rings)
 
         # --- state belt: same construction, much shorter --------------------
         st, sb = SOUTH, SOUTH + args.state_h
@@ -149,7 +197,7 @@ def main():
         p.pipe(list(reversed(si)))
         rlo = min(so[-1][0], si[-1][0]) - 2
         rhi = max(so[-1][0], si[-1][0]) + 2
-        relay_ring(p, rlo, sb + 3, rhi - rlo + 1, args.state_relay)
+        relay_ring(p, rlo, sb + 3, rhi - rlo + 1, args.state_relay, args.rings)
 
         # --- input room -----------------------------------------------------
         p.input_room(INP - 1, SOUTH + 3)

@@ -204,3 +204,48 @@ Stalls are not merely slow here; at low spacing they are silent wrong answers.
 - **Men-as-storage for the b-ring.** A crowd of V men on a T-cell track still has cycle
   time T, not V, so it does *not* fix the small-case stall — tiering does. Men only pay
   where the value lives in a register permanently (the accumulators, improvement 2).
+
+---
+
+# Probe results (2026-07-26) — two of these change the design
+
+Measured with `scratchpad/mm_probe.py` on the Rust engine.
+
+**1. `s` preserves A, and `*` preserves B.** CONFIRMED (`r M r * W s s` on input
+`3 5` emits `3 3`, settle 9). The 10-op lap is sound as written.
+
+**2. A pipe may NOT connect a room to itself** — `loaderror: "pipe self-loop"`.
+Every ring therefore costs a **relay room plus two pipes**, not one pipe. This is
+why the old design is built from "CTRL<->relay" rings. Minimum relay is a 5x4 room
+running a 6-cell shuttle loop:
+
+```
++---+
+|@rv|
+|^s<|
++---+
+```
+
+Budget accordingly: 4 rings (A-queue, b-ring, c-ring, a-holder) = 4 relay rooms
+(~20 cells each) + 8 pipes. Several rings can share ONE relay room if each gets its
+own `r`/`s` cell, since nearest-pipe binding is per-cell — worth doing to save area.
+
+**3. Holding `a` in B collapses the lap from 10 ops to 4.** This falls out of result
+1. If the multiplier man keeps `a` in **B** permanently, then per MAC:
+
+| op | A | B |
+|---|---|---|
+| `r` | b | a |
+| `s` | b | a | re-enqueue b |
+| `*` | a*b | **a** | B survives, so `a` is still there next lap |
+| `s` | a*b | a | send the product to an accumulator man |
+
+**4 ops + 2 corners = a 6-cell lap**, and `a` only needs refreshing once per k-step
+(a branch out of the loop counted in `BP`). This *requires* improvement 2
+(accumulators in men), because the product must leave the lap for someone else to
+add — but it means improvements 1 and 2 are not independent: doing 2 gives 1 for free
+and goes further than either.
+
+Revised ceiling: lap 6 at P=3 is ticks/MAC = 2, the collision floor, i.e. the
+1,684-avg / ~3.4M row of the table above becomes reachable at P=3 rather than needing
+P=4 on an 8-cell lap.

@@ -35,6 +35,37 @@ pipes attach on row 18, so the |y-18| term cancels and only columns matter):
     OUT/P1 midpoint 7.5 : every `s` must sit at x>=8 to reach the belt
 The write arm's belt read moved 6 -> 7 for this (col 6 binds CMD now).
 
+*** PORTING TRACK B's 2-MAN ENGINE ONTO THIS FLOORPLAN: THE KNOT. ***
+Track B (branch trackB) cuts avgTicks 4923 -> 3984 at box 1764.  Dropping that
+engine into this 784 box would give 3.12M local / ~12.5M server.  It does not
+drop in, and the reason is geometric, not logical -- do not re-derive it:
+
+  * Track B's MEM is 22 WIDE, not 17: the helper pump ring sits at cols 18/19
+    with its retiring `H` at col 20.  The helper cannot move west -- at col 6
+    an `s` is 5 from OUT(1) but 8 from P1(14), so it would bind the OUTPUT
+    pipe.  22 is therefore forced, and the right strip shrinks from cols 17-27
+    to cols 22-27, i.e. 6 wide.
+  * HOP is 7 rows tall (two 2-row rings + a spawn lane) and W+2 wide with
+    W >= 8 (rate (W-3)/W must beat MEM's 0.571).  So HOP is at minimum 10x7 and
+    NO LONGER FITS IN THE 6-WIDE STRIP where v4 puts it.
+  * Forced into the band (rows 20-27) instead, HOP collides with the belt's
+    return.  The knot: p1 owns (14,18) and (14,19) by force, so p2's only way
+    back to (9,18) is row 19 WEST of col 14, which it can only reach by
+    crossing col 14 at rows >= 20 -- and rows 20-27 are now HOP plus CONTROL.
+    Every assignment of the four lane columns either (a) puts CONTROL over
+    P2's column so p2 cannot come up from below, (b) puts the output room
+    (which needs OUT <= col 3) under CONTROL, or (c) leaves the input room
+    with no 2-cell gap to any CONTROL wall.  All three were worked through.
+
+  TWO WAYS OUT, both still worth it because ticks dominate the box here:
+   1. RELAX THE BOX.  29x29 = 841 x 3984 = 3.35M (~13.4M server) and even
+      30x30 = 3.59M still beat this file's 3.86M.  At 29 wide the strip is 7
+      cols, which is exactly enough for a TRANSPOSED HOP (7 wide x W+2 tall,
+      two 2-COLUMN rings + a spawn column).  A south-facing parent births east
+      and west, so `Y` works transposed -- MEM's own fork already does this.
+   2. Keep 28x28 and make HOP cheaper than 10x7.  Anything that shaves HOP to
+      <= 6 wide or gets MEM back under 22 wide unlocks v4's floorplan as-is.
+
 --- protocol, introduced in v3 and unchanged here -------------------------
 PROTOCOL: op before value, no value on reads.
 

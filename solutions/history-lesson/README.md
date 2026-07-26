@@ -1,14 +1,13 @@
 # History Lesson — ring dictionary build
 
-`history-ring.man` is the smallest checked-in solution for this problem.  It
-has an **83×83** non-space footprint, so its footprint-only score is **6,889**.
-The submitted artifact currently recorded in `submitted/history-lesson.man` is
-the older `history-lesson-with-year.man` at 84×84 (7,056).  The ring build is
-therefore the repository champion, but this document does not claim it has
-been submitted.
+`best/82x82.man` is the checked-in champion for this problem.  It has an
+**82×82** non-space footprint, so its footprint-only score is **6,724**.
+`build_ring.py` reproduces it byte-for-byte; the `.man` file is not a
+hand-maintained second source of truth.
 
 | Candidate | Footprint | Score |
 | --- | ---: | ---: |
+| `best/82x82.man` | 82×82 | 6,724 |
 | `history-ring.man` | 83×83 | 6,889 |
 | `history-lesson-with-year.man` | 84×84 | 7,056 |
 | `history-lesson-v3.man` / `v4.man` | 85×85 / 85×84 | 7,225 |
@@ -16,13 +15,13 @@ been submitted.
 
 The program has no input.  It emits the byte sequence in
 `icfp-history.txt`; consequently a slow, small decoder is the right tradeoff.
-Its cached oracle check passes the sole public case in 215,585 ticks, but ticks
+Its cached oracle check passes the sole public case in 352,318 ticks, but ticks
 do not affect this problem's score.
 
 ## Encoding
 
-`build_ring.py` is the source of truth for `history-ring.man`.  It transforms
-the target text into a compact stream with these base-92 symbols:
+`build_ring.py` is the source of truth for `best/82x82.man`.  It transforms the
+target text into a compact stream with these base-92 symbols:
 
 | Symbol | Meaning |
 | --- | --- |
@@ -135,10 +134,10 @@ DECODER ── repeated divmod 92 ──► DISP ──► YEAR ──► UNPACK
 6. **UNPACK** repeatedly divides every packed value by 128.  Its remainders are
    the raw ASCII bytes sent to the output room.
 
-The physical layout folds the feeder above P1 and puts the decoder, lookup,
-year, unpacker, and output in the lower bands.  Two slim vertical pipes at the
-right close the P1/DISP loop.  The layout is square on purpose: the problem
-scores only `max(width, height)^2`.
+The physical layout uses 62 feeder rows plus its two borders, puts all five
+service rooms directly beneath the feeder, and places P1 in the final ten
+rows.  Two slim vertical pipes at the right close the P1/DISP loop.  The
+layout is square on purpose: the problem scores only `max(width, height)^2`.
 
 ## Pipe-length requirements
 
@@ -161,13 +160,13 @@ The checked-in layout has these parsed pipe lengths:
 
 | Pipe | Current cells | Semantic requirement |
 | --- | ---: | --- |
-| feeder → DECODER | 21 | at least 2 |
-| DECODER → DISP | 44 | at least 2 |
-| DISP → YEAR | 3 | at least 2 |
+| feeder → DECODER | 8 | at least 2 |
+| DECODER → DISP | 43 | at least 2 |
+| DISP → YEAR | 2 | at least 2 |
 | YEAR → UNPACK | 7 | at least 2 |
 | UNPACK → output | 3 | at least 2 |
-| P1 → DISP | 12 | at least 2; coupled with the return pipe |
-| DISP → P1 | 71 | at least 2; coupled with the forward pipe |
+| P1 → DISP | 2 | at least 2; coupled with the return pipe |
+| DISP → P1 | 33 | at least 2; coupled with the forward pipe |
 
 The dictionary contains 35 entries and one `-1` sentinel, for 36 circulating
 words.  During rotation one word can be held by a runner between its `r` and
@@ -195,9 +194,9 @@ Capacity-only interpreter tests confirm the boundary:
 - all five ordinary links shortened to two cells at once still passed when the
   ring was `2+33`.
 
-The current ring has `12+71=83` cells, so its length is dominated by physical
-room separation rather than storage need.  It has 48 cells of semantic
-capacity slack.
+The current ring has `2+33=35` cells: exactly the semantic capacity floor,
+with no slack.  Moving either ring attachment or shortening either route
+therefore requires lengthening the other leg by the same amount.
 
 These are *semantic* minima.  A concrete route may need to be longer because
 its endpoints are farther apart or because it must avoid rooms and other
@@ -224,24 +223,55 @@ and paired decimal widths, then a shortest-path dynamic program to minimize
 the number of row pairs.
 
 At width 82 the optimized feeder takes 62 rows instead of the fixed feeder's
-64.  The resulting `history-ring-variable-82.man` is 82×83 and passes the
-public oracle case.  It has the same 6,889 score as the 83×83 champion because
-the unchanged decoder/dictionary tail still makes the total height 83.  The
-exhaustive slot-count search did not find a 60-row feeder at width 82, so
-variable chunks alone do not cross the next scoring boundary.
+64.  The intermediate `history-ring-variable-82.man` was 82×83.  The champion
+keeps that feeder byte-for-byte, then manually folds the service tail from 19
+rows to 18 and tightens the dictionary ring from `12+71` cells to its `2+33`
+minimum.  That final fold reaches 82×82.
+
+## Reproducing the champion
+
+From the repository root:
+
+```bash
+python3 solutions/history-lesson/build_ring.py
+git diff --exit-code -- solutions/history-lesson/best/82x82.man
+python3 scratchpad/history-ring/test_rooms.py
+python3 scratchpad/history-ring/test_year.py
+python3 scratchpad/history-ring/test_disp.py
+node tools/grade_json.js history-lesson solutions/history-lesson/best/82x82.man \
+  --cases tests/history-lesson.json --failfast
+```
+
+The first command deterministically runs the variable-width feeder DP and
+overwrites `best/82x82.man`.  The second command is the strict reproduction
+gate: no output and exit status zero means the generated file is byte-identical
+to the checked-in champion.  Generation takes roughly 30 seconds on the
+contest machine.
+
+Two DSL details are load-bearing:
+
+- `Program` records every room rectangle so `audit_vertical_ticks()` scopes
+  vertical-literal checks to one room.  Backticks in vertically stacked rooms
+  are unrelated because the intervening walls terminate literal parsing.
+- `Program.pipe(..., end_direction="E|W|N|S")` expresses a pipe whose final
+  cell turns into the destination wall.  The compact DECODER→DISP and both
+  ring routes use such corner-ended pipes; replacing them with ordinary
+  last-segment arrows changes the topology.
+
+The old layouts remain reproducible for comparison:
+
+```bash
+python3 solutions/history-lesson/build_ring.py --legacy
+python3 solutions/history-lesson/build_ring.py --legacy 82 --variable
+```
 
 ## Rebuild and verify
 
 ```bash
-python3 solutions/history-lesson/build_ring.py
 python3 solutions/history-lesson/optimize_feeder.py 82 83
-python3 solutions/history-lesson/build_ring.py 82 --variable
-python3 scratchpad/history-ring/test_rooms.py
-python3 scratchpad/history-ring/test_year.py
-python3 scratchpad/history-ring/test_disp.py
-node tools/grade_json.js history-lesson solutions/history-lesson/history-ring.man \
-  --cases tests/history-lesson.json --failfast
 ```
 
-The room tests check the dense pieces independently: base-92 tagging,
-dictionary rotation/restoration, year-boundary generation, and dispatch.
+This standalone command reports feeder alternatives without writing a
+solution.  The room tests in the reproduction recipe check the dense pieces
+independently: base-92 tagging, dictionary rotation/restoration, year-boundary
+generation, and dispatch.

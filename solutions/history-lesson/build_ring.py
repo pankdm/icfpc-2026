@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""history-lesson: ring-dictionary build (v1).
+"""history-lesson: ring-dictionary build.
 
 Pipeline: feeder ->(chunks) decoder(/92) ->(syms) DISP (classify + ring
 lookup) ->(raw ascii / packed / 0) year ->(values) unpack(/128) -> O.
@@ -13,7 +13,10 @@ sentinel -1 and full-rotation restore).
 
 Rooms were unit-verified in scratchpad/history-ring/ (roomsim + tests).
 
-Usage: python3 build_ring.py [W]
+Usage:
+  python3 build_ring.py                         # reproduce best/82x82.man
+  python3 build_ring.py --legacy                # reproduce history-ring.man
+  python3 build_ring.py --legacy 82 --variable  # reproduce 82x83 intermediate
 """
 from __future__ import annotations
 
@@ -605,25 +608,34 @@ def p1_room(program, x0, y0, width, ring, layout):
 
 def audit_vertical_ticks(program):
     """Oracle rule: consecutive same-column backticks must have only
-    digits/spaces between.  Returns list of (x, ya, yb)."""
+    digits/spaces between, within one room.  Returns list of (x, ya, yb).
+
+    Room scoping matters: walls terminate literal parsing, so ticks in two
+    vertically stacked rooms must never be paired with each other.
+    """
     cells = program.cells
-    W = max(p[0] for p in cells) + 1
-    H = max(p[1] for p in cells) + 1
     bad = []
-    for x in range(W):
-        ticks = [y for y in range(H) if cells.get((x, y)) == "`"]
-        for i in range(0, len(ticks) - 1, 2):
-            a, b = ticks[i], ticks[i + 1]
-            for y in range(a + 1, b):
-                c = cells.get((x, y), " ")
-                if not (c.isdigit() or c == " "):
-                    bad.append((x, a, b))
-                    break
+    for room in program.rooms:
+        for x in range(room.ix0, room.ix1 + 1):
+            ticks = [
+                y
+                for y in range(room.iy0, room.iy1 + 1)
+                if cells.get((x, y)) == "`"
+            ]
+            for i in range(0, len(ticks) - 1, 2):
+                a, b = ticks[i], ticks[i + 1]
+                for y in range(a + 1, b):
+                    c = cells.get((x, y), " ")
+                    if not (c.isdigit() or c == " "):
+                        bad.append((x, a, b))
+                        break
     return bad
 
 
-def build(W=83, variable=False):
+def build(W=83, variable=False, compact_tail=False):
     assert W >= (82 if variable else 83)
+    if compact_tail and (W != 82 or not variable):
+        raise ValueError("the compact 82x82 tail requires W=82 and variable=True")
     symbols, ring, layout = build_encoding()
     if variable:
         bands = optimize_feeder(symbols, W)
@@ -635,9 +647,86 @@ def build(W=83, variable=False):
         chunks = pack_chunks(symbols, dw)
         bands = None
     assert verify(chunks, ring), "encoding does not reproduce the text"
-    program = build_once(W, chunks, dw, ring, layout, bands=bands)
+    if compact_tail:
+        program = build_compact_once(W, chunks, ring, layout, bands)
+    else:
+        program = build_once(W, chunks, dw, ring, layout, bands=bands)
     bad = audit_vertical_ticks(program)
     assert not bad, f"vertical tick audit failed: {bad[:4]}"
+    return program
+
+
+def build_champion():
+    """Build the checked-in 82x82 champion."""
+    program = build(82, variable=True, compact_tail=True)
+    assert program.footprint() == (82, 82, 6724)
+    return program
+
+
+def build_compact_once(W, chunks, ring, layout, bands):
+    """Place the optimized feeder and the hand-folded 18-row service tail."""
+    program = Program()
+    feeder_rows = variable_feeder(program, bands, W)
+    assert feeder_rows == 62
+    tail_top = feeder_rows + 2
+    assert tail_top == 64
+
+    # Service rooms occupy the top eight rows of the tail.  P1 is below them,
+    # rather than above them as in build_once(), which removes the old gap rows.
+    paste_room(program, 2, tail_top, UNPACK_ROWS)
+    program.output_room(17, tail_top)
+    yw, yh = paste_room(program, 20, tail_top, year_rows())
+    assert (yw, yh) == (29, 7)
+    dwid, dh = paste_room(program, 51, tail_top, DISP_ROWS)
+    assert (dwid, dh) == (27, 8)
+    paste_room(program, 4, tail_top + 4, DECODER_ROWS)
+    p1h = p1_room(program, 0, tail_top + 8, 80, ring, layout)
+    assert p1h == 10
+
+    # feeder -> DECODER
+    program.pipe([(1, tail_top), (1, tail_top + 5), (3, tail_top + 5)])
+    # UNPACK -> O
+    program.pipe([(14, tail_top + 1), (16, tail_top + 1)])
+    # DISP -> YEAR
+    program.pipe([(50, tail_top + 1), (49, tail_top + 1)])
+    # YEAR -> UNPACK.  The two adjacent bends at x15 are intentional.
+    program.pipe([
+        (19, tail_top + 3),
+        (15, tail_top + 3),
+        (15, tail_top + 2),
+        (14, tail_top + 2),
+    ])
+    # DECODER -> DISP.  Its last cell is a north-to-east corner into DISP.
+    program.pipe(
+        [
+            (15, tail_top + 5),
+            (16, tail_top + 5),
+            (16, tail_top + 7),
+            (50, tail_top + 7),
+            (50, tail_top + 2),
+        ],
+        end_direction="E",
+    )
+
+    # Dictionary ring, at its exact semantic capacity floor: 2 + 33 = 35.
+    # DISP -> P1 takes the two outer columns down and back up.  The last cell
+    # turns south into P1's top border.
+    program.pipe(
+        [
+            (78, tail_top),
+            (81, tail_top),
+            (81, tail_top + 17),
+            (80, tail_top + 17),
+            (80, tail_top + 7),
+            (79, tail_top + 7),
+        ],
+        end_direction="S",
+    )
+    # P1 -> DISP is the minimum two-cell return; its final cell turns west.
+    program.pipe(
+        [(78, tail_top + 7), (78, tail_top + 6)],
+        end_direction="W",
+    )
     return program
 
 
@@ -699,14 +788,28 @@ def build_once(W, chunks, dw, ring, layout, bands=None):
 
 
 def main():
+    legacy = "--legacy" in sys.argv
     variable = "--variable" in sys.argv
-    positional = [arg for arg in sys.argv[1:] if arg != "--variable"]
-    W = int(positional[0]) if positional else 83
-    program = build(W, variable=variable)
-    name = f"history-ring-variable-{W}.man" if variable else "history-ring.man"
+    positional = [
+        arg for arg in sys.argv[1:]
+        if arg not in ("--legacy", "--variable")
+    ]
+    if legacy:
+        W = int(positional[0]) if positional else 83
+        program = build(W, variable=variable)
+        name = f"history-ring-variable-{W}.man" if variable else "history-ring.man"
+    else:
+        if positional or variable:
+            raise SystemExit(
+                "default build is best/82x82.man; use --legacy [W] [--variable] "
+                "for an older layout"
+            )
+        program = build_champion()
+        name = os.path.join("best", "82x82.man")
     out = os.path.join(HERE, name)
+    os.makedirs(os.path.dirname(out), exist_ok=True)
     with open(out, "w") as f:
-        f.write(program.render() + "\n")
+        f.write(program.render() + ("\n" if legacy else ""))
     w, h, score = program.footprint()
     print(f"wrote {out}: {w}x{h} score={score}")
 

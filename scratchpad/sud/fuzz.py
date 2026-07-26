@@ -98,6 +98,21 @@ def main():
     suite.append(("immediate-dup", [(0, 0, 5), (0, 8, 5)]))
     suite.append(("extremes", [(0, 0, 1), (8, 8, 9), (0, 8, 9), (8, 0, 1)]))
 
+    # 5. TIMER ADVERSARIES. bit = 9*idx+v, so lane2 (the mask the addressing room
+    # sends LAST, hence the latest possible detection) needs bit>=64 => idx>=7.
+    # Fire each of those at round 2, while the fork chain is still birthing men.
+    #   box idx = 3*(r//3) + c//3 ; idx 7 <=> r in 6..8 and c in 3..5
+    suite.append(("lane2-box-dup@2", [(6, 3, 5), (7, 4, 5)]))     # box idx 7 -> bit 68
+    suite.append(("lane2-box-dup@2b", [(6, 6, 9), (8, 7, 9)]))    # box idx 8 -> bit 81
+    suite.append(("lane2-row-dup@2", [(7, 0, 1), (7, 8, 1)]))     # row idx 7 -> bit 64
+    suite.append(("lane2-col-dup@2", [(0, 8, 9), (8, 8, 9)]))     # col idx 8 -> bit 81
+    suite.append(("lane1-box-dup@2", [(0, 0, 1), (1, 1, 1)]))     # box idx 0 -> bit 1
+    # every (idx,v) at the lane boundary, as a long valid run then a late dup
+    for idx, v in ((6, 9), (7, 1), (7, 2)):                       # bit 63, 64, 65
+        g = solved_grid(rng)
+        cs = cells_of(g, rng, shuffle=False)
+        suite.append((f"boundary-bit{9*idx+v}", cs))
+
     # 5. random extra valid grids
     for i in range(n):
         g = solved_grid(rng)

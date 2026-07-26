@@ -480,17 +480,26 @@ class Model:
         aw = getattr(self, "att_walls", {}).get(i, set())
         bw = getattr(self, "att_walls", {}).get(j, set())
 
-        def need(mine, theirs):
+        # the ORIGINAL directional separations; exactly one of the four is >= 0 (the
+        # branch that actually separates the pair in the champion).
+        og = (self.plan.blocks[j].ox0 - (a.ox0 + a.w),
+              a.ox0 - (self.plan.blocks[j].ox0 + b.w),
+              self.plan.blocks[j].oy0 - (a.oy0 + a.h),
+              a.oy0 - (self.plan.blocks[j].oy0 + b.h))
+
+        def need(mine, theirs, orig):
             """Clearance on the branch where MY `mine` wall faces THEIR `theirs` wall."""
-            if mine in aw or theirs in bw:
-                return max(s, self.STUB)
-            return s
+            v = max(s, self.STUB) if (mine in aw or theirs in bw) else s
+            # never demand more than the champion itself proves is enough: on the one
+            # branch the original layout uses, its own separation is an existence proof,
+            # and asking for more would make the model UNSAT-by-fiat.
+            return min(v, orig) if orig >= 0 else v
 
         self.opt.add(z3.Or(
-            self.X[i] + a.w + need("R", "L") <= self.X[j],
-            self.X[j] + b.w + need("L", "R") <= self.X[i],
-            self.Y[i] + a.h + need("B", "T") <= self.Y[j],
-            self.Y[j] + b.h + need("T", "B") <= self.Y[i]))
+            self.X[i] + a.w + need("R", "L", og[0]) <= self.X[j],
+            self.X[j] + b.w + need("L", "R", og[1]) <= self.X[i],
+            self.Y[i] + a.h + need("B", "T", og[2]) <= self.Y[j],
+            self.Y[j] + b.h + need("T", "B", og[3]) <= self.Y[i]))
 
     def bump_sep(self, i, j):
         """A pipe between i and j keeps failing to route: demand more corridor."""
@@ -711,7 +720,9 @@ def main():
                     pair_fail[key] = 0
                 # a long pipe that cannot wind is an AREA problem, not a pair problem:
                 # after repeated failures at the same envelope, demand a roomier one.
-                if m_fail[0] == mval:
+                if m_fail[0] == mval and not args.max_m:
+                    # with an explicit --max-m the relaxation would contradict it and
+                    # the next solve is UNSAT-by-construction, ending the run early.
                     m_fail[1] += 1
                     if m_fail[1] >= 4:
                         print(f"      4 routing failures at M={mval} — relaxing to "

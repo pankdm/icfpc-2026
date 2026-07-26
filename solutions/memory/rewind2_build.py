@@ -97,18 +97,30 @@ def vring(P, down, up, top, nrelay):
     # down column and leaves the up column a bare return corridor.
     dn = 2 * ((nrelay + 1) // 2)       # relay cells on the southbound column
     upn = 2 * nrelay - dn              # relay cells on the northbound column
-    bot = top + 3 + dn                 # 'v', 'm', dn relay cells, then the turn
+    # A lap costs 2*nrelay relay cells + 'm' + 'd' + three turns ('v','<','^'),
+    # so lap >= 2*nrelay + 6 and ticks/relay >= 2 + 6/nrelay -- 2.75 at nrelay=8.
+    # 'm' only has to run once per lap, so put it on whichever column has a
+    # spare cell.  When the up column is shorter than the down one (nrelay odd,
+    # notably the nrelay=1 remainder ring) it has a free slot, which pulls the
+    # bottom turn up a row and makes the lap 8 cells instead of 10.
+    m_on_up = (dn - upn) >= 1
+    bot = top + (2 if m_on_up else 3) + dn
     P(down, top, 'a')                  # guard (test BEFORE entering)
     P(down, top + 1, 'v')              # entry + loop-back turn target
-    P(down, top + 2, 'm')              # BP-- once per lap
+    off = top + 2
+    if not m_on_up:
+        P(down, top + 2, 'm')          # BP-- once per lap
+        off = top + 3
     for i in range(dn):                # southbound relays: r s r s ...
-        P(down, top + 3 + i, 'rs'[i % 2])
+        P(down, off + i, 'rs'[i % 2])
     P(down, bot, '<')
     P(up, bot, '^')
     for i in range(upn):               # northbound relays, in travel order
         P(up, bot - 1 - i, 'rs'[i % 2])
     for y in range(top + 2, bot - upn):
         P(up, y, ' ')
+    if m_on_up:
+        P(up, top + 2, 'm')            # BP-- once per lap (spare up-column cell)
     P(up, top + 1, 'd')                # BP>0 -> cw(north->east) back to entry
     P(up, top, '<')                    # merged exit / bypass
     return bot

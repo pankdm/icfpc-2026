@@ -6,10 +6,10 @@
 |>rM`100`W%M8W/Wv |
 |      v <abW<ab< |
 |      r dv  dv   |
-|      M  m   m   |
-|      r sr   r   |
-|     vX rs   s   |
-|        sr  ^<   |
+|      M  m  mr   |
+|      r sr   s   |
+|     vX rs  ^<   |
+|        sr       |
 |        rs       |
 |        sr       |
 |        rs       |

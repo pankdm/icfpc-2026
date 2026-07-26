@@ -115,27 +115,43 @@ class GroupPlan(PLACE.Plan):
         route is blocked and the router fails in a maze of its neighbours' combs.  A
         pipe whose two endpoints moved by one common delta will simply reclaim its own
         (translated) route, so those go first, then the truly-moved ones longest-first."""
-        if order is None:
-            base = self.base_layout()
-            reusable, rest = [], []
-            slack = {}
-            for p in self.pipes:
-                s, d = self.ends(layout, p)
-                s0, d0 = self.ends(base, p)
-                ds = (s[0] - s0[0], s[1] - s0[1])
-                dd = (d[0] - d0[0], d[1] - d0[1])
-                if ds == dd:
-                    reusable.append(p.idx)
-                else:
-                    rest.append(p.idx)
-                    md = abs(s[0] - d[0]) + abs(s[1] - d[1])
-                    slack[p.idx] = p.length - (md - 1)
-            # tightest-first: a net with no winding slack has exactly one corridor that
-            # works, while a big-deficit serpentine can comb into whatever is left.
-            rest.sort(key=lambda i: (slack[i], -self.pipes[i].length))
-            order = reusable + rest
-        return super().route_all(layout, pipe_len=pipe_len, margin=margin, order=order,
-                                 retries=retries, tighten=tighten)
+        if order is not None:
+            return super().route_all(layout, pipe_len=pipe_len, margin=margin,
+                                     order=order, retries=retries, tighten=tighten)
+        base = self.base_layout()
+        reusable, rest = [], []
+        slack = {}
+        for p in self.pipes:
+            s, d = self.ends(layout, p)
+            s0, d0 = self.ends(base, p)
+            ds = (s[0] - s0[0], s[1] - s0[1])
+            dd = (d[0] - d0[0], d[1] - d0[1])
+            if ds == dd:
+                reusable.append(p.idx)
+            else:
+                rest.append(p.idx)
+                md = abs(s[0] - d[0]) + abs(s[1] - d[1])
+                slack[p.idx] = p.length - (md - 1)
+        # tightest-first: a net with no winding slack has exactly one corridor that
+        # works, while a big-deficit serpentine can comb into whatever is left.
+        rest.sort(key=lambda i: (slack[i], -self.pipes[i].length))
+        # retry policy: the loser goes to the front of REST only — never above the
+        # reusable pipes, whose reserved original cells are the one stable thing here
+        # (place.py's own retry promotes the loser above them, evicting their routes
+        # and turning one failure into a different failure every pass).
+        last = None
+        for _ in range(max(retries, 4)):
+            paths, bad = self._route_pass(layout, pipe_len, margin,
+                                          reusable + rest, tighten)
+            if paths is not None:
+                return paths, None
+            last = bad
+            if bad in reusable:
+                reusable.remove(bad)     # cannot actually reuse -> it is a mover
+            elif bad in rest:
+                rest.remove(bad)
+            rest.insert(0, bad)
+        return None, last
 
     def _reuse(self, p, src, dst, occ, taken, core=None):
         keep = super()._reuse(p, src, dst, occ, taken, core)
@@ -164,7 +180,7 @@ def zabs(e):
 
 class Model:
     def __init__(self, plan, groups, gap, extra_cap, base_maxdim, verbose=False,
-                 deficit=24):
+                 deficit=24, parity=False):
         self.plan = plan
         self.gap = gap
         self.verbose = verbose
@@ -247,6 +263,12 @@ class Model:
             s1, d1 = plan.ends(plan.base_layout(), p)
             orig_deficit = p.length - (abs(s1[0] - d1[0]) + abs(s1[1] - d1[1]) - 1)
             o.add(md - 1 >= p.length - max(deficit, orig_deficit))
+            if parity:
+                # any route between these endpoints has length ≡ md-1 (mod 2), so an
+                # EXACT-length route exists only when md keeps the original parity —
+                # needed when even a +1 padding overshoot changes a q-depth count.
+                omd = abs(s1[0] - d1[0]) + abs(s1[1] - d1[1])
+                o.add((e1x - e2x + e1y - e2y) % 2 == omd % 2)
             self.extras.append(ex)
 
         # envelope
@@ -262,6 +284,21 @@ class Model:
             o.add(self.X0 <= x0, x1 + 1 <= self.X1)
             o.add(self.Y0 <= y0, y1 + 1 <= self.Y1)
         o.add(self.M >= self.X1 - self.X0, self.M >= self.Y1 - self.Y0)
+
+        # a pipe attaching to a display (or any block) side that faces the envelope
+        # edge needs room to come AROUND: the route approaches a bottom attachment from
+        # below, so the envelope must extend a few rows past it, or the router starves.
+        for p in plan.pipes:
+            for bi, off in ((p.src_b, p.src_off), (p.dst_b, p.dst_off)):
+                b = plan.blocks[bi]
+                if b.kind != "display":
+                    continue
+                if off[1] == b.h - 1:                       # bottom wall attachment
+                    o.add(self.Y1 >= self.Y[bi] + b.h + 3)
+                if off[1] == 0:                             # top wall attachment
+                    o.add(self.Y[bi] - self.Y0 >= 3)
+                if off[0] == 0:                             # left wall attachment
+                    o.add(self.X[bi] - self.X0 >= 3)
 
         # area certificate: every block cell and every pipe cell must fit in the box,
         # so M^2 >= total cells — a constant lower bound, and the honest floor of what
@@ -406,6 +443,7 @@ def main():
     args = ap.parse_args()
 
     plan = GroupPlan(args.man)
+    plan.route_guard = True     # new routes must not graze ANY wall (see place.py)
     n = len(plan.blocks)
     print(f"{Path(args.man).name}: {n} blocks, {len(plan.pipes)} pipes, "
           f"{len(plan.orphans)} orphans, adjacency guard "
@@ -430,7 +468,7 @@ def main():
             groups.append(g)
 
     model = Model(plan, groups, args.gap, args.extra, base_maxdim, args.verbose,
-                  deficit=args.deficit)
+                  deficit=args.deficit, parity=args.pipe_len == "exact")
     if args.min_m:
         model.opt.add(model.M >= args.min_m)
     print(f"  SMT: anchor block {model.anchor}, groups {groups or 'none'}, "
@@ -523,7 +561,7 @@ def main():
         res = grade_fast(args.slug, text, args.jobs, args.cap)
         if not ok(res) or res["score"] >= base_res["score"]:
             print(f"      grade rejects: "
-                  f"{res.get('error') or (str(res.get('passed')) + '/' + str(res.get('total')) + ' score ' + format(res.get('score', 0), ',.0f'))}")
+                  f"{res.get('error') or ('%s/%s score %s' % (res.get('passed'), res.get('total'), res.get('score')))}")
             stats["grade_fail"] += 1
             model.no_good(offsets)
             continue

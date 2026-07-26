@@ -319,7 +319,13 @@ class Plan:
             # re-routed pipe running alongside a display reads as attached to it and the
             # display STEALS the pipe's endpoint (seen on pathfinder — verify_topology
             # catches it after the fact, but the router must not keep proposing it).
-            if not self.adjacency_ok_base and b.kind != "display":
+            # route_guard (opt-in, e.g. smtplace): protect ALL borders for NEW routes
+            # even when the original program grazes walls — the original's grazes ride
+            # along inside REUSED routes (which skip this check), while a fresh route
+            # grazing a different room would silently steal its r/s/q bindings, which
+            # no model-level gate can see (resolution only knows endpoint attachments).
+            if not (self.adjacency_ok_base or getattr(self, "route_guard", False)) \
+                    and b.kind != "display":
                 continue
             for c in b.border(*o):
                 for d in DIRS4:

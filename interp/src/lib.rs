@@ -612,6 +612,8 @@ impl World {
             let mut i = 0;
             while i + 1 < ticks.len() {
                 let (a, b) = (ticks[i], ticks[i + 1]);
+                // Horizontal: a bad character between two backticks on one ROW is a genuine
+                // load error -- the reference rejects `1x2` outright.
                 let mut digits = String::new();
                 for x in (a + 1)..b {
                     let c = self.at(x, y);
@@ -642,14 +644,21 @@ impl World {
             let mut i = 0;
             while i + 1 < ticks.len() {
                 let (a, b) = (ticks[i], ticks[i + 1]);
+                // Vertical is NOT symmetric with horizontal. Backticks belonging to two
+                // unrelated horizontal literals on different rows routinely share a column,
+                // and pairing them vertically spans arbitrary code. Such a pair is simply
+                // not a vertical literal; treating it as an error rejects real programs the
+                // reference loads (it rejected our own sudoku champion).
                 let mut digits = String::new();
+                let mut is_literal = true;
                 for y in (a + 1)..b {
                     let c = self.at(x, y);
-                    self.lit_content.insert((x, y));
                     if c == ' ' { continue; }
                     if c.is_ascii_digit() { digits.push(c); }
-                    else { return Err("non-digit in literal".into()); }
+                    else { is_literal = false; break; }
                 }
+                if !is_literal { i += 1; continue; }
+                for y in (a + 1)..b { self.lit_content.insert((x, y)); }
                 let south = parse_lit(&digits, false)?;
                 let rev: String = digits.chars().rev().collect();
                 let north = parse_lit(&rev, false)?;
@@ -977,10 +986,21 @@ impl World {
                         (splitter.id, splitter.a, splitter.b, splitter.bp, splitter.room)
                     };
 
-                    self.runners[i] = Runner {
-                        id, pos: right_pos, dir: right_dir,
-                        a, b, bp, halted: false, blocked: false, spawned_this_tick: true, room,
-                    };
+                    // Birth order and wall handling are ASYMMETRIC in the reference, and
+                    // both traces below were taken from it (sim/otrace.js):
+                    //   left(CCW) birth onto a wall  -> fatal on the SPLIT tick, and the
+                    //     splitter is still on its own cell (it never reaches right_pos);
+                    //   right(CW) birth onto a wall  -> NOT fatal on the split tick; both
+                    //     copies are placed, one standing on the wall, and it dies one tick
+                    //     later when the wall system runs.
+                    // So the left copy is created and wall-checked BEFORE the splitter is
+                    // moved, and the right birth is never wall-checked here.
+                    // The splitter is turned to the right copy's heading BEFORE the left
+                    // birth is resolved, but only MOVED after: on a fatal left birth the
+                    // reference leaves it on its own cell already facing the new heading.
+                    self.runners[i].dir = right_dir;
+                    self.runners[i].spawned_this_tick = true;
+
                     let left_index = self.runners.len();
                     self.runners.push(Runner {
                         id: self.next_id, pos: left_pos, dir: left_dir,
@@ -988,12 +1008,15 @@ impl World {
                     });
                     self.next_id += 1;
 
-                    for birth_pos in [right_pos, left_pos] {
-                        if self.is_wall(birth_pos.0, birth_pos.1) {
-                            self.fatal("wall", birth_pos);
-                            return;
-                        }
+                    if self.is_wall(left_pos.0, left_pos.1) {
+                        self.fatal("wall", left_pos);
+                        return;
                     }
+
+                    self.runners[i] = Runner {
+                        id, pos: right_pos, dir: right_dir,
+                        a, b, bp, halted: false, blocked: false, spawned_this_tick: true, room,
+                    };
 
                     for birth_index in [i, left_index] {
                         let birth_pos = self.runners[birth_index].pos;

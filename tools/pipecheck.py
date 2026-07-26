@@ -39,16 +39,26 @@ def load_rows(path):
 
 
 def analyze(rows):
+    # NOTE: output goes through a temp file, not stdout — `process.exit()` truncates
+    # unflushed stdout at 64KB, and a big grid's analysis JSON (pipe paths list every
+    # cell) blows straight past that.
+    import tempfile
+    with tempfile.NamedTemporaryFile("r", suffix=".json", delete=False) as tf:
+        outpath = tf.name
     script = ("const {boot}=require(process.argv[1]+'/sim/harness.js');"
               "(async()=>{const w=await boot();"
-              "console.log(w.analyze(JSON.parse(process.argv[2])));process.exit(0)})()"
-              ".catch(e=>{console.log(JSON.stringify({type:'error',message:String(e)}));process.exit(1)})")
-    r = subprocess.run(["node", "-e", script, REPO, json.dumps(rows)],
+              "require('fs').writeFileSync(process.argv[3],String(w.analyze(JSON.parse(process.argv[2]))));"
+              "process.exit(0)})()"
+              ".catch(e=>{require('fs').writeFileSync(process.argv[3],JSON.stringify({type:'error',message:String(e)}));process.exit(1)})")
+    r = subprocess.run(["node", "-e", script, REPO, json.dumps(rows), outpath],
                        capture_output=True, text=True, cwd=REPO)
     try:
-        return json.loads(r.stdout.strip().splitlines()[-1])
-    except (ValueError, IndexError):
+        with open(outpath) as f:
+            return json.load(f)
+    except (ValueError, IndexError, OSError):
         sys.exit(f"analyze failed: {(r.stderr or '')[:200]}")
+    finally:
+        os.unlink(outpath)
 
 
 def room_of(rooms, x, y):

@@ -61,17 +61,11 @@ def load_rows(path):
 
 
 def analyze(rows):
-    script = ("const {boot}=require(process.argv[1]+'/sim/harness.js');"
-              "(async()=>{const w=await boot();"
-              "console.log(w.analyze(JSON.parse(process.argv[2])));process.exit(0)})()"
-              ".catch(e=>{console.log(JSON.stringify({type:'error',message:String(e)}));"
-              "process.exit(1)})")
-    r = subprocess.run(["node", "-e", script, REPO, json.dumps(rows)],
-                       capture_output=True, text=True, cwd=REPO)
-    try:
-        return json.loads(r.stdout.strip().splitlines()[-1])
-    except (ValueError, IndexError):
-        sys.exit(f"analyze failed: {(r.stderr or '')[:300]}")
+    # Delegates to pipecheck.analyze, which routes output through a temp file —
+    # `process.exit()` truncates unflushed node stdout at 64KB and a big grid's
+    # analysis JSON is larger than that.
+    import pipecheck
+    return pipecheck.analyze(rows)
 
 
 class Grid:

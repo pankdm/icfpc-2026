@@ -1,7 +1,8 @@
 """Streaming selection sort, fully hand-placed (blanks glide, only placed glyphs collide).
 sentinel=-1, bias=+10001."""
+import os as _os; _REPO = _os.path.abspath(__file__).split('/solutions/')[0]
 import sys
-sys.path.insert(0, '/Users/visenbaev/icfpc26/tools')
+sys.path.insert(0, _REPO + '/tools')
 import layout as L
 from layout import Layout, place_pipe, DIRS
 OUT = 'solutions/sort-numbers/select-v1.man'

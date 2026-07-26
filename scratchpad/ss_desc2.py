@@ -1,5 +1,6 @@
+import os as _os; _REPO = _os.path.abspath(__file__).split('/scratchpad/')[0]
 import sys
-sys.path.insert(0, '/Users/visenbaev/icfpc26/tools')
+sys.path.insert(0, _REPO + '/tools')
 import littleman as lm
 
 # INTEGRATED DESCEND (target hardcoded via literal for this test; loader routing TODO).
@@ -96,4 +97,4 @@ def build(nvals=3, target_lit="300"):
     return p, dict(cols=cols,sp=sp,b=b,KW=KW,HY=HY,HH=HH)
 
 if __name__=='__main__':
-    p,_=build(); p.save('/Users/visenbaev/icfpc26/scratchpad/ss_desc2.man'); print(p.render())
+    p,_=build(); p.save(_REPO + '/scratchpad/ss_desc2.man'); print(p.render())

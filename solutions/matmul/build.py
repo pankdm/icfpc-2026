@@ -14,8 +14,9 @@ Pipe columns on CTRL top wall (feed=out, ret=in):
 Nearest-pipe is column-only (all pipes on top wall): place each r/s at a column
 whose nearest incoming/outgoing is the intended pipe.
 """
+import os as _os; _REPO = _os.path.abspath(__file__).split('/solutions/')[0]
 import sys, os
-sys.path.insert(0, "/Users/visenbaev/icfpc26/tools")
+sys.path.insert(0, _REPO + "/tools")
 import littleman as lm
 
 OFFSET = 1000000

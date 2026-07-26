@@ -1,5 +1,6 @@
+import os as _os; _REPO = _os.path.abspath(__file__).split('/solutions/')[0]
 import sys
-sys.path.insert(0,'/private/tmp/claude-501/-Users-visenbaev-icfpc26/45d36e33-5a95-458c-9599-9b3faeeb9c09/scratchpad')
+sys.path.insert(0,_REPO + '/scratchpad')
 from router import Grid
 BIAS=10001
 g=Grid()
@@ -95,5 +96,5 @@ def near(cell,c):
     return best,bd
 for (x,y,ch) in rs:
     n,d=near((x,y),INC if ch=='r' else OUT); print(f"  {ch}@({x},{y})->{n}(d={d})")
-g.p.save('/private/tmp/claude-501/-Users-visenbaev-icfpc26/45d36e33-5a95-458c-9599-9b3faeeb9c09/scratchpad/sortG.man')
+g.p.save(_REPO + '/scratchpad/sortG.man')
 print(g.p.render()); print('fp',g.p.footprint())

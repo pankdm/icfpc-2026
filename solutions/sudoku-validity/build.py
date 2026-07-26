@@ -1,4 +1,5 @@
-import sys; sys.path.insert(0,'/Users/visenbaev/icfpc26/tools'); import littleman as lm
+import os as _os; _REPO = _os.path.abspath(__file__).split('/solutions/')[0]
+import sys; sys.path.insert(0,_REPO + '/tools'); import littleman as lm
 IN,MRF,MRR,S2F,S2R,OUT = 2,5,8,11,14,17
 BASE=0
 class B:
@@ -97,5 +98,5 @@ mpx=ox+15
 b.p.room(mpx,MRF-1,7,(MRR+1)-(MRF-1)+1)
 b.p.pipe([(ox,MRF),(mpx-1,MRF)]); b.p.pipe([(mpx-1,MRR),(ox,MRR)])
 P(mpx+1,MRF,'>'); P(mpx+2,MRF,'@'); P(mpx+3,MRF,'R'); P(mpx+4,MRF,'s'); P(mpx+5,MRF,'v'); P(mpx+5,MRF+1,'<'); P(mpx+1,MRF+1,'^')
-b.p.save('/Users/visenbaev/icfpc26/solutions/sudoku-validity/v2.man')
+b.p.save(_REPO + '/solutions/sudoku-validity/v2.man')
 print("FOOT",b.p.footprint())

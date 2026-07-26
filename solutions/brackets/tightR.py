@@ -1,5 +1,6 @@
+import os as _os; _REPO = _os.path.abspath(__file__).split('/solutions/')[0]
 import sys
-sys.path.insert(0,'/Users/visenbaev/icfpc26/tools')
+sys.path.insert(0,_REPO + '/tools')
 import littleman as lm
 def blockRT(p, ox, oy):
     W_,H_=8,11

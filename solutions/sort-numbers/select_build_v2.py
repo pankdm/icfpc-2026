@@ -6,8 +6,9 @@ Horizontal plan (scan core hugs the RIGHT wall so FEED/RET are the nearest pipes
   LEFT  wall: INPUT(0,3) in, OUTPUT(0,20) out   <- load reads, emit output
 Registers: A scratch; B=bias(LOAD)/min(SCAN); bp=count.
 """
+import os as _os; _REPO = _os.path.abspath(__file__).split('/solutions/')[0]
 import sys
-sys.path.insert(0, '/Users/visenbaev/icfpc26/tools')
+sys.path.insert(0, _REPO + '/tools')
 from layout import Layout, place_pipe, relay_man, DIRS, pipelen, ring_capacity
 
 OUT = 'solutions/sort-numbers/select-v2.man'

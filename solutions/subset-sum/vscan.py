@@ -4,8 +4,9 @@ HARDCODED mask (BP), sum selected values, output the sum. Reuses build.py belt g
 belt after LOAD = [v_{n-1}..v_0, SENT].  value-scan: BP=mask, for each item front->back:
  x low bit -> include (add) / exclude, ] shift BP, until SENT. sum in B.
 """
+import os as _os; _REPO = _os.path.abspath(__file__).split('/solutions/')[0]
 import sys
-sys.path.insert(0, '/Users/visenbaev/icfpc26/tools')
+sys.path.insert(0, _REPO + '/tools')
 import littleman as lm
 
 def build(mask_lit):
@@ -80,5 +81,5 @@ def build(mask_lit):
 if __name__ == '__main__':
     mask = sys.argv[1] if len(sys.argv) > 1 else '`12`'
     p, _ = build(mask)
-    p.save('/Users/visenbaev/icfpc26/scratchpad/vscan.man')
+    p.save(_REPO + '/scratchpad/vscan.man')
     print('footprint', p.footprint())

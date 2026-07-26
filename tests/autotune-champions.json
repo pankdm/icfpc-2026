@@ -1,0 +1,42 @@
+{
+ "brackets": {
+  "man": "stack6.man",
+  "score": 167399
+ },
+ "gradebook": {
+  "man": "gradebook-compact.man",
+  "score": 858213386
+ },
+ "history-lesson": {
+  "man": "history-lesson-with-year.man",
+  "score": 7056
+ },
+ "matmul": {
+  "man": "matmul-opt5.man",
+  "score": 185544476
+ },
+ "memory": {
+  "man": "addr-compare.man",
+  "score": 3963967
+ },
+ "plotter": {
+  "man": "plotter-tight31.man",
+  "score": 202054743
+ },
+ "reverse-a-list": {
+  "man": "manual-11x11.man",
+  "score": 16638
+ },
+ "sort-numbers": {
+  "man": "select-v5.man",
+  "score": 774144
+ },
+ "sudoku-validity": {
+  "man": "ringfree4-tuned.man",
+  "score": 7209468
+ },
+ "tcp": {
+  "man": "tcp-sweep2.man",
+  "score": 1826126
+ }
+}

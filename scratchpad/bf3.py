@@ -1,4 +1,5 @@
-import sys; sys.path.insert(0,'/Users/visenbaev/icfpc26/tools'); sys.path.insert(0,'/Users/visenbaev/icfpc26/scratchpad')
+import os as _os; _REPO = _os.path.abspath(__file__).split('/scratchpad/')[0]
+import sys; sys.path.insert(0,_REPO + '/tools'); sys.path.insert(0,_REPO + '/scratchpad')
 from rb import B, Man
 b=B(); p=b.p; C=b.C; mpath=b.mpath
 
@@ -86,5 +87,5 @@ STOP=DB+16
 mpath([(4,DL+1),(4,DL+2),(RCH,DL+2),(RCH,STOP-1),(1,STOP-1),(1,STOP)]); C(1,STOP,'>')
 msf=Man(b,2,STOP); msf.at(cFF,'s'); up_right(msf.x,STOP,AY)
 
-open('/Users/visenbaev/icfpc26/solutions/tcp/tcp-ring.man','w').write(p.render()+"\n")
+open(_REPO + '/solutions/tcp/tcp-ring.man','w').write(p.render()+"\n")
 print("footprint", p.footprint())

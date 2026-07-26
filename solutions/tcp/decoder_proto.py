@@ -9,8 +9,9 @@ Tree: man moves generally EAST; each level's `x` deflects it N/S (vertical binar
 tree). weights 8,4,2,1 for bits 0,1,2,3 -> leaf rows R0 + (+/-8 +/-4 +/-2 +/-1).
 `]` (BP>>1) placed on the vertical run of levels 0,1,2 (not level 3 - last bit).
 """
+import os as _os; _REPO = _os.path.abspath(__file__).split('/solutions/')[0]
 import sys
-sys.path.insert(0, '/Users/visenbaev/icfpc26/tools')
+sys.path.insert(0, _REPO + '/tools')
 from layout import Layout
 
 W = [8, 4, 2, 1]           # deflection weight per level (bit0..bit3)
@@ -69,4 +70,4 @@ if __name__ == '__main__':
     rows = [leaf_row(s) for s in range(16)]
     print('leaf rows:', rows)
     print('distinct:', len(set(rows)) == 16)
-    L.save('/Users/visenbaev/icfpc26/solutions/tcp/decoder16.man')
+    L.save(_REPO + '/solutions/tcp/decoder16.man')

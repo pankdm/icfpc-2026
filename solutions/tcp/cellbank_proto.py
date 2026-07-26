@@ -5,8 +5,9 @@ addr-th leaf; leaf sends [mode,val] E to cell[addr]'s IN pipe. Cell does r r M
 B == the last value written to that address, and NO crosstalk. Verified by reading
 cell men's B from the oracle snapshot.
 """
+import os as _os; _REPO = _os.path.abspath(__file__).split('/solutions/')[0]
 import sys
-sys.path.insert(0, '/Users/visenbaev/icfpc26/tools')
+sys.path.insert(0, _REPO + '/tools')
 from layout import Layout, auto_pipe
 
 NBITS = 2
@@ -81,4 +82,4 @@ if __name__ == '__main__':
     print('FOOT', L.footprint())
     print('slot->leafrow', {s: leaf_row(s) for s in range(NCELL)})
     print('cells entry', cells)
-    L.save('/Users/visenbaev/icfpc26/scratchpad/cellbank.man')
+    L.save(_REPO + '/scratchpad/cellbank.man')

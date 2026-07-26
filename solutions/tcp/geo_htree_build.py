@@ -24,8 +24,9 @@ SEMANTICS that shaped this: `q` counts the NEAREST INCOMING pipe only (reader ca
 q its outgoing lanes); occupancy-based -1 detection is WRONG (off>=16 fires even with
 an empty slot); grading settles at outputSettled so no HALT is required for a pass.
 """
+import os as _os; _REPO = _os.path.abspath(__file__).split('/solutions/')[0]
 import sys
-sys.path.insert(0,'/Users/visenbaev/icfpc26/tools')
+sys.path.insert(0,_REPO + '/tools')
 from layout import Layout, route
 W=[8,4,2,1]
 def off_h(slot):
@@ -134,4 +135,4 @@ if False: pass
 
 if __name__=='__main__':
     L=build_h(); print('FOOT',L.footprint())
-    L.save('/Users/visenbaev/icfpc26/solutions/tcp/tcp-geo.man')
+    L.save(_REPO + '/solutions/tcp/tcp-geo.man')

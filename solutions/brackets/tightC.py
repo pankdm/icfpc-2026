@@ -1,5 +1,6 @@
+import os as _os; _REPO = _os.path.abspath(__file__).split('/solutions/')[0]
 import sys
-sys.path.insert(0,'/Users/visenbaev/icfpc26/tools')
+sys.path.insert(0,_REPO + '/tools')
 import littleman as lm
 
 # TIGHT vertical C: compute mag arithmetically (M5W}), 2-branch sign, send up-leg = return.

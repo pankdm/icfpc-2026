@@ -1,7 +1,7 @@
 // walktax.js — measure man-ticks lost to WALKING (nop/glide) + TURN (routing) + STALL
 // (blocked, idle) vs COMPUTE. Uses a real cached test case so the run settles correctly.
 //   node sim/walktax.js <slug> <file.man> [caseIndex]
-const { boot } = require('/Users/visenbaev/icfpc26/sim/harness.js');
+const { boot } = require(__dirname + '/harness.js');
 const fs = require('fs');
 const path = require('path');
 
@@ -20,7 +20,7 @@ function buildCase(tc) {  // mirror tools/lib.js
 
 (async () => {
   const [slug, file, ci] = [process.argv[2], process.argv[3], parseInt(process.argv[4] || '0', 10)];
-  const spec = JSON.parse(fs.readFileSync(path.join('/Users/visenbaev/icfpc26/tests', slug + '.json'), 'utf8'));
+  const spec = JSON.parse(fs.readFileSync(path.join(__dirname + '/../tests', slug + '.json'), 'utf8'));
   const tc = spec.publicTestData[ci];
   const { input, expected, frames } = buildCase(tc);
   const isDisp = frames.some(f => f.length);

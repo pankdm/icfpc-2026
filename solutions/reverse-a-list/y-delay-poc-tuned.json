@@ -1,0 +1,15 @@
+{
+ "slug": "reverse-a-list",
+ "target": "solutions/reverse-a-list/y-delay-poc.man",
+ "builder": "solutions/reverse-a-list/y_delay_build.py",
+ "baseline_score": 331695,
+ "best_score": 284375,
+ "accepted": [
+  {
+   "knob": "ROOM_RIGHT",
+   "from": 16,
+   "to": 14,
+   "score": 284375
+  }
+ ]
+}

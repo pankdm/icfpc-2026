@@ -4,8 +4,9 @@ room. build_driver(L, ox, oy, feed_pt) stamps the driver into layout L with its
 top-left near (ox,oy); returns the command-pipe attach point (driver west wall) and
 the data-collector -> O attach (so caller wires O). Courier reads [mode,addr,val].
 """
+import os as _os; _REPO = _os.path.abspath(__file__).split('/solutions/')[0]
 import sys
-sys.path.insert(0, '/Users/visenbaev/icfpc26/tools')
+sys.path.insert(0, _REPO + '/tools')
 from layout import Layout
 
 

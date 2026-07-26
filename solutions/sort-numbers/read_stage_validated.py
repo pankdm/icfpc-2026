@@ -1,5 +1,6 @@
+import os as _os; _REPO = _os.path.abspath(__file__).split('/solutions/')[0]
 import sys
-sys.path.insert(0,'/Users/visenbaev/icfpc26/tools')
+sys.path.insert(0,_REPO + '/tools')
 import littleman as lm
 
 BIAS=10001
@@ -34,4 +35,4 @@ C(3,11,'1'); C(3,12,'N'); C(3,13,'>')   # (4..12,13) spaces
 C(13,13,'s'); C(14,13,'H')
 
 print(p.render()); print('footprint',p.footprint())
-p.save('/private/tmp/claude-501/-Users-visenbaev-icfpc26/45d36e33-5a95-458c-9599-9b3faeeb9c09/scratchpad/sort1.man')
+p.save(_REPO + '/scratchpad/sort1.man')

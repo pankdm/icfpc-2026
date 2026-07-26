@@ -1,6 +1,7 @@
+import os as _os; _REPO = _os.path.abspath(__file__).split('/scratchpad/')[0]
 import os, sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "icfpc26", "tools"))
-sys.path.insert(0, "/Users/visenbaev/icfpc26/tools")
+sys.path.insert(0, _REPO + "/tools")
 import littleman as lm
 
 # SERPENTINE SNAKE reverse-a-list.

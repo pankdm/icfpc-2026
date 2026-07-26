@@ -3,6 +3,7 @@ Each token is a real littleman op. Simulating this exact sequence (with A/B/BP,
 input queue, W/F storage men, driver/bank, X-branches, gotos) and matching model.py
 means the LAYOUT is pure geometry (register logic already proven).
 """
+import os as _os; _REPO = _os.path.abspath(__file__).split('/solutions/')[0]
 M64 = (1 << 64) - 1
 def w64(x):
     x &= M64
@@ -126,7 +127,7 @@ def run_rounds(rounds):
 
 if __name__ == '__main__':
     import json
-    d = json.load(open('/Users/visenbaev/icfpc26/scratchpad/tcp_problem.json'))
+    d = json.load(open(_REPO + '/scratchpad/tcp_problem.json'))
     allok = True
     for i, c in enumerate(d['publicTestData']):
         rounds = c['rounds']

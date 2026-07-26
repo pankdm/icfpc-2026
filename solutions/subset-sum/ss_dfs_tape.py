@@ -135,8 +135,9 @@ tape only. Men never crash a wall unless output already settled (fatal aborts
 the whole program): the LOADER must `H`, not crash.
 ================================================================================
 """
+import os as _os; _REPO = _os.path.abspath(__file__).split('/solutions/')[0]
 import sys
-sys.path.insert(0, '/Users/visenbaev/icfpc26/tools')
+sys.path.insert(0, _REPO + '/tools')
 import littleman as lm
 
 
@@ -194,6 +195,6 @@ def build_tape_readback(values):
 if __name__ == '__main__':
     vals = [11, 22, 33, 44]
     p = build_tape_readback(vals)
-    p.save('/Users/visenbaev/icfpc26/solutions/subset-sum/ss_dfs_tape.man')
+    p.save(_REPO + '/solutions/subset-sum/ss_dfs_tape.man')
     print(p.render())
     print('footprint', p.footprint())

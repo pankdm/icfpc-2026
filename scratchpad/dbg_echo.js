@@ -1,4 +1,4 @@
-const {boot}=require("/Users/visenbaev/icfpc26/sim/harness.js");
+const {boot}=require((__dirname + '/../sim/harness.js'));
 const {execSync}=require("child_process");
 (async()=>{
  const w=await boot();

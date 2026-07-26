@@ -111,10 +111,17 @@ function gradeCase(w, rows, tc, tickCap) {
 }
 
 // Grade a program (rows) against all public cases of a fetched problem.
-function gradeAll(w, rows, problem) {
+// opts.stopOnFail: abandon the run at the first non-passing case. A candidate that fails
+// any case can never be accepted, so grading the rest is pure cost (used by autotune).
+function gradeAll(w, rows, problem, opts) {
   const cases = problem.publicTestData || [];
   const fp = footprint(rows);
-  const results = cases.map(tc => ({ name: tc.name || '(case)', ...gradeCase(w, rows, tc, problem.tickCap) }));
+  const results = [];
+  for (const tc of cases) {
+    const r = { name: tc.name || '(case)', ...gradeCase(w, rows, tc, problem.tickCap) };
+    results.push(r);
+    if (opts && opts.stopOnFail && r.status !== 'pass') break;
+  }
   const passed = results.filter(r => r.status === 'pass');
   const ticks = passed.map(r => r.settleTick);
   const avgTicks = ticks.length ? ticks.reduce((a, b) => a + b, 0) / ticks.length : null;

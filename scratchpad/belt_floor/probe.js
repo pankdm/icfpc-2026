@@ -1,4 +1,4 @@
-const { boot } = require('/Users/visenbaev/icfpc26/sim/harness.js');
+const { boot } = require((__dirname + '/../../sim/harness.js'));
 (async () => {
   const w = await boot();
   const s = w.newSession();

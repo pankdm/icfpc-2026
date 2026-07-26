@@ -224,3 +224,7 @@ node_modules/
 *.dcmp.txt
 *.pretty.js
 solutions/history-lesson/proposed-input-grid.txt
+# autotune batch: local grade cache + per-sweep logs
+# (the findings live in tests/autotune-report.json)
+.autotune-cache.json
+tests/autotune-logs/

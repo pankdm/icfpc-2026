@@ -1,4 +1,5 @@
-import sys; sys.path.insert(0,'/Users/visenbaev/icfpc26/tools')
+import os as _os; _REPO = _os.path.abspath(__file__).split('/solutions/')[0]
+import sys; sys.path.insert(0,_REPO + '/tools')
 import littleman as lm
 from layout import Layout
 
@@ -30,4 +31,4 @@ L.output_room(3,34)                   # O room rows34..36, O at (4,35), top bord
 L.pipe([(4,32),(4,33)])               # storage bottom -> O top
 print(L.render())
 print("FOOT", L.footprint())
-L.save('/private/tmp/claude-501/-Users-visenbaev-icfpc26/45d36e33-5a95-458c-9599-9b3faeeb9c09/scratchpad/proto.man')
+L.save(_REPO + '/scratchpad/proto.man')

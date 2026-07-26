@@ -47,6 +47,33 @@ BASE_FLOOR = dict(scalar_off=24, cell_off=112, ctop=5, sp_row=8, ri_row=12,
 # so even a correct build reports a few loose pipe ends.  The reference is the
 # baseline's loose-end SET (pipe index + side), not its count: a count budget
 # lets a candidate fix one known end and break a real one for free.
+
+REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+
+def smoke(program, slug, case):
+    """Run one public case under the Rust interpreter.
+
+    The lint catches grids the *loader* rejects; it cannot see a grid that loads
+    and then deadlocks, which is what a candidate with the wrong pipe capacity
+    does.  Only new champions pay for this (~0.3s), so the walk stays cheap while
+    nothing untested can come out of it.
+    """
+    import subprocess
+    import tempfile
+    fd, path = tempfile.mkstemp(suffix=".man")
+    os.close(fd)
+    try:
+        program.save(path)
+        out = subprocess.run(
+            ["node", os.path.join(REPO, "sim", "rust_case.js"), slug, path, case],
+            capture_output=True, text=True, cwd=REPO, timeout=180)
+        return '"status":"pass"' in out.stdout
+    except Exception:
+        return False
+    finally:
+        os.unlink(path)
+
 BASE_DANGLING = None
 
 
@@ -80,6 +107,8 @@ def evaluate(cols, floor, code_x=10, verify=False):
         try:
             build_rail.railflow.verify_bindings(program, layout)
         except Exception:
+            return None
+        if not smoke(program, "snake", "game over at the wall"):
             return None
     w, h, box = program.footprint()
     return box, w, h, layout["width"], layout["height"], layout["ncorr"]
@@ -117,6 +146,8 @@ def search(iters, seed, code_x, start=None):
         # it started, and only the shorter side moving does anything for the box.
         if (got[0], got[1] + got[2]) <= (cur[0], cur[1] + cur[2]):
             if got[0] < best[0][0]:
+                if evaluate(cand_cols, cand_floor, code_x, verify=True) is None:
+                    continue
                 best = (got, dict(cand_cols), dict(cand_floor))
             cols, floor, cur = cand_cols, cand_floor, got
             accepted += 1

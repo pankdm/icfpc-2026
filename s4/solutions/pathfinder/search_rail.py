@@ -41,6 +41,33 @@ BASE_FLOOR = dict(scalar_off=48, cell_off=164, ctop=5, scratch_off=18,
                   queue_tail=266, sd_band=-4, sa_band=-3, ss_band=20,
                   queue_rows=1, queue_right_off=300, display_row=60)
 QUEUE_FLOOR = 40   # measured BFS frontier is <= ~19 items; keep 2x headroom
+
+REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+
+def smoke(program, slug, case):
+    """Run one public case under the Rust interpreter.
+
+    The lint catches grids the *loader* rejects; it cannot see a grid that loads
+    and then deadlocks, which is what a candidate with the wrong pipe capacity
+    does.  Only new champions pay for this (~0.3s), so the walk stays cheap while
+    nothing untested can come out of it.
+    """
+    import subprocess
+    import tempfile
+    fd, path = tempfile.mkstemp(suffix=".man")
+    os.close(fd)
+    try:
+        program.save(path)
+        out = subprocess.run(
+            ["node", os.path.join(REPO, "sim", "rust_case.js"), slug, path, case],
+            capture_output=True, text=True, cwd=REPO, timeout=180)
+        return '"status":"pass"' in out.stdout
+    except Exception:
+        return False
+    finally:
+        os.unlink(path)
+
 BASE_DANGLING = None   # set from the baseline build on first evaluate
 
 
@@ -78,6 +105,8 @@ def evaluate(cols, floor, verify=False, queue_floor=QUEUE_FLOOR):
             build_rail.railflow.verify_bindings(program, layout)
         except Exception:
             return None
+        if not smoke(program, "pathfinder", "there and back again"):
+            return None
     w, h, box = program.footprint()
     return box, w, h, layout["width"], layout["height"], layout["ncorr"]
 
@@ -107,6 +136,8 @@ def search(iters, seed, start=None):
             continue
         if (got[0], got[1] + got[2]) <= (cur[0], cur[1] + cur[2]):
             if got[0] < best[0][0]:
+                if evaluate(cand_cols, cand_floor, verify=True) is None:
+                    continue
                 best = (got, dict(cand_cols), dict(cand_floor))
             cols, floor, cur = cand_cols, cand_floor, got
             accepted += 1

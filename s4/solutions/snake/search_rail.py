@@ -108,8 +108,6 @@ def search(iters, seed, code_x, start=None):
         # it started, and only the shorter side moving does anything for the box.
         if (got[0], got[1] + got[2]) <= (cur[0], cur[1] + cur[2]):
             if got[0] < best[0][0]:
-                if evaluate(cand_cols, cand_floor, code_x, verify=True) is None:
-                    continue
                 best = (got, dict(cand_cols), dict(cand_floor))
             cols, floor, cur = cand_cols, cand_floor, got
             accepted += 1
@@ -119,6 +117,7 @@ def search(iters, seed, code_x, start=None):
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--iters", type=int, default=4000)
+    ap.add_argument("--seed", type=int, default=1000)
     ap.add_argument("--restarts", type=int, default=6)
     ap.add_argument("--code-x", type=int, default=10)
     args = ap.parse_args()
@@ -127,7 +126,7 @@ if __name__ == "__main__":
         # every restart resumes from the best floorplan found so far, with a
         # fresh random stream: the moves are single-knob, so a plateau exit that
         # one seed cannot find another usually can
-        best, acc = search(args.iters, 1000 + r, args.code_x,
+        best, acc = search(args.iters, args.seed + r, args.code_x,
                            start=None if overall is None
                            else (overall[1], overall[2]))
         print(f"restart {r}: box {best[0][0]:,} foot {best[0][1]}x{best[0][2]} "
@@ -142,3 +141,7 @@ if __name__ == "__main__":
     print(f"\nBEST box {box:,}  footprint {w}x{h}  controller {cw}x{ch}")
     print("ports =", dict(sorted(cols.items(), key=lambda kv: kv[1])))
     print("floor =", floor)
+    # the walk itself only lints; the winner is the one config worth an oracle
+    # round-trip, and it still has to be graded before anyone believes it
+    ok = evaluate(cols, floor, args.code_x, verify=True)
+    print("oracle bindings:", "OK" if ok else "FAILED / re-check by grading")

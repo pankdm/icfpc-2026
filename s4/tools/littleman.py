@@ -50,10 +50,14 @@ class Program:
         self.pipes = []
 
     # ---- primitives ----
-    def put(self, x, y, ch):
+    def put(self, x, y, ch, kind="cell"):
         old = self.cells.get((x, y))
         if old is not None and old != " " and old != ch:
-            self.overwrites.append((x, y, old, ch))
+            # `kind` matters because room drawing legitimately clobbers wall
+            # glyphs with wall glyphs (corners, shared walls) while a pipe
+            # crossing a wall or another pipe writes exactly the same pair of
+            # glyphs and is fatal ("pipe interrupted" at load time).
+            self.overwrites.append((x, y, old, ch, kind))
         self.cells[(x, y)] = ch
         return self
 
@@ -71,13 +75,13 @@ class Program:
         """Draw a w×h room with top-left at (x,y). Returns its Rect (outer + interior)."""
         cor, hor, ver = glyphs
         for i in range(w):
-            self.put(x + i, y, hor)
-            self.put(x + i, y + h - 1, hor)
+            self.put(x + i, y, hor, "room")
+            self.put(x + i, y + h - 1, hor, "room")
         for j in range(h):
-            self.put(x, y + j, ver)
-            self.put(x + w - 1, y + j, ver)
+            self.put(x, y + j, ver, "room")
+            self.put(x + w - 1, y + j, ver, "room")
         for cx, cy in [(x, y), (x + w - 1, y), (x, y + h - 1), (x + w - 1, y + h - 1)]:
-            self.put(cx, cy, cor)
+            self.put(cx, cy, cor, "room")
         return Rect(x, y, x + w - 1, y + h - 1, x + 1, y + 1, x + w - 2, y + h - 2)
 
     def input_room(self, x, y):
@@ -116,9 +120,9 @@ class Program:
         for idx, (x, y, dx, dy) in enumerate(cells):
             bend = idx > 0 and (cells[idx - 1][2], cells[idx - 1][3]) != (dx, dy)
             if idx == 0 or idx == len(cells) - 1 or bend:
-                self.put(x, y, VEC2ARROW[(dx, dy)])
+                self.put(x, y, VEC2ARROW[(dx, dy)], "pipe")
             else:
-                self.put(x, y, "-" if dx != 0 else "|")
+                self.put(x, y, "-" if dx != 0 else "|", "pipe")
         self.pipes.append((points[0], points[-1], len(cells)))
         return self
 

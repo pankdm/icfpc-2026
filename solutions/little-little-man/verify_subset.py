@@ -50,6 +50,7 @@ def run_flow(
     a = b = backpack = 0
     label = "START"
     pc = 0
+    literal = None
 
     for steps in range(1, limit + 1):
         if pc >= len(blocks[label]):
@@ -70,7 +71,18 @@ def run_flow(
             pc = 0
             continue
 
-        if token.isdigit():
+        if token == "`":
+            if literal is None:
+                literal = ""
+            else:
+                a = int(literal) if literal else 0
+                literal = None
+        elif literal is not None:
+            if token.isdigit():
+                literal += token
+            elif token != " ":
+                raise AssertionError(f"invalid Flow literal token {token!r}")
+        elif token.isdigit():
             a = int(token)
         elif token == "M":
             b = a
@@ -88,6 +100,8 @@ def run_flow(
             a = s64(a & b)
         elif token == "|":
             a = s64(a | b)
+        elif token == "~":
+            a = s64(a ^ b)
         elif token == "{":
             a = s64(a << b) if 0 <= b <= 63 else 0
         elif token == "}":

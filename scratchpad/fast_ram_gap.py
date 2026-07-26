@@ -32,14 +32,14 @@ import os
 import subprocess
 import sys
 
-REPO = "/Users/dmitrykorolev/projects/icfpc-2026-main"
+REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(REPO, "tools"))
 
 import littleman as lm            # noqa: E402
 from layout import Layout         # noqa: E402
 import fast_ram                   # noqa: E402
 
-LM = "/Users/dmitrykorolev/projects/icfpc-2026-pfbits/interp/target/release/lm"
+LM = os.path.join(REPO, "interp", "target", "release", "lm")
 
 
 def spacer(lay, x0, y0, w):

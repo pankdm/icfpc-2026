@@ -83,6 +83,11 @@ Honest, measured expectations:
   already been squeezed by hand.
 - **Wins are typically a few percent.** `sudoku-validity` gave 7,556,863 → 7,125,678 across
   two accepted changes (5.7% on the server) — worthwhile and free, but not architectural.
+- **Some builders are brittle rather than optimal.** A `gradebook` sweep produced **0 valid
+  candidates out of 876** (563 failed cases, 312 broke the build): its literals mostly encode
+  *data* — grade codes, character tables — not geometry, and moving data breaks correctness
+  immediately. Check the screening line: many live knobs but no valid candidates means the
+  literals are data, and tuning that builder is a dead end regardless of budget.
 - **Fresh builders are where it earns its keep** — nobody has swept them by hand yet.
 - **It will not close a 5× gap.** When the gap to the board leader is large, the answer is a
   different design, not a different constant. Use `node sim/xray.js <slug> <file.man>` to see

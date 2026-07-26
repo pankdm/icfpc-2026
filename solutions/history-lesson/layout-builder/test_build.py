@@ -25,7 +25,8 @@ class LayoutBuilderTest(unittest.TestCase):
         dictionary = self.metadata["dictionary"]
         self.assertEqual(self.metadata["feeder_width"], 81)
         self.assertEqual(dictionary["width"], 52)
-        self.assertEqual(dictionary["words"], 44)
+        self.assertEqual(dictionary["requested_words"], 44)
+        self.assertEqual(dictionary["words"], 43)
 
     def test_dictionary_is_left_aligned(self):
         dictionary = self.metadata["dictionary"]
@@ -33,11 +34,11 @@ class LayoutBuilderTest(unittest.TestCase):
 
     def test_dp_packs_every_constant(self):
         dictionary = self.metadata["dictionary"]
-        self.assertEqual(sum(dictionary["constants_per_band"]), 44)
+        self.assertEqual(sum(dictionary["constants_per_band"]), 43)
         self.assertEqual(dictionary["bands"], 6)
         self.assertEqual(
             dictionary["constants_per_band"],
-            [8, 12, 6, 6, 6, 6],
+            [8, 11, 6, 6, 6, 6],
         )
         self.assertEqual(
             len(dictionary["slots_per_band"]),
@@ -63,13 +64,37 @@ class LayoutBuilderTest(unittest.TestCase):
             [len(band.widths) for band in wide],
         )
 
-    def test_all_tail_rooms_form_one_touching_row(self):
+    def test_tail_rooms_form_one_row_with_dispatcher_input_gap(self):
         dictionary = self.metadata["dictionary"]
         rooms = self.metadata["service_rooms"]
         self.assertEqual(rooms[0][1], dictionary["x"] + dictionary["width"])
         self.assertTrue(all(room[2] == dictionary["y"] for room in rooms))
-        for left, right in zip(rooms, rooms[1:]):
-            self.assertEqual(right[1], left[1] + left[3])
+        for index, (left, right) in enumerate(zip(rooms, rooms[1:])):
+            gap = 2 if index == len(rooms) - 2 else 0
+            self.assertEqual(right[1], left[1] + left[3] + gap)
+
+    def test_uses_compact_vertical_p2_dispatcher(self):
+        name, x, y, width, height = self.metadata["service_rooms"][-1]
+        self.assertEqual(name, "dispatcher")
+        self.assertEqual((width, height), (23, 7))
+        self.assertEqual(builder.DISP_RING_IN[1], height)
+        self.assertEqual(builder.DISP_RING_OUT[1], height)
+        for row_offset, expected in enumerate(builder.compact.DISP_ROWS, start=1):
+            actual = "".join(
+                self.program.get(x + column, y + row_offset)
+                for column in range(1, width - 1)
+            )
+            self.assertEqual(actual, expected)
+
+    def test_only_referenced_dictionary_words_are_physically_placed(self):
+        usage = self.metadata["dictionary"]["usage"]
+        self.assertEqual(len(usage), 43)
+        self.assertTrue(all(entry["references"] > 0 for entry in usage))
+        zero_entries = [entry for entry in usage if entry["word"] == "0"]
+        self.assertEqual(
+            zero_entries,
+            [{"position": 17, "word": "0", "references": 13}],
+        )
 
     def test_tail_touches_feeder_bottom(self):
         dictionary = self.metadata["dictionary"]

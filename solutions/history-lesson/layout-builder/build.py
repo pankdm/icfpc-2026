@@ -12,6 +12,7 @@ import argparse
 import logging
 import os
 import sys
+from collections import Counter
 from dataclasses import dataclass
 from functools import lru_cache
 
@@ -24,6 +25,7 @@ sys.path.insert(0, TOOLS_DIR)
 from littleman import Program
 
 import build_vertical_p1 as vertical
+import build_vertical_p2 as compact
 
 
 DEFAULT_FEEDER_WIDTH = 81
@@ -51,6 +53,20 @@ TOP_LEFT_BLOCK_WIDTH = 4
 RETURN_COLUMN = 1
 START_COLUMN = 5
 LATER_START_COLUMN = 2
+
+# Port offsets are part of the compact dispatcher's design: its sends and
+# receives select the nearest matching pipe, so moving an attachment can
+# silently bind an instruction to the wrong service.
+DISP_STREAM_IN = (-1, 2)
+DISP_STREAM_OUT = (compact.UNPACK_PORT - compact.DISP_X, -1)
+DISP_RING_IN = (
+    compact.RING_IN_PORT - compact.DISP_X,
+    len(compact.DISP_ROWS) + 2,
+)
+DISP_RING_OUT = (
+    compact.RING_OUT_PORT - compact.DISP_X,
+    len(compact.DISP_ROWS) + 2,
+)
 
 
 @dataclass(frozen=True)
@@ -318,6 +334,82 @@ def repack_physical_dictionary(
     return rewritten, new_ring, order
 
 
+def dictionary_usage(
+    symbols: list[int],
+    ring: dict[int, int],
+) -> list[tuple[int, str, int]]:
+    """Return physical slot, decoded word, and reference count for the ring."""
+    counts: Counter[int] = Counter()
+    index = 0
+    while index < len(symbols):
+        symbol = symbols[index]
+        index += 1
+        if symbol == vertical.base.ESC:
+            if index >= len(symbols):
+                raise ValueError("truncated escaped dictionary reference")
+            counts[symbols[index]] += 1
+            index += 1
+        elif 1 <= symbol <= 16:
+            counts[symbol] += 1
+
+    usage = []
+    for position in sorted(ring):
+        value = ring[position]
+        word = bytearray()
+        while value:
+            value, byte = divmod(value, vertical.base.B2)
+            word.append(byte)
+        usage.append((position, bytes(word).decode("ascii"), counts[position]))
+    return usage
+
+
+def remove_unused_escaped_entries(
+    symbols: list[int],
+    ring: dict[int, int],
+) -> tuple[list[int], dict[int, int], list[tuple[int, str]]]:
+    """Delete unreferenced escaped slots and compact later references.
+
+    Positions 1..16 are protocol-level direct symbols and cannot be removed
+    even if a particular stream does not reference them. Positions 17 onward
+    are carried after ESC and can therefore be renumbered freely.
+    """
+    usage = dictionary_usage(symbols, ring)
+    removed = [
+        (position, word)
+        for position, word, references in usage
+        if position >= 17 and references == 0
+    ]
+    if not removed:
+        return symbols, ring, []
+
+    removed_positions = {position for position, _ in removed}
+    new_position = {}
+    next_position = 1
+    for old_position in sorted(ring):
+        if old_position not in removed_positions:
+            new_position[old_position] = next_position
+            next_position += 1
+
+    rewritten = []
+    index = 0
+    while index < len(symbols):
+        symbol = symbols[index]
+        index += 1
+        if symbol == vertical.base.ESC:
+            old_position = symbols[index]
+            index += 1
+            rewritten.extend([symbol, new_position[old_position]])
+        else:
+            rewritten.append(symbol)
+
+    compacted_ring = {
+        new_position[old_position]: value
+        for old_position, value in ring.items()
+        if old_position in new_position
+    }
+    return rewritten, compacted_ring, removed
+
+
 def place_dictionary(
     program: Program,
     x0: int,
@@ -364,6 +456,9 @@ def place_dictionary(
                     vertical.base.p1_slot_cells(top_value, width, True),
                 )
             else:
+                # Keep this as a numeric literal rather than blank space.
+                # Aligned backticks can also pair vertically; the zero-filled
+                # partner prevents an accidental invalid vertical literal.
                 _put_row(
                     program,
                     starts[slot] + 1,
@@ -381,6 +476,8 @@ def place_dictionary(
                     vertical.base.p1_slot_cells(bottom_value, width, False),
                 )
             else:
+                # See the top-row case: this unsent zero is a literal syntax
+                # guard, not an entry in the dictionary ring.
                 _put_row(
                     program,
                     starts[slot],
@@ -461,7 +558,10 @@ def add_connection_pipes(
     # DECODER -> DISP, retaining the dispatcher attachment used by the
     # original vertical-P1 prototype.
     decoder_send = (decoder_x + 5, decoder_y + decoder_height)
-    disp_stream_in = (disp_x - 1, disp_y + 5)
+    disp_stream_in = (
+        disp_x + DISP_STREAM_IN[0],
+        disp_y + DISP_STREAM_IN[1],
+    )
     decoder_route_y = dictionary_bottom - 3
     program.pipe([
         decoder_send,
@@ -472,7 +572,10 @@ def add_connection_pipes(
 
     # DISP -> UNPACK, across the upper routing strip. It stays east of the
     # feeder connection, so the two pipes do not cross.
-    disp_stream_out = (disp_x + 18, disp_y - 1)
+    disp_stream_out = (
+        disp_x + DISP_STREAM_OUT[0],
+        disp_y + DISP_STREAM_OUT[1],
+    )
     unpack_stream_in = (unpack_x + 7, unpack_y - 1)
     upper_route_y = disp_y - 2
     upper_drop_x = feeder_width + 1
@@ -502,32 +605,28 @@ def add_connection_pipes(
         dictionary_bottom - 2,
     )
     disp_ring_in = (
-        disp_x + disp_width,
-        disp_y + disp_height - 3,
+        disp_x + DISP_RING_IN[0],
+        disp_y + DISP_RING_IN[1],
     )
     ring_forward_y = dictionary_bottom - 2
-    ring_forward_right = disp_x + disp_width + 5
     program.pipe([
         dictionary_ring_out,
-        (ring_forward_right, ring_forward_y),
-        (ring_forward_right, disp_ring_in[1]),
+        (disp_ring_in[0], ring_forward_y),
         disp_ring_in,
-    ], end_direction="W")
+    ], end_direction="N")
 
     disp_ring_out = (
-        disp_x + disp_width,
-        disp_y + disp_height - 4,
+        disp_x + DISP_RING_OUT[0],
+        disp_y + DISP_RING_OUT[1],
     )
     dictionary_ring_in = (
         dictionary_x + dictionary_width,
         dictionary_bottom - 1,
     )
     ring_return_y = dictionary_bottom - 1
-    ring_return_right = ring_forward_right + 2
     program.pipe([
         disp_ring_out,
-        (ring_return_right, disp_ring_out[1]),
-        (ring_return_right, ring_return_y),
+        (disp_ring_out[0], ring_return_y),
         dictionary_ring_in,
     ], end_direction="W")
 
@@ -560,6 +659,28 @@ def build(
     )
     LOGGER.info("remapping references for DP-friendly physical dictionary order")
     symbols, ring, physical_order = repack_physical_dictionary(symbols, ring)
+    symbols, ring, removed_entries = remove_unused_escaped_entries(symbols, ring)
+    removed_positions = {position for position, _ in removed_entries}
+    physical_order = [
+        old_position
+        for position, old_position in enumerate(physical_order, start=1)
+        if position not in removed_positions
+    ]
+    for position, word in removed_entries:
+        LOGGER.info(
+            "dropping unreferenced escaped dictionary slot %02d: %r",
+            position,
+            word,
+        )
+    usage = dictionary_usage(symbols, ring)
+    LOGGER.info("selected dictionary words (physical slot: word -> references)")
+    for physical_position, word, references in usage:
+        LOGGER.info(
+            "  %02d: %r -> %d",
+            physical_position,
+            word,
+            references,
+        )
     LOGGER.info(
         "optimizing feeder layout for width %d",
         feeder_width,
@@ -575,7 +696,11 @@ def build(
 
     tail_y = feeder_rows + 2
     dictionary_x = 0
-    dictionary_values = [ring[position] for position in range(1, dictionary_words + 1)]
+    placed_dictionary_words = len(ring)
+    dictionary_values = [
+        ring[position]
+        for position in range(1, placed_dictionary_words + 1)
+    ]
     LOGGER.info(
         "running dictionary packing DP for width %d",
         dictionary_width,
@@ -600,7 +725,7 @@ def build(
     # that row down two cells to open a routing strip below the feeder.
     service_y = tail_y + (2 if connect_pipes else 0)
     LOGGER.info(
-        "placing touching horizontal service-room row%s",
+        "placing horizontal service-room row%s",
         " two rows lower" if connect_pipes else "",
     )
     service_x = dictionary_width
@@ -621,12 +746,16 @@ def build(
     service_rooms.append(("output", output_x, service_y, 3, 3))
     service_x += 3
 
-    disp_width = max(len(row) for row in vertical.DISP_DELAYED_ROWS) + 2
+    # DISP's compact west-wall stream input is level with the 3x3 output
+    # room. Keep two routing columns between them: one for the endpoint and
+    # one to stop that arrow also touching the output room's east corner.
+    service_x += 2
+    disp_width = max(len(row) for row in compact.DISP_ROWS) + 2
     disp_width, disp_height = vertical.base.paste_room(
         program,
         service_x,
         service_y,
-        vertical.DISP_DELAYED_ROWS,
+        compact.DISP_ROWS,
     )
     service_rooms.append(
         ("dispatcher", service_x, service_y, disp_width, disp_height)
@@ -669,7 +798,8 @@ def build(
             "width": dictionary_width,
             "height": dictionary_height,
             "bottom_padding": 2 if connect_pipes else 0,
-            "words": dictionary_words,
+            "requested_words": dictionary_words,
+            "words": placed_dictionary_words,
             "left_edge": dictionary_x,
             "right_edge": dictionary_x + dictionary_width - 1,
             "bottom_edge": tail_y + dictionary_height - 1,
@@ -685,6 +815,14 @@ def build(
                 for band in dictionary_bands
             ],
             "physical_order": physical_order,
+            "usage": [
+                {
+                    "position": position,
+                    "word": word,
+                    "references": references,
+                }
+                for position, word, references in usage
+            ],
             "top_left_block": {
                 "width": TOP_LEFT_BLOCK_WIDTH,
                 "height": len(TOP_LEFT_BLOCK_ROWS),

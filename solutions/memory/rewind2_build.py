@@ -196,7 +196,12 @@ from littleman import Program
 # cross. CMD cannot instead move EAST: every command-read must be nearer CMD
 # than P2 while the belt-reads stay nearer P2, so CMD is pinned west of them.
 X_OUT, X_CMD, X_P2, X_P1 = 3, 1, 9, 14
-MEM_W, MEM_H = 17, 18          # room(0,0,MEM_W,MEM_H) -> interior 1..15 x 1..16
+MEM_W, MEM_H = 22, 18          # room(0,0,MEM_W,MEM_H) -> interior 1..20 x 1..16
+# 17 -> 22 wide purely to host the HELPER pump ring (cols 18/19) and its `H`
+# at col 20.  Free: the box is height-driven (42) and the belt serpentine
+# already reaches col 31, so MEM's extra columns cost nothing.  Binding still
+# holds there -- an `s` at col 18/19 is 4-5 from P1(14) vs 15-16 from OUT(3),
+# and an `r` is 9-10 from P2(9) vs 17-18 from CMD(1).
 MEM_BOT = MEM_H - 1            # bottom wall row 17
 PIPE_ROW = MEM_H               # attachment cells sit on row 18
 
@@ -251,6 +256,126 @@ def vring(P, down, up, top, nrelay):
     return bot
 
 
+def vring_mirror(P, down, up, top, nrelay):
+    """East-facing mirror image of `vring`, for the HELPER pump ring.
+
+    The man arrives EASTBOUND on row `top`; `up` == down+1 sits to the EAST.
+    Every horizontal glyph and every BP-conditional turn is mirrored:
+
+        (down, top)   'd'  guard : BP>0 -> cw(east->south) into the ring
+                                   BP==0 -> straight east onto the exit cell
+        (up,   top)   '>'  exit  : ring-exit (from the north) and guard-bypass
+                                   (from the east) MERGE here, both heading east
+        (up, top+1)   'a'        : BP>0 -> ccw(north->west) back to the entry
+
+    So the helper leaves the ring heading EAST, into the `H` that retires it,
+    while `vring` leaves heading WEST toward the tap.  Same relay count and
+    the same lap length, so the two men do identical work.
+    """
+    dn = 2 * ((nrelay + 1) // 2)
+    upn = 2 * nrelay - dn
+    m_on_up = (dn - upn) >= 1
+    bot = top + (2 if m_on_up else 3) + dn
+    P(down, top, 'd')
+    P(down, top + 1, 'v')
+    off = top + 2
+    if not m_on_up:
+        P(down, top + 2, 'm')
+        off = top + 3
+    for i in range(dn):
+        P(down, off + i, 'rs'[i % 2])
+    P(down, bot, '>')
+    P(up, bot, '^')
+    for i in range(upn):
+        P(up, bot - 1 - i, 'rs'[i % 2])
+    for y in range(top + 2, bot - upn):
+        P(up, y, ' ')
+    if m_on_up:
+        P(up, top + 2, 'm')
+    P(up, top + 1, 'a')
+    P(up, top, '>')
+    return bot
+
+
+def relay_run(P, cells):
+    """Fill a run of cells (in TRAVEL order) with `r`/`s` pairs.
+
+    Every `r` must be IMMEDIATELY followed by its `s`, so a run of odd length
+    gives up its LAST cell to a blank rather than stranding a lone `r` across
+    a turn (which would let a second value be received before the first is
+    sent, and that is precisely how belt order gets silently inverted).
+    """
+    n = len(cells) // 2 * 2
+    for i, (x, y) in enumerate(cells):
+        P(x, y, 'rs'[i % 2] if i < n else ' ')
+
+
+def hop(p, P, HX, HY, W, C):
+    """The belt's p1->p2 relay station, pumped by two men in TWO SEPARATE rings.
+
+    *** WHY NOT TWO MEN IN ONE RING.  Measured, and it is fatal. ***
+    Pipe contention is strict ascending-man-id, so whenever both men are
+    parked on `r` waiting for the same pipe the OLDER one takes every single
+    value: it relays, walks on, blocks again, wins again.  The younger man
+    never moves.  The older therefore laps the ring and walks into him -- and
+    "a mover entering a blocked man's cell halts BOTH" (docs/multi-man-
+    interactions.md 4b), non-fatally and silently.  A build with one shared
+    14x5 ring lost both HOP men within a few thousand ticks and every case
+    timed out with empty output.  This is not tunable: any station that is
+    not the belt's bottleneck is starved by definition, so its ring WILL
+    stall, and priority-by-id makes the stall one-sided.
+
+    Two independent rings share no cells, so they can never collide.  A
+    starved man simply parks (free and indefinite) and the other keeps
+    working -- the pair degrades gracefully to one man instead of dying.
+
+        row 1   >  r s r s r s r s r s r s r s r s r s  v     ring A, east
+        row 2   ^  s r s r s r s r s < s r s r s r s r  <              west
+        row 3   .  @ . . . . . . . Y . . . . . . . . .  .     spawn, used ONCE
+        row 4   >  r s r s r s r s > r s r s r s r s .  v     ring B, east
+        row 5   ^  s r s r s r s r s r s r s r s r s r  <              west
+
+    A room may hold AT MOST ONE `@`, so man two has to come from `Y`.  `Y`
+    births right and left of the parent's HEADING: an east-facing parent
+    births NORTH and SOUTH, which is why the spawn lane sits between the two
+    rings -- (C,2) lands in ring A and (C,4) in ring B.
+
+    BIRTH CELLS MUST NOT BE BLANK.  A copy executes its birth cell on its
+    first tick while still carrying the parent's heading, so (C,2) holds `<`
+    (ring A's row 2 runs west) and (C,4) holds `>` (ring B's row 4 runs
+    east); blanks there would march both copies straight on into a wall.
+    Both glyphs are no-ops for the men that later stream through them.
+
+    Nothing re-enters row 3, so the `Y` cannot re-fire; a `Y` left ON a ring
+    would double the population every lap.
+
+    Each ring is 2W cells with ~W-3 relays, so the pair sustains ~(W-3)/W
+    values/tick: 0.85 at W=20 against the 0.35 of the old single-man 12x4
+    room.  That is what lets MEM's twin rings (0.571) be the bottleneck,
+    which in turn is what keeps MEM's two men from ever blocking.
+    """
+    H = lambda x, y, c: P(HX + x, HY + y, c)
+    p.room(HX, HY, W + 2, 7)
+    for ry in (1, 4):                    # two 2-row rings, rows 1-2 and 4-5
+        H(1, ry, '>'); H(W, ry, 'v')
+        H(W, ry + 1, '<'); H(1, ry + 1, '^')
+    # spawn lane (row 3), walked exactly once
+    for x in range(1, W + 1):
+        H(x, 3, ' ')
+    H(2, 3, '@'); H(C, 3, 'Y')
+    H(C, 2, '<'); H(C, 4, '>')           # birth cells -- never blank
+    # relays, in TRAVEL order, split around each birth cell so no r/s pair
+    # straddles it or a corner turn
+    R = lambda cells: relay_run(P, [(HX + x, HY + y) for x, y in cells])
+    R([(x, 1) for x in range(2, W)])                     # ring A row 1, east
+    R([(x, 2) for x in range(W - 1, C, -1)])             # ring A row 2, west
+    R([(x, 2) for x in range(C - 1, 1, -1)])
+    R([(x, 4) for x in range(2, C)])                     # ring B row 4, east
+    R([(x, 4) for x in range(C + 1, W)])
+    R([(x, 5) for x in range(W - 1, 1, -1)])             # ring B row 5, west
+    # relays, split by the fork cell so no pair straddles it
+
+
 def build():
     p = Program()
     P = p.put
@@ -280,12 +405,48 @@ def build():
     P(1, 4, '>')
     for i, c in enumerate("rM`100`W%M8W/"):
         P(2 + i, 4, c)
-    P(15, 4, 'v')
+    P(15, 4, 'b')                          # BP = a  (hoisted off row 5: BOTH
+    P(16, 4, 'v')                          # copies must inherit the lap count)
 
     # -- row 5: the two rings, flowing WESTWARD --
-    P(15, 5, '<')
-    P(14, 5, 'b')                          # BP = a
-    vring(P, 13, 12, 5, 8)                 # main ring: 8 relays / 22-cell lap
+    # THE FORK.  The man arrives southbound on (16,4)->(16,5)='Y' carrying
+    # A=a, B=r8, BP=a.  `Y` births right and left OF THE HEADING, so a
+    # south-facing parent births WEST and EAST:
+    #   (15,5) west  = the RIGHT copy, which KEEPS THE CREATION ORDER (low id)
+    #                  -> the MAIN man, walks west into the counted ring
+    #   (17,5) east  = the LEFT copy, newest (high id) -> the HELPER
+    # Giving the main man the low id is deliberate: pipe contention is
+    # ascending-id, so the main man never loses a tick to the helper.  The
+    # helper losing one is self-correcting -- a one-tick stall shifts its ring
+    # out of phase with the main ring's `r` cells, after which they stop
+    # contending at all.
+    #
+    # BOTH BIRTH CELLS ARE TURNS.  A copy executes its birth cell on tick one
+    # while still heading SOUTH; blanks would march both into row 6.
+    P(16, 5, 'Y')
+    P(15, 5, '<')                          # main copy -> west
+    P(14, 5, ' ')
+    P(17, 5, '>')                          # helper copy -> east
+    # Two men, TWO SEPARATE RINGS -- never one shared ring.  Sharing is fatal:
+    # under contention the older man wins every value, the younger never
+    # moves, and the older laps around and rams him, which halts BOTH men
+    # silently (see the hop() docstring; a shared-ring HOP died exactly so).
+    # Separate rings share no cells, so the worst case is a stalled helper.
+    #
+    # Each ring relays 4 values per 14-tick lap, so the PAIR does 8 relays per
+    # lap -- the same 8-per-`a` the `M8W/` split above already assumes, so the
+    # rotation arithmetic is untouched (a = rot>>3, r8 = rot&7).  Cost falls
+    # from 22 ticks per 8 relays (2.75 t/value) to 14 (1.75 t/value).
+    #
+    # THE HELPER MUST FINISH BEFORE THE MAIN MAN TAPS, or the tap reads a
+    # half-rotated belt -- silently, never as a crash.  Two guarantees: the
+    # rings are identical so the men do identical work, and the main man still
+    # has ~16 ticks of exit corridor (W, b, ring1, the row-5 run, the tap's
+    # own cmd/op reads) before it touches the belt.
+    vring(P, 13, 12, 5, 4)                 # MAIN   ring: 4 relays / 14-cell lap
+    vring_mirror(P, 18, 19, 5, 4)          # HELPER ring: identical, exits east
+    P(20, 5, 'H')                          # ...into retirement; halted men are
+                                           # reaped, so they leave no obstacle
     P(11, 5, 'W')                          # A = r8 (B survived the relays)
     P(10, 5, 'b')                          # BP = r8
     vring(P, 9, 8, 5, 1)                   # remainder ring: 1 relay / 8-cell lap
@@ -354,17 +515,8 @@ def build():
     for y in range(2, 7):
         C(4, y, ' '); C(5, y, ' ')
 
-    # ================= HOP : cols 20-31, rows 22-25 =================
-    HX, HY = 20, 22
-    H = lambda x, y, c: P(HX + x, HY + y, c)
-    p.room(HX, HY, 12, 4)
-    H(1, 1, '>'); H(2, 1, '@')
-    for i, c in enumerate("rsrsrsr"):
-        H(3 + i, 1, c)
-    H(10, 1, 'v'); H(10, 2, '<')
-    for i, c in enumerate("srsrsrs"):
-        H(9 - i, 2, c)
-    H(2, 2, ' '); H(1, 2, '^')
+    # ================= HOP : cols 20-35, rows 21-25 (TWO men) =========
+    hop(p, P, 20, 19, 20, 10)
 
     # ================= IO =================
     p.output_room(2, 20)                   # follows OUT's new column (x=3)
@@ -374,7 +526,7 @@ def build():
     out = [(X_OUT, PIPE_ROW), (X_OUT, PIPE_ROW + 1)]
     cmd = [(X_CMD, 32), (X_CMD, PIPE_ROW)]
     ipipe = [(9, 34), (8, 34)]             # input left wall -> CONTROL right wall (now col 7)
-    p1 = [(X_P1, PIPE_ROW), (X_P1, 23), (19, 23)]   # -> HOP's left wall (20,23)
+    p1 = [(X_P1, PIPE_ROW), (X_P1, 22), (19, 22)]   # -> HOP's left wall (20,22)
     # Belt return: serpentine in rows 27-31 over cols 11-31, then north up the
     # deliberately-kept-clear col 10.  The FIRST segment must run SOUTH so the
     # start cell's backward neighbour is (25,25) = HOP's bottom wall; a westward

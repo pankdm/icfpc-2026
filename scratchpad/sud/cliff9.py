@@ -50,8 +50,9 @@ def main():
     lo, hi = int(sys.argv[1]), int(sys.argv[2])
     step = int(sys.argv[3]) if len(sys.argv) > 3 else 2
     for lap in range(lo, hi + 1, step):
+        extra = sys.argv[4:]
         b = subprocess.run([sys.executable, f"{SOL}/build_lanes9.py", "--lap", str(lap),
-                            "-o", "probe9.man"], capture_output=True, text=True)
+                            "-o", "probe9.man"] + extra, capture_output=True, text=True)
         if b.returncode:
             print(f"LAP={lap:3d} BUILD-FAIL"); continue
         man = f"{SOL}/probe9.man"

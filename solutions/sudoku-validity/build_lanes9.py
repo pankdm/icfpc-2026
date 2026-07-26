@@ -125,7 +125,7 @@ def pad(ops, W, H, avail, min_gap=3, max_pads=6, min_col=0):
 
 # --------------------------------------------------------------------- layout
 def build(DW=13, DH=3, RW=8, BW=9, H=5, timer_left=1, timer_lap=46,
-          gadget_pad=2, gap=0):
+          gadget_pad=2, gap=0, DXfix=None):
     p = Program()
 
     # ---- addressing band: BOX | ROW | COL.  Rooms may not SHARE a wall (the
@@ -144,7 +144,12 @@ def build(DW=13, DH=3, RW=8, BW=9, H=5, timer_left=1, timer_lap=46,
         rx0 = bx0 + BW + 2 + gap
         cx0 = rx0 + RW + 2 + gap
         pbox, prow, pcol = bx0 + BW, rx0 + RW // 2 + 1, cx0 + 1
-        DX = pbox - 2
+        # Dispatch sits in the dead margin above the band, so it is free to be
+        # WIDE: with W-3 >= 20 all twenty ops fit in its first serpentine row and
+        # the broadcast of w' avoids a row turn, landing 2 ticks earlier.  Only
+        # DX < pbox and pcol < DX+DW+1 (straddle both outer rooms) and DX >= 5
+        # (margin for INPUT) actually constrain it.
+        DX = pbox - 2 if DXfix is None else DXfix
         DW = max(DW0, pcol - DX + 1)
         avail = avail_times(DW, DH)
         # BOX is the leftmost room, so its westmost lane exit is what forces the
@@ -281,11 +286,12 @@ if __name__ == "__main__":
     ap.add_argument("--rh", type=int, default=5)
     ap.add_argument("--timer-left", type=int, default=1)
     ap.add_argument("--lap", type=int, default=46)
+    ap.add_argument("--dx", type=int, default=None)
     ap.add_argument("--gadget-pad", type=int, default=2)
     ap.add_argument("-o", "--out", default="lanes9.man")
     a = ap.parse_args()
     p, ck = build(DW=a.dw, RW=a.rw, BW=a.bw, H=a.rh, timer_lap=a.lap,
-                  timer_left=a.timer_left, gadget_pad=a.gadget_pad)
+                  timer_left=a.timer_left, gadget_pad=a.gadget_pad, DXfix=a.dx)
     check(ck)
     out = os.path.join(os.path.dirname(os.path.abspath(__file__)), a.out)
     p.save(out)

@@ -117,6 +117,104 @@ DEFAULT_PORTS = {
     "qr": (260, "r", 246, 310),
 }
 
+# Compressed port map for compact_components mode. Zones are Voronoi cells of
+# the port column among same-direction ports (band rule), and sa sits WEST of
+# sd so a display write (load, sa, const, sd) stays column-monotone on one row.
+COMPACT_PORTS = {
+    "ri": (6, "r", 1, 12),
+    "sp": (12, "s", 1, 20),
+    "rp": (20, "r", 14, 31),
+    "sc": (30, "s", 22, 44),
+    "rr": (44, "r", 33, 95),
+    "sd": (60, "s", 46, 66),
+    "sa": (74, "s", 68, 80),
+    "ss": (88, "s", 82, 98),
+    "cc": (110, "s", 101, 135),
+    "cr": (148, "r", 97, 155),
+}
+
+
+def _compact_components(p, ports, bottom, code_x, scalar_size, scalar_belts, cell_belts):
+    """Compact floor: components west->east in port order, short straight feeds.
+
+    Matches COMPACT_PORTS. Every pipe descends from its port and jogs only
+    inside its own component's horizontal slot, so no two pipes cross.
+    """
+    b = bottom
+    c = code_x
+
+    # Round input (ri): straight drop into the input room.
+    p.input_room(ports["ri"][0] - 1, b + 12)
+    p.pipe([(ports["ri"][0], b + 11), ports["ri"]])
+
+    # Scratch echo (sp/rp).
+    sx, sy = ports["sp"][0] - 3, b + 8
+    p.room(sx, sy, 8, 4)
+    p.text(sx + 1, sy + 1, "@>rsv")
+    p.put(sx + 5, sy + 2, "<")
+    p.put(sx + 2, sy + 2, "^")
+    p.pipe([ports["sp"], (sx + 3, sy - 1)])
+    p.pipe([
+        (sx + 4, sy - 1),
+        (sx + 4, b + 5),
+        (ports["rp"][0], b + 5),
+        ports["rp"],
+    ])
+
+    # Scalar RAM (sc/rr), banked.
+    scalar_x, scalar_y = c + 24, b + 5
+    scalar = split_ram.build(p, scalar_x, scalar_y, scalar_size, scalar_belts)
+    p.pipe([
+        ports["sc"],
+        (ports["sc"][0], b + 1),
+        (scalar["command"][0], b + 1),
+        scalar["command"],
+    ])
+    p.pipe([
+        scalar["reply"],
+        scalar["reply_turn"],
+        (scalar["reply_turn"][0], b + 3),
+        (ports["rr"][0], b + 3),
+        ports["rr"],
+    ])
+
+    # Display (sa/sd/ss): tucked between scalar and cell RAM. Attachment
+    # reading order (sa top, sd west, ss bottom) matches the classic layout.
+    # sa's port column IS dx+8, so the address feed drops straight in; sd
+    # descends west of the room; ss wraps around the east side to the bottom.
+    dx, dy = c + 66, b + 5
+    p.display(dx, dy, 18, 18)
+    assert ports["sa"][0] == dx + 8
+    p.pipe([ports["sa"], (dx + 8, dy - 1)])
+    p.pipe([
+        ports["sd"],
+        (ports["sd"][0], dy + 8),
+        (dx - 1, dy + 8),
+    ])
+    p.pipe([
+        ports["ss"],
+        (ports["ss"][0], dy + 20),
+        (dx + 8, dy + 20),
+        (dx + 8, dy + 18),
+    ])
+
+    # Cell RAM (cc/cr), banked.
+    cell_x, cell_y = c + 112, b + 5
+    cell = split_ram.build(p, cell_x, cell_y, 256, cell_belts)
+    p.pipe([
+        ports["cc"],
+        (ports["cc"][0], b + 2),
+        (cell["command"][0], b + 2),
+        cell["command"],
+    ])
+    p.pipe([
+        cell["reply"],
+        cell["reply_turn"],
+        (cell["reply_turn"][0], b + 3),
+        (ports["cr"][0], b + 3),
+        ports["cr"],
+    ])
+
 
 def build_program(
     flow,
@@ -132,11 +230,17 @@ def build_program(
     packed_cell=False,
     fast_scalar_ram=False,
     scalar_belts=4,
+    compact=False,
 ):
     """Compile *flow* and attach the shared stateful-problem hardware."""
+    if compact and not (fast_cell_ram and fast_scalar_ram):
+        raise ValueError("compact mode requires fast_cell_ram and fast_scalar_ram")
+    if compact and queue:
+        raise ValueError("compact mode has no queue port map yet")
+    base_ports = COMPACT_PORTS if compact else DEFAULT_PORTS
     p = lm.Program()
-    port_spec = DEFAULT_PORTS.copy() if queue else {
-        name: spec for name, spec in DEFAULT_PORTS.items()
+    port_spec = base_ports.copy() if queue else {
+        name: spec for name, spec in base_ports.items()
         if name not in ("qs", "qr")
     }
     layout = flowgrid.lay_cfg_controller(
@@ -152,6 +256,12 @@ def build_program(
     )
     ports = layout["ports"]
     bottom = layout["bottom"]
+
+    if compact:
+        _compact_components(
+            p, ports, bottom, code_x, scalar_size, scalar_belts, cell_belts
+        )
+        return p
 
     # Components sit below the controller. All controller ports leave through
     # its bottom wall and route outside the room before entering a component.

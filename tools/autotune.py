@@ -118,13 +118,73 @@ def find_knobs(src, scope="all"):
     return knobs
 
 
+class MacroKnob:
+    """A COORDINATED shift of many literals at once — "slide this whole block N columns".
+
+    A single literal cannot express the move that usually matters. Geometry here is written
+    as calls like `L.put(x, y, ch)` / `hrun(x, y, …)`, so the x (or y) coordinate of every
+    such call inside one function IS a block. Shifting them together is exactly the move
+    behind hand-wins like tcp's "relocate the checker WEST into dead space" (1.75x).
+
+    `value` is a delta (always 0 at rest); applying d rewrites every span to its own value+d.
+    The key embeds the current span sum, so after an accepted shift the knob is a NEW key and
+    can be shifted again — otherwise `tried` would pin a block after one step."""
+
+    def __init__(self, scope, axis, spans):
+        self.scope, self.axis = scope, axis
+        self.spans = spans                      # [(lineno, col, end_col, value)]
+        self.value = 0
+        self.name = f"{scope}.{'xy'[axis]}<{len(spans)}>"
+
+    @property
+    def key(self):
+        return ("macro", self.scope, self.axis, sum(s[3] for s in self.spans))
+
+    def __repr__(self):
+        return f"{self.name}+0"
+
+
+def find_macro_knobs(src, min_spans=3):
+    """One macro knob per (enclosing function, axis) over calls whose first two positional
+    args are int literals — i.e. the coordinate pairs that draw a block."""
+    tree = ast.parse(src)
+    scopes = [("module", tree)] + [(n.name, n) for n in ast.walk(tree)
+                                   if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))]
+    out = []
+    for scope_name, node in scopes:
+        per_axis = {0: [], 1: []}
+        for call in (n for n in ast.walk(node) if isinstance(n, ast.Call)):
+            pos = call.args
+            if len(pos) < 2:
+                continue
+            got = [_signed_int(a) for a in pos[:2]]
+            if not all(got):
+                continue
+            for axis in (0, 1):
+                value, span = got[axis]
+                per_axis[axis].append((span.lineno, span.col_offset, span.end_col_offset, value))
+        for axis, spans in per_axis.items():
+            spans = sorted(set(spans))
+            if len(spans) >= min_spans:
+                out.append(MacroKnob(scope_name, axis, spans))
+    return out
+
+
+def _replace_span(lines, lineno, col, end_col, value):
+    line = lines[lineno - 1]
+    text = f"({value})" if value < 0 and col > 0 and line[col - 1].isalnum() else repr(value)
+    lines[lineno - 1] = line[:col] + text + line[end_col:]
+
+
 def patch(src, knob, value):
-    """Replace one knob's literal with `value`, leaving the rest of the file untouched."""
+    """Rewrite a knob to `value` (a delta for macro knobs), leaving everything else alone."""
     lines = src.splitlines(keepends=True)
-    i = knob.lineno - 1
-    line = lines[i]
-    text = f"({value})" if value < 0 and knob.col > 0 and line[knob.col - 1].isalnum() else repr(value)
-    lines[i] = line[:knob.col] + text + line[knob.end_col:]
+    if isinstance(knob, MacroKnob):
+        # right-to-left so earlier spans keep their offsets
+        for lineno, col, end_col, old in sorted(knob.spans, reverse=True):
+            _replace_span(lines, lineno, col, end_col, old + value)
+    else:
+        _replace_span(lines, knob.lineno, knob.col, knob.end_col, value)
     return "".join(lines)
 
 
@@ -249,6 +309,67 @@ def evaluate(slug, builder_rel, source, args, target, cases, cache=None, baselin
         sbx.cleanup()
 
 
+def build_only(slug, builder_rel, source, args):
+    """Build a candidate WITHOUT grading it — ~4x cheaper than a full evaluate()."""
+    sbx = Sandbox(slug, builder_rel)
+    try:
+        written, err = sbx.build(source, args.builder_args, args.timeout)
+        if err:
+            return None, err
+        return next(iter(written.values())).decode("utf-8", "replace"), None
+    finally:
+        sbx.cleanup()
+
+
+def box_of(man_text):
+    rows = man_text.rstrip("\n").split("\n")
+    ys = [i for i, r in enumerate(rows) if r.strip()]
+    if not ys:
+        return 0
+    width = max(len(r) for r in rows)
+    xs = [x for x in range(width) if any(len(r) > x and r[x] != " " for r in rows)]
+    if not xs:
+        return 0
+    return max(xs[-1] - xs[0] + 1, ys[-1] - ys[0] + 1) ** 2
+
+
+def screen(knobs, slug, builder_rel, source, args, baseline_man):
+    """Classify every knob with BUILD-ONLY probes (+1 / -1) — no oracle at all.
+
+    Two full sweeps showed 67-71% of candidates dying in the builder and up to 5% coming out
+    inert, so most of a search's budget is spent proving the same knobs useless over and over.
+    A knob is dropped only when BOTH directions break the build or leave the grid untouched;
+    one working direction is enough to keep it. Costs 2 builds/knob (~0.17s each) and no
+    grading, so it is a rounding error next to what it saves."""
+    t0 = time.time()
+    probes = [(k, d) for k in knobs for d in (1, -1)]
+    verdict = {}
+    with futures.ThreadPoolExecutor(max_workers=args.jobs) as ex:
+        jobs = {ex.submit(build_only, slug, builder_rel, patch(source, k, k.value + d), args): (k, d)
+                for k, d in probes}
+        for f in futures.as_completed(jobs):
+            k, d = jobs[f]
+            try:
+                man, err = f.result()
+            except Exception as e:
+                man, err = None, str(e)
+            state = "break" if err else ("inert" if man == baseline_man else "live")
+            box = box_of(man) if state == "live" else None
+            prev = verdict.get(k.name)
+            # keep the best verdict across the two directions
+            if prev is None or (prev[0] != "live" and state == "live"):
+                verdict[k.name] = (state, box)
+    live = [k for k in knobs if verdict.get(k.name, ("break",))[0] == "live"]
+    base_box = box_of(baseline_man)
+    shrinkers = [k for k in live if (verdict[k.name][1] or base_box) < base_box]
+    counts = {s: sum(1 for v in verdict.values() if v[0] == s) for s in ("live", "inert", "break")}
+    print(f"screened {len(knobs)} knobs in {time.time() - t0:.1f}s: {counts['live']} live, "
+          f"{counts['inert']} inert, {counts['break']} always-break "
+          f"→ searching {len(live)} ({len(shrinkers)} can shrink the box)")
+    # box-shrinkers first: a smaller box is an input-independent win
+    return sorted(live, key=lambda k: (k not in shrinkers, k.name))
+
+
 def is_win(res, best_score):
     return (not res.get("error") and not res.get("inert")
             and res.get("score") is not None
@@ -284,6 +405,10 @@ def main():
     ap.add_argument("--passes", type=int, default=4)
     ap.add_argument("--budget", type=float, default=float("inf"))
     ap.add_argument("--timeout", type=float, default=120)
+    ap.add_argument("--no-screen", action="store_true",
+                    help="skip the build-only screening pass (it drops inert/always-breaking knobs)")
+    ap.add_argument("--no-macros", action="store_true",
+                    help="disable macro knobs (coordinated block shifts)")
     ap.add_argument("--tick-factor", type=float, default=4.0,
                     help="reject candidates slower than this x the baseline avg ticks (default 4)")
     ap.add_argument("--dry-run", action="store_true")
@@ -319,9 +444,21 @@ def main():
     if args.max_knobs and len(knobs) > args.max_knobs:
         print(f"({len(knobs)} knobs found, tuning the first {args.max_knobs} — raise --max-knobs)")
         knobs = knobs[:args.max_knobs]
-    shown = ", ".join(str(k) for k in knobs[:12]) + (" …" if len(knobs) > 12 else "")
-    print(f"knobs ({len(knobs)}, scope={args.scope}): {shown or '(none found)'}\n")
-    if args.dry_run or not knobs:
+    macros = [] if args.no_macros else find_macro_knobs(source)
+    shown = ", ".join(str(k) for k in knobs[:10]) + (" …" if len(knobs) > 10 else "")
+    print(f"knobs ({len(knobs)}, scope={args.scope}): {shown or '(none found)'}")
+    if macros:
+        print(f"macro knobs ({len(macros)}): {', '.join(m.name for m in macros[:10])}"
+              f"{' …' if len(macros) > 10 else ''}")
+    if args.dry_run or not (knobs or macros):
+        return
+
+    if knobs and not args.no_screen:
+        knobs = screen(knobs, args.slug, builder_rel, source, args, base_man)
+    allowed = {k.name for k in knobs} | {m.name for m in macros}
+    print()
+    if not allowed:
+        print("nothing left to search after screening")
         return
 
     # Cap candidate runs relative to the baseline: a build needing >N x the baseline ticks
@@ -341,16 +478,17 @@ def main():
     # current best is independent, so one wave = one barrier (not one per knob), which is
     # where the parallelism actually comes from. Apply the single best win, then re-wave.
     for wave in range(1, args.passes + 1):
-        live = {k.key: k for k in find_knobs(best_src, args.scope)}
+        # Re-derive from the current best: columns shift under a patch, and a macro knob's
+        # key changes once its block has moved (which is what lets a block move twice).
+        live = [k for k in find_knobs(best_src, args.scope) if k.name in allowed]
+        if not args.no_macros:
+            live += [m for m in find_macro_knobs(best_src) if m.name in allowed]
         plan = []
-        for knob in knobs:
-            k = live.get(knob.key)
-            if k is None:
-                continue
+        for k in live:
             for d in deltas:
                 for s in (1, -1):
                     v = k.value + s * d
-                    if v != k.value and (knob.key, v) not in tried:
+                    if v != k.value and (k.key, v) not in tried:
                         plan.append((k, v))
         if not plan:
             print(f"wave {wave}: every knob setting already tried — converged")
@@ -415,10 +553,13 @@ def main():
     for name, was, now, score in accepted:
         print(f"   {name}: {was} -> {now}   (score {score:,.0f})")
 
-    stem = os.path.splitext(os.path.basename(target))[0]
+    # re-tuning an already-tuned artifact stays on the same names (no _tuned_tuned chain);
+    # the previous version is recoverable from git, which is where tuned artifacts belong
+    stem = os.path.splitext(os.path.basename(target))[0].removesuffix("-tuned")
     man_out = os.path.join(REPO, os.path.dirname(target), f"{stem}-tuned.man")
-    src_out = os.path.join(REPO, os.path.splitext(builder_rel)[0] + "_tuned.py")
-    for path in (man_out, src_out):
+    src_out = os.path.join(REPO, os.path.splitext(builder_rel)[0].removesuffix("_tuned") + "_tuned.py")
+    resuming = os.path.abspath(src_out) == os.path.abspath(os.path.join(REPO, builder_rel))
+    for path in ([] if resuming else (man_out, src_out)):
         if os.path.exists(path):
             print(f"\nrefusing to overwrite {os.path.relpath(path, REPO)} — move it aside and re-run")
             return

@@ -196,13 +196,17 @@ class Sched:
                 best = (k, i)
         return None if best is None else best[1]
 
-    def deps(self, ca, cb) -> str | None:
-        """RAW / WAR / WAW on A, B, BP — plus the pipe-order and pipe-retarget rules."""
-        a, b = self.at(*ca), self.at(*cb)
-        ra, wa = RW[a]
-        rb, wb = RW[b]
+    @staticmethod
+    def hazard(a: str, b: str) -> str | None:
+        """May instruction `a`, executed before `b`, trade places with it?
+
+        Purely on the characters: RAW / WAR / WAW over A, B, BP. Independence here is what
+        makes the register state AFTER the pair identical either way, which is what lets
+        everything downstream stay untouched."""
         if a in PIPE_OPS and b in PIPE_OPS:
             return "both touch the pipes (order is observable)"
+        ra, wa = RW[a]
+        rb, wb = RW[b]
         regs = {A, B, BP}
         if (rb & wa) & regs:
             return f"RAW on {sorted((rb & wa) & regs)}"
@@ -210,8 +214,19 @@ class Sched:
             return f"WAR on {sorted((ra & wb) & regs)}"
         if (wa & wb) & regs:
             return f"WAW on {sorted((wa & wb) & regs)}"
-        for cell, ch, other in ((ca, a, cb), (cb, b, ca)):
-            if ch in PIPE_OPS and self.nearest_pipe(cell, ch) != self.nearest_pipe(other, ch):
+        return None
+
+    def retargets(self, ch: str, frm, to) -> bool:
+        """Would moving `ch` from cell `frm` to cell `to` change which pipe it uses?"""
+        return ch in PIPE_OPS and self.nearest_pipe(frm, ch) != self.nearest_pipe(to, ch)
+
+    def deps(self, ca, cb) -> str | None:
+        a, b = self.at(*ca), self.at(*cb)
+        why = self.hazard(a, b)
+        if why:
+            return why
+        for ch, frm, to in ((a, ca, cb), (b, cb, ca)):
+            if self.retargets(ch, frm, to):
                 return f"'{ch}' would retarget to a different pipe"
         return None
 
@@ -237,30 +252,54 @@ class Sched:
                 out.append((p, q, d, self.swappable(p, d)))
         return out
 
+    def slide_step(self, op: str, src, cur, d) -> str | None:
+        """May the op that started at `src` move one more cell, from `cur` to `cur+d`?
+
+        The hazard is between the MOVING OP and the cell it is about to pass — not between
+        the two cells as they sit in the grid. (Checking the cells is the tempting bug: an
+        `r` that has already slid over three blanks would be compared blank-vs-`s` and waved
+        through, when it is the `r` that is about to cross the `s`.)"""
+        nxt = (cur[0] + d[0], cur[1] + d[1])
+        if not self.welded(cur, d):
+            return "not welded (branch/turn/join/two headings)"
+        for c in (cur, nxt):
+            why = self.movable(c)
+            if why:
+                return why
+        ch = self.at(*nxt)
+        why = self.hazard(op, ch)
+        if why:
+            return why
+        if self.retargets(op, src, nxt):          # the moving op lands one cell further out
+            return f"'{op}' would retarget to a different pipe"
+        if self.retargets(ch, nxt, cur):          # everything it passes shifts back one
+            return f"'{ch}' would retarget to a different pipe"
+        return None
+
     def bubbles(self):
         """Per blocking op: how far it can slide later, and past what.
 
-        Repeated adjacent swaps preserve the relative order of the ops it passes, so the
-        whole slide is legal exactly when every step is — and the pipe-retarget test is
-        re-run at the final cell, which is where the op actually lands."""
+        Repeated adjacent swaps preserve the relative order of the ops passed, so the whole
+        slide is legal exactly when every step is; the hazard is re-tested against the moving
+        op each time, and the pipe-retarget test against the cell it would land on."""
         out = []
         for p, dirs in sorted(self.dirs.items()):
             if len(dirs) != 1:
                 continue
             d = next(iter(dirs))
-            if self.at(*p) not in BLOCKING:
+            op = self.at(*p)
+            if op not in BLOCKING:
                 continue
             passed, cur = [], p
             while True:
-                why = self.swappable(cur, d)
+                why = self.slide_step(op, p, cur, d)
                 if why:
                     break
-                nxt = (cur[0] + d[0], cur[1] + d[1])
-                passed.append((nxt, self.at(*nxt)))
-                cur = nxt
-            out.append({"cell": p, "op": self.at(*p), "dir": d,
+                cur = (cur[0] + d[0], cur[1] + d[1])
+                passed.append((cur, self.at(*cur)))
+            out.append({"cell": p, "op": op, "dir": d,
                         "k": len(passed), "past": passed,
-                        "blocked_by": self.swappable(cur, d)})
+                        "blocked_by": self.slide_step(op, p, cur, d)})
         return out
 
 
@@ -279,10 +318,7 @@ def apply_bubble(rows, cell, d, k) -> list[str]:
 
 # ------------------------------------------------------------------ grading
 
-class Grader(DCE.Grader):
-    pass
-
-
+Grader = DCE.Grader          # same contract: one JSON line per candidate, cached, parallel
 ok, key, fmt = PO.ok, PO.key, PO.fmt
 
 
@@ -327,6 +363,8 @@ def main() -> int:
     ap.add_argument("--cases", default=None)
     ap.add_argument("--max-waves", type=int, default=6)
     ap.add_argument("--census", action="store_true", help="analysis only: no grading, no output")
+    ap.add_argument("--allow-y", action="store_true",
+                    help="run even though the program forks; the grade gate is then the only check")
     ap.add_argument("-v", "--verbose", action="store_true")
     args = ap.parse_args()
 
@@ -341,6 +379,14 @@ def main() -> int:
 
     rows = load_rows(src)
     t0 = time.time()
+    if any("Y" in r for r in rows) and not args.allow_y:
+        # The weld test is only sound if `dirs` holds EVERY heading a cell is executed on,
+        # and the walk starts only at `@`. A forked man can execute a cell on a heading the
+        # walk never saw, which turns "welded" from conservative into wrong.
+        print("REFUSING — program contains `Y`: the walk starts only from `@`, so a fork's "
+              "headings are missing and the weld test would be unsound. Pass --allow-y to "
+              "override (the grade gate is then the only check).")
+        return 1
     sc = Sched(rows)
     w0, h0, box0 = PO.footprint(rows)
     print(f"== sched {src.name}  [{args.slug}]   {w0}x{h0} box {box0}   "

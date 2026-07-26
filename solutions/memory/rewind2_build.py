@@ -151,7 +151,14 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'tools'))
 from littleman import Program
 
 # MEMORY bottom-wall pipe attachment columns (see module docstring).
-X_OUT, X_CMD, X_P2, X_P1 = 1, 3, 9, 14
+# OUT and CMD are SWAPPED relative to the obvious order, to keep the layout
+# PLANAR. CONTROL sits north-east of MEM, so a cmd pipe attaching at the far
+# west has to cross p1 (x=14) and p2 (x=9) on its way there, and every row is
+# already taken (18-23 by p1's descent, 24-25 by HOP, 26-31 by the serpentine).
+# Putting CMD at x=1 lets cmd run down the far-west column with nothing to
+# cross. CMD cannot instead move EAST: every command-read must be nearer CMD
+# than P2 while the belt-reads stay nearer P2, so CMD is pinned west of them.
+X_OUT, X_CMD, X_P2, X_P1 = 3, 1, 9, 14
 MEM_W, MEM_H = 17, 18          # room(0,0,MEM_W,MEM_H) -> interior 1..15 x 1..16
 MEM_BOT = MEM_H - 1            # bottom wall row 17
 PIPE_ROW = MEM_H               # attachment cells sit on row 18
@@ -245,26 +252,30 @@ def build():
     P(11, 5, 'W')                          # A = r8 (B survived the relays)
     P(10, 5, 'b')                          # BP = r8
     vring(P, 9, 8, 5, 1)                   # remainder ring: 1 relay / 8-cell lap
-    P(7, 5, ' '); P(6, 5, ' '); P(5, 5, 'v')
+    for x in range(5, 8):
+        P(x, 5, ' ')
+    P(4, 5, 'v')
 
     # -- tap: read the command pair, dispatch on op --
-    P(5, 6, 'r')                           # second value (CMD 2 vs P2 4)
-    P(5, 7, 'M')                           # B = value
-    P(5, 8, 'r')                           # op           (CMD 2 vs P2 4)
-    P(5, 9, 'X')                           # op=1 -> cw(south->west); op=0 -> south
+    # Command reads sit at col 4, not col 5: with CMD=1 and P2=9 the midpoint is
+    # x=5, so a read at col 5 TIES and would rely on reading order to bind.
+    P(4, 6, 'r')                           # second value (CMD 3 vs P2 5)
+    P(4, 7, 'M')                           # B = value
+    P(4, 8, 'r')                           # op           (CMD 3 vs P2 5)
+    P(4, 9, 'X')                           # op=1 -> cw(south->west); op=0 -> south
     # READ arm (op == 0): tap the belt, output AND reinject
-    P(5, 10, '>'); P(6, 10, ' ')
-    P(7, 10, 'r')                          # belt value   (P2 2 vs CMD 4)
+    P(4, 10, '>'); P(5, 10, ' '); P(6, 10, ' ')
+    P(7, 10, 'r')                          # belt value   (P2 2 vs CMD 6)
     P(8, 10, 'S')                          # -> output pipe AND belt (reinject)
     P(9, 10, ' '); P(10, 10, ' '); P(11, 10, 'v')
     for y in range(11, 16):
         P(11, y, ' ')
     P(11, 16, '<')
     # WRITE arm (op == 1): discard the old belt value, send the new one
-    P(4, 9, 'v')
+    P(3, 9, 'v')
     for y in range(10, 14):
-        P(4, y, ' ')
-    P(4, 14, '>'); P(5, 14, ' '); P(6, 14, ' ')
+        P(3, y, ' ')
+    P(3, 14, '>'); P(4, 14, ' '); P(5, 14, ' '); P(6, 14, ' ')
     P(7, 14, 'r')                          # old value, discarded
     P(8, 14, 'W')                          # A = value (from B)
     P(9, 14, 's')                          # -> belt      (P1 5 vs OUT 8)
@@ -319,7 +330,7 @@ def build():
     H(2, 2, ' '); H(1, 2, '^')
 
     # ================= IO =================
-    p.output_room(0, 20)
+    p.output_room(2, 20)                   # follows OUT's new column (x=3)
     p.input_room(10, 33)                   # moved in with CONTROL's new right wall
 
     # ================= pipes =================

@@ -52,13 +52,20 @@ REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 
 
 def smoke(program, slug, case):
-    """Run one public case under the Rust interpreter.
+    """Settle tick of one public case under the Rust interpreter, or None.
 
-    The lint catches grids the *loader* rejects; it cannot see a grid that loads
-    and then deadlocks, which is what a candidate with the wrong pipe capacity
-    does.  Only new champions pay for this (~0.3s), so the walk stays cheap while
-    nothing untested can come out of it.
+    This is not only a correctness gate (a grid can load cleanly and then
+    deadlock, which no static check sees) -- it is the *objective*.  Moving port
+    columns to shorten the controller spreads the hot ops over more columns, so
+    the man walks farther: the first dense snake candidate cut the box 19% and
+    raised average ticks 22%, for a 1.3% score gain.  Box alone is the wrong
+    thing to minimise; score is box x ticks.
+
+    One short case tracks the public average closely enough to steer on
+    (24,932/182,390 = 0.137 for the baseline, 30,255/221,846 = 0.136 for that
+    candidate), and costs ~0.3s against a 1.3s full grade.
     """
+    import json
     import subprocess
     import tempfile
     fd, path = tempfile.mkstemp(suffix=".man")
@@ -68,16 +75,16 @@ def smoke(program, slug, case):
         out = subprocess.run(
             ["node", os.path.join(REPO, "sim", "rust_case.js"), slug, path, case],
             capture_output=True, text=True, cwd=REPO, timeout=180)
-        return '"status":"pass"' in out.stdout
+        got = json.loads(out.stdout.strip().splitlines()[-1])
+        return got["settleTick"] if got.get("status") == "pass" else None
     except Exception:
-        return False
-    finally:
-        os.unlink(path)
+        return None
 
+SMOKE_CASE = "game over at the wall"
 BASE_DANGLING = None
 
 
-def evaluate(cols, floor, code_x=10, verify=False):
+def evaluate(cols, floor, code_x=10, verify=False, box_ceiling=None):
     """Box of the built program, or None when the proposal is infeasible.
 
     ``Program.pipe`` and ``Program.room`` overwrite silently, so a colliding
@@ -103,15 +110,18 @@ def evaluate(cols, floor, code_x=10, verify=False):
         BASE_DANGLING = loose
     elif loose != BASE_DANGLING:
         return None
+    w, h, box = program.footprint()
+    if box_ceiling is not None and box > box_ceiling:
+        return None          # cannot win even at zero ticks; skip the run
+    ticks = smoke(program, "snake", SMOKE_CASE)
+    if ticks is None:
+        return None
     if verify:
         try:
             build_rail.railflow.verify_bindings(program, layout)
         except Exception:
             return None
-        if not smoke(program, "snake", "game over at the wall"):
-            return None
-    w, h, box = program.footprint()
-    return box, w, h, layout["width"], layout["height"], layout["ncorr"]
+    return box * ticks, box, ticks, w, h, layout["width"], layout["height"]
 
 
 def search(iters, seed, code_x, start=None):
@@ -121,6 +131,8 @@ def search(iters, seed, code_x, start=None):
     cur = evaluate(cols, floor, code_x)
     assert cur is not None, "baseline is infeasible"
     best = (cur, dict(cols), dict(floor))
+    print(f"  start score {cur[0]:,} = box {cur[1]:,} x {cur[2]:,} ticks",
+          flush=True)
     accepted = 0
     for step in range(iters):
         cand_cols, cand_floor = dict(cols), dict(floor)
@@ -135,7 +147,11 @@ def search(iters, seed, code_x, start=None):
                 lo = 1 if key in BAND_KEYS else 0
                 cand_floor[key] = max(lo, cand_floor[key]
                                       + rnd.choice([-8, -4, -2, -1, 1, 2, 4, 8]))
-        got = evaluate(cand_cols, cand_floor, code_x)
+        # a proposal can only win by shrinking box x ticks, so anything whose
+        # box alone already exceeds the incumbent score / a floor on ticks is
+        # rejected before paying for an interpreter run
+        got = evaluate(cand_cols, cand_floor, code_x,
+                       box_ceiling=cur[0] // max(1, cur[2] // 2))
         if got is None:
             continue
         # sideways moves are accepted so the walk can leave a plateau; only
@@ -144,11 +160,11 @@ def search(iters, seed, code_x, start=None):
         # Descend on (box, semi-perimeter): plain box has huge plateaus that a
         # random walk drifts across until the footprint is much worse than where
         # it started, and only the shorter side moving does anything for the box.
-        if (got[0], got[1] + got[2]) <= (cur[0], cur[1] + cur[2]):
+        if got[0] <= cur[0]:
             if got[0] < best[0][0]:
-                if evaluate(cand_cols, cand_floor, code_x, verify=True) is None:
-                    continue
                 best = (got, dict(cand_cols), dict(cand_floor))
+                print(f"  score {got[0]:,} = box {got[1]:,} x {got[2]:,} ticks",
+                      flush=True)
             cols, floor, cur = cand_cols, cand_floor, got
             accepted += 1
     return best, accepted
@@ -169,16 +185,18 @@ if __name__ == "__main__":
         best, acc = search(args.iters, args.seed + r, args.code_x,
                            start=None if overall is None
                            else (overall[1], overall[2]))
-        print(f"restart {r}: box {best[0][0]:,} foot {best[0][1]}x{best[0][2]} "
-              f"controller {best[0][3]}x{best[0][4]} rail {best[0][5]} "
-              f"(accepted {acc})", flush=True)
+        print(f"restart {r}: score {best[0][0]:,} box {best[0][1]:,} "
+              f"ticks {best[0][2]:,} foot {best[0][3]}x{best[0][4]} "
+              f"controller {best[0][5]}x{best[0][6]} (accepted {acc})",
+              flush=True)
         print("  ports =", dict(sorted(best[1].items(), key=lambda kv: kv[1])),
               flush=True)
         print("  floor =", best[2], flush=True)
         if overall is None or best[0][0] < overall[0][0]:
             overall = best
-    (box, w, h, cw, ch, nr), cols, floor = overall
-    print(f"\nBEST box {box:,}  footprint {w}x{h}  controller {cw}x{ch}")
+    (score, box, ticks, w, h, cw, ch), cols, floor = overall
+    print(f"\nBEST score {score:,} = box {box:,} x {ticks:,} ticks  "
+          f"footprint {w}x{h}  controller {cw}x{ch}")
     print("ports =", dict(sorted(cols.items(), key=lambda kv: kv[1])))
     print("floor =", floor)
     # the walk itself only lints; the winner is the one config worth an oracle

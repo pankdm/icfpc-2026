@@ -46,6 +46,33 @@ op range (infinite replicas, zero routing cost) takes the LLM controller only 99
 rows. So a realistic packing win is ~2x box, not the 5.5x the 394-vs-921 aspect ratio
 suggests.
 
+### MEASURED 2026-07-26: the port is NOT worth doing
+
+Patching `voronoi_bands` to return the full op span for every port (= zero band conflicts,
+the unreachable ideal) on the `--hw tight --flat-branch` build:
+
+```
+baseline                    controller 277x913   footprint 321x958   box 917,764
+IDEAL (no band conflicts)   controller 279x507   footprint 321x552   box 304,704
+```
+
+So **406 of 913 rows (44%) are band conflicts and 507 are structural** — and the whole
+prize is 848,241 -> 304,704 = **2.78x vs live**, for an ideal requiring infinite port
+replicas. Two further facts kill it:
+
+- **Widening does nothing.** A 72-point sweep of `code_x` (45..895) x `op_slack` (0..300)
+  leaves the controller at **exactly 913 rows** at every setting, from 277 to 677 columns
+  wide. Row count is block-bound (`_lay_once` starts a new row per block), not width-bound,
+  so the aspect ratio cannot be traded.
+- **The board says it does not matter.** Among LLM's 42 full-solvers we are rank 17; the
+  unreachable 2.78x moves us to **rank 12** (+5 places, ~0.12 pts). The leader is at
+  60.4B against our 9,437B — **156x** — so LLM cannot be made competitive at any point on
+  this design. Even 27x only reaches rank 4.
+
+`CLAUDE.md` separately records that re-spacing attachments breaks pipe routing
+(~2000/2000 coordinate-descent moves failed `verify_bindings`), which is what an actual
+replica scheme would require. Do not attempt the smtrows->boustro port.
+
 ## Also corrected here
 
 `CLAUDE.md` claims the submitted program text "is not retrievable from anywhere". That is

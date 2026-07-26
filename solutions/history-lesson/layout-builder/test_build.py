@@ -80,6 +80,10 @@ class LayoutBuilderTest(unittest.TestCase):
         x = dictionary["x"]
         bottom = dictionary["y"] + dictionary["height"] - 1
         self.assertEqual(
+            "".join(self.program.get(x + dx, bottom - 3) for dx in range(1, 5)),
+            "vs0s",
+        )
+        self.assertEqual(
             "".join(self.program.get(x + dx, bottom - 2) for dx in range(1, 6)),
             ">>rsv",
         )

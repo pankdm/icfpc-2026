@@ -35,8 +35,16 @@ chooses how many sequential constants belong to each paired band. For every
 candidate band, an inner DP chooses the top/bottom split and aligns real and
 dummy literal slots at minimum width. No slot counts or row split are fixed.
 The combined objective minimizes paired bands, maximizes constants in earlier
-bands, and then minimizes unused width. The final band also reserves the two
-cells required by the sentinel path.
+bands, and then minimizes unused width. The final band is optimized under a
+special constraint: it must begin its bottom row with a real westbound
+constant send. That band is left-aligned so the final three interior rows have
+the exact form:
+
+```text
+vs0s
+>>rsv
+ ^<<<
+```
 
 After the last constant, the loader sends the zero sentinel and enters the
 `r`/`s` buffer iteration loop; the loop remains physically and semantically at

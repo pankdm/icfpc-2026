@@ -51,7 +51,12 @@ def _slot_width(top: int | None, bottom: int | None) -> int:
     return max(top_digits, bottom_digits)
 
 
-def _best_band(values: tuple[int, ...], top_count: int) -> DictionaryBand:
+def _best_band(
+    values: tuple[int, ...],
+    top_count: int,
+    *,
+    require_bottom_first: bool = False,
+) -> DictionaryBand:
     """Find the narrowest column alignment for one chosen top/bottom split.
 
     Top constants retain their preload order from left to right. Bottom
@@ -116,6 +121,42 @@ def _best_band(values: tuple[int, ...], top_count: int) -> DictionaryBand:
         return width, slots
 
     _, slots = align(0, 0)
+    if require_bottom_first and (not slots or slots[0][1] is None):
+        # The special final row needs a real westbound send in its first
+        # physical slot, immediately after the sentinel's `vs0` prefix.
+        candidates = []
+        if top and bottom_physical:
+            tail_width, tail_slots = align(1, 1)
+            candidates.append(
+                (
+                    _slot_width(top[0], bottom_physical[0])
+                    + 3
+                    + tail_width,
+                    0,
+                    ((top[0], bottom_physical[0]),) + tail_slots,
+                )
+            )
+        if bottom_physical:
+            tail_width, tail_slots = align(0, 1)
+            candidates.append(
+                (
+                    _slot_width(None, bottom_physical[0])
+                    + 3
+                    + tail_width,
+                    1,
+                    ((None, bottom_physical[0]),) + tail_slots,
+                )
+            )
+        if not candidates:
+            raise ValueError("final dictionary band needs a bottom constant")
+        _, _, slots = min(
+            candidates,
+            key=lambda candidate: (
+                candidate[0],
+                len(candidate[2]),
+                candidate[1],
+            ),
+        )
     top_slots = tuple(slot[0] for slot in slots)
     bottom_slots = tuple(slot[1] for slot in slots)
     widths = tuple(_slot_width(*slot) for slot in slots)
@@ -160,8 +201,16 @@ def pack_dictionary(values: list[int], room_width: int) -> list[DictionaryBand]:
                 final_capacity if index + count == len(values_tuple)
                 else capacity
             )
-            for top_count in range(1, count + 1):
-                band = _best_band(segment, top_count)
+            final_band = index + count == len(values_tuple)
+            # The final band must contain at least one bottom-row constant so
+            # it can provide the fourth glyph in `vs0s`.
+            top_count_stop = count if final_band else count + 1
+            for top_count in range(1, top_count_stop):
+                band = _best_band(
+                    segment,
+                    top_count,
+                    require_bottom_first=final_band,
+                )
                 used = sum(width + 3 for width in band.widths)
                 if used > band_capacity:
                     continue
@@ -211,10 +260,10 @@ def place_dictionary(
         top_y = y0 + 1 + 2 * band_index
         bottom_y = top_y + 1
         pitch = sum(width + 3 for width in band.widths)
-        # The final eastbound send ends one cell before the turn.  Computing
-        # starts from that edge makes every band right-aligned despite having
-        # a different set of slot widths.
-        base_x = turn_x - pitch - 1
+        final_band = band_index == len(bands) - 1
+        # Ordinary bands are right-aligned. The final band starts at column
+        # four so its first real bottom slot completes the `vs0s` prefix.
+        base_x = x0 + 4 if final_band else turn_x - pitch - 1
         if base_x < x0 + 2:
             raise AssertionError((base_x, x0, room_width, band))
         starts = []

@@ -243,6 +243,8 @@ def build_program(
     merge_pad=None,
     block_gap=None,
     boustrophedon=False,
+    queue_rows=6,
+    queue_right_off=320,
 ):
     """Compile *flow* and attach the shared stateful-problem hardware.
 
@@ -504,21 +506,26 @@ def build_program(
             ports["qs"],
             (ports["qs"][0], queue_y - 1),
         ])
+        # The return pipe is storage: its length caps queue occupancy.  The
+        # BFS frontier of a 16x16 board never exceeds ~19 items (measured),
+        # so the serpentine is parametric; queue_rows=6/right=320 keeps the
+        # original ~379-cell shape for legacy builds.
+        right = code_x + (652 if cell_replicas > 1 else queue_right_off)
+        left = code_x + (612 if cell_replicas > 1 else 280)
         queue_path = [
             (queue_x + 4, queue_y + 6),
             (queue_x + 4, queue_y + 8),
-            (code_x + (652 if cell_replicas > 1 else 320), queue_y + 8),
+            (right, queue_y + 8),
         ]
-        current_x = code_x + (652 if cell_replicas > 1 else 320)
-        queue_left = code_x + (612 if cell_replicas > 1 else 280)
-        queue_right = code_x + (652 if cell_replicas > 1 else 320)
-        for row in range(9, 15):
+        current_x = right
+        for row in range(9, 9 + queue_rows):
             queue_path.append((current_x, queue_y + row))
-            current_x = queue_left if current_x == queue_right else queue_right
+            current_x = left if current_x == right else right
             queue_path.append((current_x, queue_y + row))
+        tail_y = queue_y + 9 + queue_rows
         queue_path.extend([
-            (current_x, queue_y + 15),
-            (code_x + (598 if cell_replicas > 1 else 266), queue_y + 15),
+            (current_x, tail_y),
+            (code_x + (598 if cell_replicas > 1 else 266), tail_y),
             (code_x + (598 if cell_replicas > 1 else 266), bottom + 3),
             (ports["qr"][0], bottom + 3),
             ports["qr"],

@@ -177,9 +177,30 @@ class Plan:
             self.pipes.append(Pipe(i, cells, dirs))
 
         # attach every pipe endpoint to the block whose BORDER it points at
+        def _attach(cell, d, forward):
+            """The block this endpoint attaches to.
+
+            Normally the neighbour along (or against) the pipe's own direction.
+            But when the endpoint cell is a CORNER, its arrow records the turn's
+            OUTGOING direction, so the neighbour that way is another pipe cell and
+            the real wall lies on the PERPENDICULAR axis (matmul pipe 0: first cell
+            (31,6) heads east, but attaches upward to room0's bottom wall at
+            (31,5)).  Try the natural neighbour first, then the perpendicular ones.
+            """
+            sx = -1 if not forward else 1
+            cands = [(cell[0] + sx * d[0], cell[1] + sx * d[1])]
+            perp = [(0, 1), (0, -1)] if d[0] else [(1, 0), (-1, 0)]
+            for q in perp:
+                cands.append((cell[0] + q[0], cell[1] + q[1]))
+            for c in cands:
+                hit = self._block_at(c)
+                if hit is not None:
+                    return hit
+            return None
+
         for p in self.pipes:
-            sb = self._block_at((p.cells[0][0] - p.dirs[0][0], p.cells[0][1] - p.dirs[0][1]))
-            db = self._block_at((p.cells[-1][0] + p.dirs[-1][0], p.cells[-1][1] + p.dirs[-1][1]))
+            sb = _attach(p.cells[0], p.dirs[0], forward=False)
+            db = _attach(p.cells[-1], p.dirs[-1], forward=True)
             if sb is None or db is None:
                 raise SystemExit(f"pipe {p.idx}: endpoint not on a room border "
                                  f"(src {p.cells[0]} dst {p.cells[-1]}) — cannot plan")

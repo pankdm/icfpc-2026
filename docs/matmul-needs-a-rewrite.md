@@ -76,3 +76,19 @@ still be there for anyone willing to fix `lift.py`'s endpoint detection for this
 
 **Consequence: there is no low-risk incremental win on matmul.** The rewrite is the
 only path, which strengthens rather than weakens the case for finishing the carousel.
+
+### Lifter fixed — and matmul's floorplan is optimal too (2026-07-26)
+
+`tools/place.py` now attaches a pipe endpoint by trying the PERPENDICULAR neighbours
+when the natural one is not a room border. A corner endpoint's arrow records the
+turn's *outgoing* direction, so the neighbour that way is another pipe's cell:
+matmul pipe 0 starts at (31,6) heading east but attaches upward to room0's bottom
+wall at (31,5). This unblocks smtplace on matmul (and probably other hand-routed
+grids).
+
+The answer is still no. With the lifter fixed, smtplace reaches **M=57** (vs 61) but
+every proposal fails routing, and at `gap<=1, extra<=32` it ends **UNSAT after 36
+routing failures** — a model-relative optimality certificate. The 1.55x suggested by
+the 45% room-share does not survive contact with the router.
+
+So matmul joins LLM, LLLM and Snake: **all four are at their floorplan optimum.**

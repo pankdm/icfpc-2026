@@ -41,6 +41,9 @@ CORR = B2 ** 4 - 10 * B2 ** 5
 # ---------------------------------------------------------------- encoder --
 
 def tokenize(data: bytes) -> list[int]:
+    # Keep the predictable year prefixes out of the general dictionary.  A
+    # single zero later asks the stateful YEAR room to emit the next prefix.
+    # Token 13 is likewise reserved for the frequent two-byte ", " spelling.
     toks, i, year = [], 0, FIRST_YEAR
     while i < len(data):
         if year <= LAST_YEAR:
@@ -97,6 +100,9 @@ def replace_nonoverlap(stream, pat, rep):
 
 
 def choose_phrases(stream):
+    # The dictionary is deliberately selected against *source-grid* cost, not
+    # merely compressed-stream length: every chosen phrase also consumes a
+    # literal and a send instruction in P1.
     dig1 = math.log10(B1)
     forbidden = set(STOLEN) | {0, ESC}
     singles_left = len(SMALL_FREE)
@@ -290,6 +296,9 @@ def build_encoding(table_budget=None):
 
 
 def pack_chunks(symbols, digit_widths):
+    # A feeder literal is decimal source text but its numeric value is a
+    # little-endian base-92 bundle.  Do not end a bundle with zero: repeated
+    # divmod in DECODER would otherwise lose that final zero marker.
     maxsym = 1
     while (B1 ** (maxsym + 1)) < 2 ** 63:
         maxsym += 1
@@ -311,6 +320,9 @@ def pack_chunks(symbols, digit_widths):
 
 
 def verify(chunks, ring):
+    # This is the semantic counterpart of the grid below.  Keeping it here is
+    # important: the room program is densely folded, while this follows the
+    # five stages in their logical (rather than spatial) order.
     syms = []
     for c in chunks:
         while c:
@@ -347,6 +359,11 @@ def verify(chunks, ring):
 
 # ------------------------------------------------------------- room grids --
 
+# DISP is the dispatch/lookup room.  It receives base-92 symbols from
+# DECODER.  Ordinary symbols add 31; a zero is forwarded to YEAR; small
+# symbols and ESC,pair-index references rotate the P1 ring until the requested
+# packed entry is found, emit it, then restore the complete ring (including
+# its -1 sentinel) to canonical order.
 DISP_ROWS = [
     "v@<<s<<<<<<<<            ",
     ">`17`Mr  X^              ",
@@ -356,11 +373,13 @@ DISP_ROWS = [
     "            ^W        s< ",
 ]
 
+# Repeated /92 emits one least-significant stream symbol per feeder chunk.
 DECODER_ROWS = [
     ">W/WsWX@v",
     "^`29`M<r<",
 ]
 
+# Repeated /128 turns a packed raw-ASCII dictionary/year value into bytes.
 UNPACK_ROWS = [
     ">W/Ws WX@v",
     "^`821`M<r<",
@@ -368,6 +387,9 @@ UNPACK_ROWS = [
 
 
 def year_rows():
+    # YEAR stores its next packed "; YYYY: " value in A.  STEP advances five
+    # ASCII digits at once; after ten years CORR fixes the decimal carry from
+    # 2009 -> 2010 (and again 2019 -> 2020).
     d_init = str(pack128(f"; {FIRST_YEAR}: ".encode()))
     d_step = str(STEP)
     d_corr = str(abs(CORR))
@@ -406,6 +428,9 @@ def paste_room(program, x0, y0, rows, w=None, h=None):
 
 
 def feeder(program, chunks, digit_widths, width):
+    # One serpentine walker visits every literal exactly once.  Reversing the
+    # decimal digits on westbound rows makes the literal value direction-
+    # invariant, so the compact two-dimensional packing preserves stream order.
     slots = len(digit_widths)
     group_widths = [d + 3 for d in digit_widths]
     group_starts = [sum(group_widths[:i]) for i in range(slots)]
@@ -493,8 +518,8 @@ def p1_room(program, x0, y0, width, ring, layout):
         # entries 9..16 must sit reversed for preload order 9,10,...,16
         (smalls[8:16][::-1], TA, False),
     ]
-    # group B rows
-    from_gridvals = []
+    # Group B contains the multi-symbol phrase entries.  Its last zero is the
+    # sentinel observed by DISP after one full lookup rotation.
     for r in range(4):
         vals = []
         for pj in range(nB):

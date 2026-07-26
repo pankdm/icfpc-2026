@@ -154,6 +154,30 @@ Prefer a true FIFO for a live Snake body and a Pathfinder frontier. Use the
 multi-lane pattern only when a bounded materialized queue is cheaper than
 indexed head/tail pointers.
 
+## Make shared protocols atomic before adding `Y`
+
+Forking a multi-value producer is unsafe when requests are streamed as
+`[operation, address, value]`: two men can interleave their fields. Package the
+hot path into one pipe value first, or keep one serialized producer.
+
+Pathfinder's reusable compromise is `tools/packed_ram_proxy.py`:
+
+- `0..255` is one atomic read request;
+- a write is `-(address+1)` followed by the value;
+- a compact adapter expands these into the existing split-RAM protocol.
+
+Reads dominate BFS, so this reduced traffic without replacing the proven RAM
+server. Nine banks plus the packed adapter improved the heavy public case from
+9,900,363 to 9,742,403 ticks in the same 701-cell scoring box. The small gain
+also revealed the next bottleneck: the controller waits for each neighbor read,
+so more banks or more relay men cannot create useful parallelism by themselves.
+
+Use `Y` only after defining request ownership and reply association. For
+Pathfinder the promising fork is four neighbor workers that receive a complete
+cell/index job and return tagged results. Forking the existing scalar
+dispatcher alone merely adds contention, because the BFS controller still
+issues one dependent request at a time.
+
 ## Emit display deltas, and understand round gating
 
 The interpreter advances rounds based on committed frames. A round that
@@ -248,4 +272,3 @@ is squared. Never infer the tick budget from the score alone.
   a nearby README.
 - Record local box/ticks and official score/case count in `tl` notes and the
   commit message.
-

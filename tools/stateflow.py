@@ -8,6 +8,8 @@ only the control-flow graph.
 import belt_ram
 import flowgrid
 import littleman as lm
+import packed_ram_proxy
+import split_ram
 
 
 class Flow(flowgrid.Flow):
@@ -93,6 +95,12 @@ class Flow(flowgrid.Flow):
     def commit(self):
         return self.const(1).e("ss")
 
+    def queue_push(self):
+        return self.e("qs")
+
+    def queue_pop(self):
+        return self.e("qr")
+
 
 DEFAULT_PORTS = {
     "ri": (10, "r", 1, 19),
@@ -105,6 +113,8 @@ DEFAULT_PORTS = {
     "cc": (200, "s", 191, 240),
     "cr": (230, "r", 153, 240),
     "ss": (250, "s", 241, 260),
+    "qs": (270, "s", 261, 290),
+    "qr": (260, "r", 246, 310),
 }
 
 
@@ -116,13 +126,21 @@ def build_program(
     tight_gaps=True,
     dedup_edges=True,
     coalesce_targets=True,
+    queue=False,
+    fast_cell_ram=False,
+    cell_belts=8,
+    packed_cell=False,
 ):
     """Compile *flow* and attach the shared stateful-problem hardware."""
     p = lm.Program()
+    port_spec = DEFAULT_PORTS.copy() if queue else {
+        name: spec for name, spec in DEFAULT_PORTS.items()
+        if name not in ("qs", "qr")
+    }
     layout = flowgrid.lay_cfg_controller(
         p,
         flow,
-        DEFAULT_PORTS,
+        port_spec,
         code_x=code_x,
         pooled_edges=pooled_edges,
         tight_gaps=tight_gaps,
@@ -136,9 +154,16 @@ def build_program(
     # Components sit below the controller. All controller ports leave through
     # its bottom wall and route outside the room before entering a component.
     scalar_x, scalar_y = code_x + 48, bottom + 5
-    cell_x, cell_y = code_x + 148, bottom + 5
+    cell_x, cell_y = code_x + (164 if packed_cell else 148), bottom + 5
     scalar = belt_ram.build(p, scalar_x, scalar_y, scalar_size)
-    cell = belt_ram.build(p, cell_x, cell_y, 256)
+    cell = (
+        split_ram.build(p, cell_x, cell_y, 256, cell_belts)
+        if fast_cell_ram else belt_ram.build(p, cell_x, cell_y, 256)
+    )
+    packed = (
+        packed_ram_proxy.build(p, cell_x - 20, cell_y)
+        if packed_cell else None
+    )
 
     # Round input.
     p.input_room(ports["ri"][0] - 1, bottom + 12)
@@ -178,22 +203,53 @@ def build_program(
         (ports["rr"][0], scalar["reply"][1]),
         ports["rr"],
     ])
-    p.pipe([
-        ports["cc"],
-        (ports["cc"][0], cell_y - 3),
-        (cell_x - 3, cell_y - 3),
-        (cell_x - 3, cell["command"][1] + 3),
-        (cell["command"][0], cell["command"][1] + 3),
-        cell["command"],
-    ])
-    p.pipe([
-        cell["reply"],
-        (ports["cr"][0], cell["reply"][1]),
-        ports["cr"],
-    ])
+    if fast_cell_ram:
+        if packed_cell:
+            p.pipe([
+                ports["cc"],
+                (ports["cc"][0], bottom + 1),
+                (packed["command"][0], bottom + 1),
+                packed["command"],
+            ])
+            p.pipe([
+                packed["expanded"],
+                (cell_x - 3, packed["expanded"][1]),
+                (cell_x - 3, cell_y - 3),
+                (cell["command"][0], cell_y - 3),
+                cell["command"],
+            ])
+        else:
+            p.pipe([
+                ports["cc"],
+                (ports["cc"][0], bottom + 2),
+                (cell["command"][0], bottom + 2),
+                cell["command"],
+            ])
+        p.pipe([
+            cell["reply"],
+            cell["reply_turn"],
+            (cell["reply_turn"][0], bottom + 3),
+            (ports["cr"][0], bottom + 3),
+            ports["cr"],
+        ])
+    else:
+        p.pipe([
+            ports["cc"],
+            (ports["cc"][0], cell_y - 3),
+            (cell_x - 3, cell_y - 3),
+            (cell_x - 3, cell["command"][1] + 3),
+            (cell["command"][0], cell["command"][1] + 3),
+            cell["command"],
+        ])
+        p.pipe([
+            cell["reply"],
+            (ports["cr"][0], cell["reply"][1]),
+            ports["cr"],
+        ])
 
     # Addressable 16x16 display.
-    display_x, display_y = code_x + 110, bottom + 60
+    display_x = code_x + 110
+    display_y = bottom + 60
     p.display(display_x, display_y, 18, 18)
     # RAM now sits immediately below the controller. Leave each display port
     # vertically, turn in the two-row band above RAM, and descend around the
@@ -217,4 +273,37 @@ def build_program(
         (display_x + 8, display_y + 20),
         (display_x + 8, display_y + 18),
     ])
+
+    # Bounded FIFO service. A short command pipe feeds a relay man; the long
+    # return pipe is both transport and storage. Its ~190 cells comfortably
+    # exceed the maximum useful 16x16 BFS frontier, while the relay provides
+    # FIFO order at pipeline throughput.
+    if queue:
+        queue_x, queue_y = code_x + 268, bottom + 6
+        p.room(queue_x, queue_y, 8, 6)
+        p.text(queue_x + 1, queue_y + 1, "@>rsv")
+        p.put(queue_x + 5, queue_y + 2, "<")
+        p.put(queue_x + 2, queue_y + 2, "^")
+        p.pipe([
+            ports["qs"],
+            (ports["qs"][0], queue_y - 1),
+        ])
+        queue_path = [
+            (queue_x + 4, queue_y + 6),
+            (queue_x + 4, queue_y + 8),
+            (code_x + 320, queue_y + 8),
+        ]
+        current_x = code_x + 320
+        for row in range(9, 15):
+            queue_path.append((current_x, queue_y + row))
+            current_x = code_x + (280 if current_x == code_x + 320 else 320)
+            queue_path.append((current_x, queue_y + row))
+        queue_path.extend([
+            (current_x, queue_y + 15),
+            (code_x + 266, queue_y + 15),
+            (code_x + 266, bottom + 3),
+            (ports["qr"][0], bottom + 3),
+            ports["qr"],
+        ])
+        p.pipe(queue_path)
     return p

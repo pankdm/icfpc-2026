@@ -522,9 +522,19 @@ impl World {
             if is_arrow(cn) {
                 dir = arrow_dir(cn);
             } else if cn == '-' {
-                if dir.1 != 0 { return Err("wrong pipe body glyph".into()); }
+                if dir.1 != 0 {
+                    return Err(format!(
+                        "wrong pipe body glyph at ({},{}): '-' while moving ({},{})",
+                        nxt.0, nxt.1, dir.0, dir.1
+                    ));
+                }
             } else if cn == '|' {
-                if dir.0 != 0 { return Err("wrong pipe body glyph".into()); }
+                if dir.0 != 0 {
+                    return Err(format!(
+                        "wrong pipe body glyph at ({},{}): '|' while moving ({},{})",
+                        nxt.0, nxt.1, dir.0, dir.1
+                    ));
+                }
             }
             pos = nxt;
             if path.len() > (self.w * self.h) as usize + 4 { return Err("pipe loop".into()); }

@@ -1,0 +1,15 @@
+{
+ "slug": "tcp",
+ "target": "solutions/tcp/tcp-geo2.man",
+ "builder": "solutions/tcp/geo2_build.py",
+ "baseline_score": 5983488,
+ "best_score": 5624850.333333334,
+ "accepted": [
+  {
+   "knob": "x0",
+   "from": 30,
+   "to": 29,
+   "score": 5624850.333333334
+  }
+ ]
+}

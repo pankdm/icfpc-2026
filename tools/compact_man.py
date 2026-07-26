@@ -104,10 +104,17 @@ def public_test_validator(path: Path, tick_limit: int) -> Validator:
         try:
             program = parse_program(text)
             for test in tests:
+                rounds = test.get("rounds", [test])
                 result = LittlemanMachine(
                     program,
-                    input_rounds=[[int(value) for value in test["in"]]],
-                    expected_rounds=[[int(value) for value in test["out"]]],
+                    input_rounds=[
+                        [int(value) for value in round_data["in"]]
+                        for round_data in rounds
+                    ],
+                    expected_rounds=[
+                        [int(value) for value in round_data["out"]]
+                        for round_data in rounds
+                    ],
                     tick_limit=tick_limit,
                 ).run()
                 if not result.passed:

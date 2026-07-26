@@ -70,17 +70,41 @@ pub struct Pipe {
     pub id: u64,
     pub path: Vec<Pt>,           // path[0] = source end, path[last] = dest end
     pub values: Vec<Option<i64>>,// one slot per path cell
+    occupied: Vec<usize>,        // occupied indices, strictly ascending
     pub src_room: usize,         // index into World.rooms
     pub dst_room: usize,
 }
 
 impl Pipe {
     #[inline]
-    fn count(&self) -> i64 { self.values.iter().filter(|v| v.is_some()).count() as i64 }
+    fn count(&self) -> i64 { self.occupied.len() as i64 }
     #[inline]
     fn src_cell(&self) -> Pt { self.path[0] }
     #[inline]
     fn dst_cell(&self) -> Pt { *self.path.last().unwrap() }
+    #[inline]
+    fn push(&mut self, value: i64) -> bool {
+        if self.values[0].is_some() { return false; }
+        self.values[0] = Some(value);
+        self.occupied.insert(0, 0);
+        true
+    }
+    #[inline]
+    fn pop(&mut self) -> Option<i64> {
+        let last = self.values.len() - 1;
+        if self.occupied.last().copied() != Some(last) { return None; }
+        self.occupied.pop();
+        self.values[last].take()
+    }
+    fn transport(&mut self) {
+        for occupied_index in (0..self.occupied.len()).rev() {
+            let position = self.occupied[occupied_index];
+            if position + 1 < self.values.len() && self.values[position + 1].is_none() {
+                self.values[position + 1] = self.values[position].take();
+                self.occupied[occupied_index] += 1;
+            }
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -452,7 +476,14 @@ impl World {
                 if sr == dst_room { return Err("pipe self-loop".into()); }
                 for &p in &path { used.insert(p); }
                 let n = path.len();
-                pipes.push(Pipe { id: 0, path, values: vec![None; n], src_room: sr, dst_room });
+                pipes.push(Pipe {
+                    id: 0,
+                    path,
+                    values: vec![None; n],
+                    occupied: vec![],
+                    src_room: sr,
+                    dst_room,
+                });
             }
         }
         // record pipe cells + assign ids (reading order = order discovered above is reading order of starts)
@@ -785,26 +816,17 @@ impl World {
         for d in &self.displays {
             for p in [d.addr_pipe, d.data_pipe, d.swap_pipe].into_iter().flatten() { consumers.push(p); }
         }
-        consumers.into_iter().all(|pi| self.pipes[pi].values.iter().all(|v| v.is_none()))
+        consumers.into_iter().all(|pi| self.pipes[pi].occupied.is_empty())
     }
 
     fn pipe_transport(&mut self) {
-        for p in &mut self.pipes {
-            let n = p.values.len();
-            if n < 2 { continue; }
-            for i in (0..n - 1).rev() {
-                if p.values[i].is_some() && p.values[i + 1].is_none() {
-                    p.values[i + 1] = p.values[i].take();
-                }
-            }
-        }
+        for pipe in &mut self.pipes { pipe.transport(); }
     }
 
     fn io_phase(&mut self) {
         // emit output first
         if let Some(pi) = self.output_pipe {
-            let last = self.pipes[pi].values.len() - 1;
-            if let Some(v) = self.pipes[pi].values[last].take() {
+            if let Some(v) = self.pipes[pi].pop() {
                 self.output.push(v);
             }
         }
@@ -821,7 +843,7 @@ impl World {
             if self.input_read < released {
                 if self.pipes[pi].values[0].is_none() {
                     let v = self.input_tokens[self.input_read];
-                    self.pipes[pi].values[0] = Some(v);
+                    self.pipes[pi].push(v);
                     self.input_read += 1;
                 }
             }
@@ -848,8 +870,7 @@ impl World {
         for di in 0..self.displays.len() {
             // ADDR
             if let Some(pi) = self.displays[di].addr_pipe {
-                let last = self.pipes[pi].values.len() - 1;
-                if let Some(v) = self.pipes[pi].values[last].take() {
+                if let Some(v) = self.pipes[pi].pop() {
                     let (wd, ht) = (self.displays[di].w as i64, self.displays[di].h as i64);
                     if v < 0 || v >= wd * ht {
                         self.fatal("display-addr", self.pipes[pi].dst_cell());
@@ -860,8 +881,7 @@ impl World {
             }
             // DATA
             if let Some(pi) = self.displays[di].data_pipe {
-                let last = self.pipes[pi].values.len() - 1;
-                if let Some(v) = self.pipes[pi].values[last].take() {
+                if let Some(v) = self.pipes[pi].pop() {
                     if v < 0 || v > 15 {
                         self.fatal("display-data", self.pipes[pi].dst_cell());
                         return;
@@ -875,8 +895,7 @@ impl World {
             }
             // SWAP
             if let Some(pi) = self.displays[di].swap_pipe {
-                let last = self.pipes[pi].values.len() - 1;
-                if let Some(v) = self.pipes[pi].values[last].take() {
+                if let Some(v) = self.pipes[pi].pop() {
                     if v != 0 && v != 1 {
                         self.fatal("display-swap", self.pipes[pi].dst_cell());
                         return;
@@ -1056,7 +1075,7 @@ impl World {
             None => { self.fatal("no-pipe", pos); }
             Some(pi) => {
                 if self.pipes[pi].values[0].is_none() {
-                    self.pipes[pi].values[0] = Some(self.runners[i].a);
+                    self.pipes[pi].push(self.runners[i].a);
                 } else {
                     self.runners[i].blocked = true;
                 }
@@ -1071,7 +1090,7 @@ impl World {
         let all_free = outs.iter().all(|&pi| self.pipes[pi].values[0].is_none());
         if all_free {
             let a = self.runners[i].a;
-            for &pi in &outs { self.pipes[pi].values[0] = Some(a); }
+            for &pi in &outs { self.pipes[pi].push(a); }
         } else {
             self.runners[i].blocked = true;
         }
@@ -1082,8 +1101,7 @@ impl World {
         match self.nearest_incoming(pos, room) {
             None => { self.fatal("no-pipe", pos); }
             Some(pi) => {
-                let last = self.pipes[pi].values.len() - 1;
-                if let Some(v) = self.pipes[pi].values[last].take() {
+                if let Some(v) = self.pipes[pi].pop() {
                     self.runners[i].a = v;
                 } else {
                     self.runners[i].blocked = true;
@@ -1103,8 +1121,7 @@ impl World {
         }).collect();
         ready.sort_by_key(|&pi| { let a = self.pipes[pi].dst_cell(); (a.1, a.0) });
         if let Some(&pi) = ready.first() {
-            let last = self.pipes[pi].values.len() - 1;
-            let v = self.pipes[pi].values[last].take().unwrap();
+            let v = self.pipes[pi].pop().unwrap();
             self.runners[i].a = v;
             if turn_away {
                 // "turn away from the pipe that supplied the value" = face the pipe's

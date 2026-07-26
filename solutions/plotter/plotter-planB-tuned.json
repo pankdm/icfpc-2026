@@ -1,0 +1,15 @@
+{
+ "slug": "plotter",
+ "target": "solutions/plotter/plotter-planB.man",
+ "builder": "solutions/plotter/build_planB_submitted.py",
+ "baseline_score": 394188775,
+ "best_score": 384943608,
+ "accepted": [
+  {
+   "knob": "L38#0",
+   "from": 1,
+   "to": 0,
+   "score": 384943608
+  }
+ ]
+}

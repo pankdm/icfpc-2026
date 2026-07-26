@@ -1,0 +1,16 @@
+{
+ "pathfinder": 2.0,
+ "snake": 2.0,
+ "gradebook": 0.5,
+ "plotter": 0.48,
+ "sudoku-validity": 0.43,
+ "matmul": 0.4,
+ "subset-sum": 0.36,
+ "sort-numbers": 0.32,
+ "tcp": 0.28,
+ "brackets": 0.23,
+ "history-lesson": 0.16,
+ "memory": 0.05,
+ "reverse-a-list": 0.03,
+ "triangle": 0.0
+}

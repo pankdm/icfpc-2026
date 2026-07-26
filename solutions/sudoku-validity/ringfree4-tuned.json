@@ -1,0 +1,15 @@
+{
+ "slug": "sudoku-validity",
+ "target": "solutions/sudoku-validity/ringfree4.man",
+ "builder": "solutions/sudoku-validity/narrow_build2.py",
+ "baseline_score": 7556863,
+ "best_score": 7209468,
+ "accepted": [
+  {
+   "knob": "L111#0",
+   "from": 1,
+   "to": 0,
+   "score": 7209468
+  }
+ ]
+}

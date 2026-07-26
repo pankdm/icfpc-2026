@@ -130,7 +130,7 @@ def build_full(path, P=14):
         cL1 = sx + lays[i]['cL1']
         cL2 = sx + lays[i]['cL2']
         U = Sc[i] + 3
-        L = U + 4
+        L = U + 5
         NB.check_man(prog, sx, U)
         NB.check_man(prog, sx + 6, L)
         prog.pipe([(cL1, Sc[i] + 1), (cL1, U - 1)])

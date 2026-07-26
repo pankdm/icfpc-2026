@@ -32,8 +32,9 @@ import cost_model as CM
 import lllm_flow as F
 import lllm_sim as SIM
 
-# rows of chrome above and below the controller (device band, pipes, display)
-CHROME_ROWS = 30
+# rows of chrome above and below the controller (device band, pipes, display).
+# Measured: footprint height - placer.y = 32 for the two-tier band.
+CHROME_ROWS = 32
 
 
 class Objective(object):
@@ -48,15 +49,15 @@ class Objective(object):
     def blocks_for(self, order):
         return [(l, self.by_label[l]) for l in order]
 
-    def __call__(self, holder_order, block_order):
-        key = (tuple(holder_order), tuple(block_order))
+    def __call__(self, holder_order, block_order, rounds=2):
+        key = (tuple(holder_order), tuple(block_order), rounds)
         hit = self.cache.get(key)
         if hit is not None:
             return hit
         try:
             placer, cols = CM.placer_costs(holder_order=list(holder_order),
                                            blocks=self.blocks_for(block_order),
-                                           heat=self.heat)
+                                           heat=self.heat, rounds=rounds)
             t = CM.avg_ticks(self.hits, placer)
             h = placer.y + CHROME_ROWS
             box = max(cols.width, h) ** 2
@@ -72,7 +73,10 @@ def anneal(obj, holder_order, block_order, iters, seed, what):
     cur_h, cur_b = list(holder_order), list(block_order)
     cur = obj(cur_h, cur_b)
     best, best_h, best_b = cur, list(cur_h), list(cur_b)
-    T0, T1 = 0.06, 0.002
+    # T is a FRACTION of the current score: a typical single-move delta here is
+    # a few tenths of a percent, so 0.06 accepted everything and the search was
+    # a random walk that never beat its own start.
+    T0, T1 = 0.0015, 0.00005
     for it in range(iters):
         T = T0 * (T1 / T0) ** (it / float(iters))
         ch, cb = list(cur_h), list(cur_b)
@@ -113,14 +117,16 @@ def main():
     h0 = [h for h in B.HOLDER_ORDER if h in F.HOLDERS]
     b0 = [l for l, _t in obj.base]
     start = obj(h0, b0)
-    print("start   score=%.4g box=%d ticks=%.0f" % start)
+    print("start   score=%.4g box=%d ticks=%.0f" % start, flush=True)
 
     best, bh, bb = start, h0, b0
     for r in range(args.restarts):
         s, h, b = anneal(obj, bh, bb, args.iters, args.seed + r, args.what)
-        print("run %-2d  score=%.4g box=%d ticks=%.0f" % ((r,) + s))
+        print("run %-2d  score=%.4g box=%d ticks=%.0f" % ((r,) + s), flush=True)
         if s[0] < best[0]:
             best, bh, bb = s, h, b
+    best = obj(bh, bb, rounds=6)          # re-score the winner at the fixpoint
+    start = obj(h0, b0, rounds=6)
     print("\nbest    score=%.4g box=%d ticks=%.0f  (%.3fx ticks, %.3fx score)"
           % (best + (start[2] / best[2], start[0] / best[0])))
     print("\nHOLDER_ORDER = [")

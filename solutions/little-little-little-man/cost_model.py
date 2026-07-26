@@ -84,13 +84,20 @@ def all_hits(spec=None):
     return out
 
 
-def placer_costs(holder_order=None, blocks=None, **kw):
-    """(cum, exit) for a candidate geometry, without drawing the whole program."""
+def placer_costs(holder_order=None, blocks=None, rounds=6, **kw):
+    """(cum, exit) for a candidate geometry, without drawing the whole program.
+
+    `rounds` is how many placement<->lane-colouring passes to run.  The builder
+    wants the fixpoint (6); a search only needs the cost to be nearly right and
+    2 passes is 3x cheaper, so candidates are ranked with 2 and the winner is
+    re-scored with the real thing.
+    """
     if blocks is None:
         blocks = B.split_blocks(F.build_flow())
     holder_order = holder_order or B.HOLDER_ORDER
     cols = B.Columns(blocks, holder_order,
-                     lanes=B.plan_lanes(blocks, holder_order, **kw), **kw)
+                     lanes=B.plan_lanes(blocks, holder_order, rounds=rounds, **kw),
+                     **kw)
     g = lay.Layout(lm.Program())
     placer = B.CodePlacer(g, cols, 1)
     placer.place(blocks)

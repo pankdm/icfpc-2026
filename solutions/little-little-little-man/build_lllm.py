@@ -74,6 +74,16 @@ ARROW_S, ARROW_W, ARROW_E, ARROW_N = "v", "<", ">", "^"
 # Port columns run west to east in this order.  It is load-bearing: every pipe
 # that has to leave the band routes EAST, so a port may never have to cross the
 # vertical of a port to its right.
+#
+# MEASURED DEAD END 2026-07-26.  All 5040 permutations were scored on the exact
+# model: the best (rr before rs, so the hot `rr rs` of ROT_BODY stops wrapping)
+# is worth 42.78B -> 41.27B.  Every one of them FAILS TO BUILD.  The horizontal
+# runs of the pipes pin the order completely:
+#   rs's west run to the relay crosses every column west of it  -> rs before rr
+#   rr's east run from the relay crosses ds's vertical          -> rr before ds
+#   dd's east run at disp_y-1 crosses ds's and da's verticals    -> ds<da<dd
+# i.e. in < rs < rr < ds < da < dd is forced and only the unused `ot` may move.
+# Do not re-search this without first re-routing the ring and display pipes.
 PORT_ORDER = ("in", "ot", "rs", "rr", "ds", "da", "dd")
 
 
@@ -112,7 +122,7 @@ class Columns(object):
     def __init__(self, blocks, holder_order, pitch=HOLDER_PITCH,
                  port_gap=PORT_GAP, hwy_gap=HWY_GAP, lead_in=LEAD_IN,
                  lanes=None, heat=None, code_slack=CODE_SLACK,
-                 tiers=BAND_TIERS):
+                 tiers=BAND_TIERS, port_order=PORT_ORDER):
         self.hwy_targets = sorted(entry_labels(blocks))
         # A highway column is only busy between its highest join row and its
         # target row, and men cross an idle one on a BLANK cell, so targets with
@@ -138,7 +148,7 @@ class Columns(object):
         self.entry_col = x + 1
         x = self.entry_col + lead_in
         self.port = {}
-        for name in PORT_ORDER:
+        for name in port_order:
             self.port[name] = x
             # The input ROOM is 3 cells wide and straddles its own port column,
             # so a neighbouring port's vertical would run alongside its right
@@ -508,13 +518,14 @@ def checked_room(g, x, y, w, h, glyphs="+-|"):
 # ===========================================================================
 def build(holder_order=None, pitch=HOLDER_PITCH, ring_lift=RING_LIFT,
           port_gap=PORT_GAP, lead_in=LEAD_IN, code_slack=CODE_SLACK,
-          tiers=BAND_TIERS):
+          tiers=BAND_TIERS, port_order=PORT_ORDER):
     flow = F.build_flow()
     blocks = split_blocks(flow)
     holder_order = holder_order or [h for h in HOLDER_ORDER if h in F.HOLDERS]
     assert sorted(holder_order) == sorted(F.HOLDERS), "HOLDER_ORDER is stale"
     kw = dict(pitch=pitch, port_gap=port_gap, lead_in=lead_in,
-              code_slack=code_slack, tiers=tiers, heat=SIM.block_heat())
+              code_slack=code_slack, tiers=tiers, port_order=port_order,
+              heat=SIM.block_heat())
     cols = Columns(blocks, holder_order,
                    lanes=plan_lanes(blocks, holder_order, **kw), **kw)
 

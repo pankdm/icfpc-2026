@@ -24,9 +24,9 @@ class LayoutBuilderTest(unittest.TestCase):
     def test_current_candidate_defaults(self):
         dictionary = self.metadata["dictionary"]
         self.assertEqual(self.metadata["feeder_width"], 81)
-        self.assertEqual(dictionary["width"], 52)
-        self.assertEqual(dictionary["requested_words"], 44)
-        self.assertEqual(dictionary["words"], 43)
+        self.assertEqual(dictionary["width"], 38)
+        self.assertEqual(dictionary["requested_words"], 24)
+        self.assertEqual(dictionary["words"], 24)
 
     def test_dictionary_is_left_aligned(self):
         dictionary = self.metadata["dictionary"]
@@ -34,12 +34,8 @@ class LayoutBuilderTest(unittest.TestCase):
 
     def test_dp_packs_every_constant(self):
         dictionary = self.metadata["dictionary"]
-        self.assertEqual(sum(dictionary["constants_per_band"]), 43)
-        self.assertEqual(dictionary["bands"], 6)
-        self.assertEqual(
-            dictionary["constants_per_band"],
-            [8, 11, 6, 6, 6, 6],
-        )
+        self.assertEqual(sum(dictionary["constants_per_band"]), 24)
+        self.assertEqual(dictionary["bands"], 5)
         self.assertEqual(
             len(dictionary["slots_per_band"]),
             dictionary["bands"],
@@ -63,6 +59,30 @@ class LayoutBuilderTest(unittest.TestCase):
             [len(band.widths) for band in narrow],
             [len(band.widths) for band in wide],
         )
+
+    def test_raw_dictionary_supports_smaller_budgets(self):
+        data = builder.vertical.base.TEXT
+        for words in (17, 18, 24, 37):
+            symbols, ring, metadata = builder.raw_dictionary.build_encoding(
+                data,
+                words,
+            )
+            self.assertTrue(symbols)
+            self.assertEqual(len(ring), words)
+            self.assertEqual(metadata["catalog"]["minimum_words"], 17)
+
+    def test_budget_17_does_not_displace_apostrophe(self):
+        _, ring17, _ = builder.raw_dictionary.build_encoding(
+            builder.vertical.base.TEXT,
+            17,
+        )
+        _, ring18, metadata18 = builder.raw_dictionary.build_encoding(
+            builder.vertical.base.TEXT,
+            18,
+        )
+        self.assertEqual(ring17[8], builder.raw_dictionary.pack128(b"'"))
+        self.assertNotEqual(ring18[8], builder.raw_dictionary.pack128(b"'"))
+        self.assertIn("'", metadata18["words"].values())
 
     def test_tail_rooms_form_one_row_with_dispatcher_input_gap(self):
         dictionary = self.metadata["dictionary"]
@@ -88,13 +108,11 @@ class LayoutBuilderTest(unittest.TestCase):
 
     def test_only_referenced_dictionary_words_are_physically_placed(self):
         usage = self.metadata["dictionary"]["usage"]
-        self.assertEqual(len(usage), 43)
+        self.assertEqual(len(usage), 24)
         self.assertTrue(all(entry["references"] > 0 for entry in usage))
         zero_entries = [entry for entry in usage if entry["word"] == "0"]
-        self.assertEqual(
-            zero_entries,
-            [{"position": 17, "word": "0", "references": 13}],
-        )
+        self.assertEqual(len(zero_entries), 1)
+        self.assertEqual(zero_entries[0]["references"], 40)
 
     def test_tail_touches_feeder_bottom(self):
         dictionary = self.metadata["dictionary"]

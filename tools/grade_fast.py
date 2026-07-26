@@ -6,9 +6,12 @@ it skips a Go/WASM boot per invocation. That multiplies every search: most candi
 search generates are rejects, and paying the oracle to reject them is the dominant cost.
 
 GOOD ENOUGH TO SUBMIT ON. `interp/` is a reimplementation, but `node sim/difftest.js` compares
-it against the reference step-by-step and reports 54 passed / 0 failed as of 2026-07-26 --
-including `fork-into-wall(copy)`, which older notes called a known divergence (it is fixed).
-Submitting never lowers a score, so a rare false pass costs a submission slot, not points.
+it against the reference step-by-step and reports 61 passed / 0 failed as of 2026-07-26 --
+including `fork-into-wall(copy)`, which older notes called a known divergence (it is fixed), and
+seven literal fixtures. Submitting never lowers a score, so a rare false pass costs a submission
+slot, not points. Do keep in mind the fixtures only cover what we thought to test: the suite was
+54/54 green while the literal semantics were quietly wrong (fixed 2026-07-26, per-room pairing
+and per-axis content -- see CLAUDE.md), which is exactly the shape of bug that passes here.
 
     fast reject  -> discard the candidate (cheap, and rejects are the common case)
     fast pass    -> ship it; re-grade on the oracle only when that is cheap. The oracle OOMs

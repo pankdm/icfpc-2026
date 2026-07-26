@@ -1,0 +1,253 @@
+{
+  "gap": 1,
+  "timeout_seconds": 120,
+  "components": [
+    {
+      "name": "room0",
+      "x": 0,
+      "y": 0,
+      "variants": [
+        {
+          "name": "w180",
+          "w": 183,
+          "h": 243,
+          "ports": {
+            "delay_out": {"x": 10, "y": 243},
+            "room2_out": {"x": 15, "y": 243},
+            "rotator_out": {"x": 54, "y": 243},
+            "input_in": {"x": 13, "y": 243},
+            "rotator_in": {"x": 56, "y": 243},
+            "delay_in": {"x": 8, "y": 243}
+          }
+        },
+        {
+          "name": "w190",
+          "w": 193,
+          "h": 232,
+          "ports": {
+            "delay_out": {"x": 10, "y": 232},
+            "room2_out": {"x": 15, "y": 232},
+            "rotator_out": {"x": 54, "y": 232},
+            "input_in": {"x": 13, "y": 232},
+            "rotator_in": {"x": 56, "y": 232},
+            "delay_in": {"x": 8, "y": 232}
+          }
+        },
+        {
+          "name": "w200",
+          "w": 203,
+          "h": 222,
+          "ports": {
+            "delay_out": {"x": 10, "y": 222},
+            "room2_out": {"x": 15, "y": 222},
+            "rotator_out": {"x": 54, "y": 222},
+            "input_in": {"x": 13, "y": 222},
+            "rotator_in": {"x": 56, "y": 222},
+            "delay_in": {"x": 8, "y": 222}
+          }
+        },
+        {
+          "name": "w210",
+          "w": 213,
+          "h": 208,
+          "ports": {
+            "delay_out": {"x": 10, "y": 208},
+            "room2_out": {"x": 15, "y": 208},
+            "rotator_out": {"x": 54, "y": 208},
+            "input_in": {"x": 13, "y": 208},
+            "rotator_in": {"x": 56, "y": 208},
+            "delay_in": {"x": 8, "y": 208}
+          }
+        },
+        {
+          "name": "w220",
+          "w": 223,
+          "h": 197,
+          "ports": {
+            "delay_out": {"x": 10, "y": 197},
+            "room2_out": {"x": 15, "y": 197},
+            "rotator_out": {"x": 54, "y": 197},
+            "input_in": {"x": 13, "y": 197},
+            "rotator_in": {"x": 56, "y": 197},
+            "delay_in": {"x": 8, "y": 197}
+          }
+        },
+        {
+          "name": "w230",
+          "w": 233,
+          "h": 189,
+          "ports": {
+            "delay_out": {"x": 10, "y": 189},
+            "room2_out": {"x": 15, "y": 189},
+            "rotator_out": {"x": 54, "y": 189},
+            "input_in": {"x": 13, "y": 189},
+            "rotator_in": {"x": 56, "y": 189},
+            "delay_in": {"x": 8, "y": 189}
+          }
+        },
+        {
+          "name": "w240",
+          "w": 243,
+          "h": 185,
+          "ports": {
+            "delay_out": {"x": 10, "y": 185},
+            "room2_out": {"x": 15, "y": 185},
+            "rotator_out": {"x": 54, "y": 185},
+            "input_in": {"x": 13, "y": 185},
+            "rotator_in": {"x": 56, "y": 185},
+            "delay_in": {"x": 8, "y": 185}
+          }
+        },
+        {
+          "name": "w247",
+          "w": 250,
+          "h": 178,
+          "ports": {
+            "delay_out": {"x": 10, "y": 178},
+            "room2_out": {"x": 15, "y": 178},
+            "rotator_out": {"x": 54, "y": 178},
+            "input_in": {"x": 13, "y": 178},
+            "rotator_in": {"x": 56, "y": 178},
+            "delay_in": {"x": 8, "y": 178}
+          }
+        }
+      ]
+    },
+    {
+      "name": "input",
+      "w": 3,
+      "h": 3,
+      "ports": {"out": {"x": 1, "y": -1}}
+    },
+    {
+      "name": "room2",
+      "variants": [
+        {
+          "name": "tall",
+          "w": 16,
+          "h": 26,
+          "ports": {
+            "from_room0": {"x": -1, "y": 14},
+            "display_89": {"x": 10, "y": -1},
+            "display_12": {"x": 3, "y": 26},
+            "display_4": {"x": 8, "y": 26}
+          }
+        },
+        {
+          "name": "wide",
+          "w": 26,
+          "h": 16,
+          "ports": {
+            "from_room0": {"x": 11, "y": -1},
+            "display_89": {"x": 26, "y": 10},
+            "display_12": {"x": -1, "y": 3},
+            "display_4": {"x": -1, "y": 8}
+          }
+        }
+      ]
+    },
+    {
+      "name": "rotator",
+      "variants": [
+        {
+          "name": "wide",
+          "w": 17,
+          "h": 4,
+          "ports": {
+            "from_room0": {"x": 9, "y": -1},
+            "to_room0": {"x": 11, "y": -1}
+          }
+        },
+        {
+          "name": "tall",
+          "w": 4,
+          "h": 17,
+          "ports": {
+            "from_room0": {"x": 4, "y": 9},
+            "to_room0": {"x": 4, "y": 11}
+          }
+        }
+      ]
+    },
+    {
+      "name": "delay_room",
+      "variants": [
+        {
+          "name": "wide",
+          "w": 94,
+          "h": 4,
+          "ports": {
+            "from_room0": {"x": 33, "y": -1},
+            "to_room0": {"x": 70, "y": 4}
+          }
+        },
+        {
+          "name": "tall",
+          "w": 4,
+          "h": 94,
+          "ports": {
+            "from_room0": {"x": 4, "y": 33},
+            "to_room0": {"x": -1, "y": 70}
+          }
+        }
+      ]
+    },
+    {
+      "name": "display",
+      "w": 18,
+      "h": 18,
+      "ports": {
+        "pipe_89": {"x": 9, "y": 18},
+        "pipe_12": {"x": -1, "y": 5},
+        "pipe_4": {"x": 2, "y": -1}
+      }
+    }
+  ],
+  "edges": [
+    {
+      "a": "room0", "b": "delay_room",
+      "a_port": "delay_out", "b_port": "from_room0",
+      "max_length": 399, "weight": 1
+    },
+    {
+      "a": "room0", "b": "room2",
+      "a_port": "room2_out", "b_port": "from_room0",
+      "max_length": 22, "weight": 10
+    },
+    {
+      "a": "room0", "b": "rotator",
+      "a_port": "rotator_out", "b_port": "from_room0",
+      "max_length": 17, "weight": 100
+    },
+    {
+      "a": "input", "b": "room0",
+      "a_port": "out", "b_port": "input_in",
+      "max_length": 2, "weight": 10
+    },
+    {
+      "a": "room2", "b": "display",
+      "a_port": "display_89", "b_port": "pipe_89",
+      "max_length": 88, "weight": 5
+    },
+    {
+      "a": "rotator", "b": "room0",
+      "a_port": "to_room0", "b_port": "rotator_in",
+      "max_length": 17, "weight": 100
+    },
+    {
+      "a": "room2", "b": "display",
+      "a_port": "display_12", "b_port": "pipe_12",
+      "max_length": 11, "weight": 20
+    },
+    {
+      "a": "room2", "b": "display",
+      "a_port": "display_4", "b_port": "pipe_4",
+      "max_length": 3, "weight": 20
+    },
+    {
+      "a": "delay_room", "b": "room0",
+      "a_port": "to_room0", "b_port": "delay_in",
+      "max_length": 399, "weight": 1
+    }
+  ]
+}

@@ -1,10 +1,8 @@
 #!/usr/bin/env python3
-"""Build a pipe-free layout scaffold for the vertical-P1 History Lesson design.
+"""Build the raw-text dictionary layout for History Lesson.
 
-This is intentionally not a candidate solution yet.  It places the optimized
-feeder, a fixed-width vertical dictionary, and the remaining rooms, but draws
-no pipes between them.  The scaffold is useful for experimenting with the
-feeder/dictionary geometry before committing to pipe attachment locations.
+The default output is a pipe-free geometry scaffold. Pass ``--connect-pipes``
+for a runnable candidate with the compact vertical-P2 dispatcher.
 """
 from __future__ import annotations
 
@@ -12,36 +10,53 @@ import argparse
 import logging
 import os
 import sys
+from collections import Counter
 from dataclasses import dataclass
 from functools import lru_cache
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 HISTORY_DIR = os.path.dirname(HERE)
 TOOLS_DIR = os.path.abspath(os.path.join(HERE, "..", "..", "..", "tools"))
+sys.path.insert(0, HERE)
 sys.path.insert(0, HISTORY_DIR)
 sys.path.insert(0, TOOLS_DIR)
 
 from littleman import Program
 
 import build_vertical_p1 as vertical
+import build_vertical_p2 as compact
+import dictionary as raw_dictionary
 
 
 DEFAULT_FEEDER_WIDTH = 81
-DEFAULT_DICTIONARY_WIDTH = 52
-DEFAULT_DICTIONARY_WORDS = 44
-MIN_DICTIONARY_WORDS = 38
-MAX_DICTIONARY_WORDS = 91
+DEFAULT_DICTIONARY_WIDTH = 38
+DEFAULT_DICTIONARY_WORDS = 24
+DICTIONARY_CATALOG = raw_dictionary.load_catalog()
+MIN_DICTIONARY_WORDS = DICTIONARY_CATALOG["minimum_words"]
+MAX_DICTIONARY_WORDS = DICTIONARY_CATALOG["maximum_words"]
 LOGGER = logging.getLogger(__name__)
+TOP_LEFT_BLOCK_ROWS = (
+    ">rsv",
+    "x<<<",
+)
+TOP_LEFT_BLOCK_WIDTH = 4
+RETURN_COLUMN = 2
+START_COLUMN = 5
+LATER_START_COLUMN = 1
 
-# A physical permutation found by the width-constrained packing search. Direct
-# positions remain in the first sixteen slots and escaped positions after
-# them, so references can be remapped without changing the stream protocol.
-# At dictionary width 52 this reaches the six-band source-width lower bound.
-PACKING_ORDER_44 = [
-    9, 5, 12, 6, 10, 2, 15, 14, 4, 11, 16, 1, 3, 7, 13, 8,
-    25, 18, 22, 34, 36, 39, 27, 30, 29, 19, 17, 20, 35, 37,
-    38, 41, 21, 28, 31, 42, 32, 43, 40, 24, 26, 23, 33, 44,
-]
+# Port offsets are part of the compact dispatcher's design: its sends and
+# receives select the nearest matching pipe, so moving an attachment can
+# silently bind an instruction to the wrong service.
+DISP_STREAM_IN = (-1, 2)
+DISP_STREAM_OUT = (compact.UNPACK_PORT - compact.DISP_X, -1)
+DISP_RING_IN = (
+    compact.RING_IN_PORT - compact.DISP_X,
+    len(compact.DISP_ROWS) + 2,
+)
+DISP_RING_OUT = (
+    compact.RING_OUT_PORT - compact.DISP_X,
+    len(compact.DISP_ROWS) + 2,
+)
 
 
 @dataclass(frozen=True)
@@ -192,28 +207,34 @@ def pack_dictionary(values: list[int], room_width: int) -> list[DictionaryBand]:
 
     Bands are independently right-aligned.
     """
-    if room_width < 8:
-        raise ValueError("dictionary width must be at least 8")
-    capacity = room_width - 5
-    final_capacity = room_width - 7
+    if room_width < 13:
+        raise ValueError("dictionary width must be at least 13")
+    # The top-left 2x4 block shifts the first paired band four columns right
+    # compared with an ordinary band. Later bands recover that width: column
+    # one is their start/descent and column two is the upward return.
+    first_capacity = room_width - 9
+    capacity = room_width - 6
+    final_capacity = room_width - 10
     values_tuple = tuple(values)
     max_constants_per_band = 2 * (capacity // 4)
 
     @lru_cache(maxsize=None)
-    def solve(index: int):
+    def solve(index: int, first_band: bool):
         if index == len(values_tuple):
             return (0, (), 0, ())
         best = None
         remaining = len(values_tuple) - index
         for count in range(1, min(remaining, max_constants_per_band) + 1):
             segment = values_tuple[index:index + count]
-            band_capacity = (
-                final_capacity if index + count == len(values_tuple)
-                else capacity
-            )
             final_band = index + count == len(values_tuple)
+            band_capacity = capacity
+            if first_band:
+                band_capacity = first_capacity
+            if final_band:
+                band_capacity = min(band_capacity, final_capacity)
             # The final band must contain at least one bottom-row constant so
-            # it can provide the fourth glyph in `vs0s`.
+            # the westbound path sends a final value before entering the
+            # sentinel and upward return path.
             top_count_stop = count if final_band else count + 1
             for top_count in range(1, top_count_stop):
                 band = _best_band(
@@ -224,7 +245,7 @@ def pack_dictionary(values: list[int], room_width: int) -> list[DictionaryBand]:
                 used = sum(width + 3 for width in band.widths)
                 if used > band_capacity:
                     continue
-                tail = solve(index + count)
+                tail = solve(index + count, False)
                 if tail is None:
                     continue
                 candidate = (
@@ -237,7 +258,7 @@ def pack_dictionary(values: list[int], room_width: int) -> list[DictionaryBand]:
                     best = candidate
         return best
 
-    result = solve(0)
+    result = solve(0, True)
     if result is None:
         widest = max((len(str(value)) for value in values), default=0)
         raise ValueError(
@@ -253,22 +274,13 @@ def _put_row(program: Program, x: int, y: int, cells) -> None:
             program.put(x + dx, y, glyph)
 
 
-def repack_physical_dictionary(
+def _rewrite_physical_dictionary(
     symbols: list[int],
     ring: dict[int, int],
+    order: list[int],
 ) -> tuple[list[int], dict[int, int], list[int]]:
     """Permute physical entries and rewrite every dictionary reference."""
     count = len(ring)
-    direct_order = PACKING_ORDER_44[:16]
-    escaped_order = [
-        position for position in PACKING_ORDER_44[16:]
-        if position <= count
-    ]
-    escaped_order.extend(
-        position for position in range(17, count + 1)
-        if position not in escaped_order
-    )
-    order = direct_order + escaped_order
     assert sorted(order) == list(range(1, count + 1))
 
     new_position = {
@@ -301,16 +313,173 @@ def repack_physical_dictionary(
     return rewritten, new_ring, order
 
 
+def _order_variants(
+    positions: list[int],
+    ring: dict[int, int],
+    references: dict[int, int],
+) -> list[list[int]]:
+    """Small deterministic ordering portfolio for physical packing."""
+    def digits(position):
+        return len(str(ring[position]))
+
+    variants = [
+        list(positions),
+        sorted(positions, key=lambda position: (digits(position), position)),
+        sorted(positions, key=lambda position: (-digits(position), position)),
+        sorted(
+            positions,
+            key=lambda position: (
+                digits(position),
+                -references[position],
+                position,
+            ),
+        ),
+        sorted(
+            positions,
+            key=lambda position: (
+                -references[position],
+                digits(position),
+                position,
+            ),
+        ),
+    ]
+    by_width = sorted(positions, key=lambda position: (digits(position), position))
+    alternating = []
+    left = 0
+    right = len(by_width) - 1
+    while left <= right:
+        alternating.append(by_width[right])
+        right -= 1
+        if left <= right:
+            alternating.append(by_width[left])
+            left += 1
+    variants.append(alternating)
+
+    unique = []
+    seen = set()
+    for variant in variants:
+        key = tuple(variant)
+        if key not in seen:
+            seen.add(key)
+            unique.append(variant)
+    return unique
+
+
+def repack_physical_dictionary(
+    symbols: list[int],
+    ring: dict[int, int],
+    room_width: int,
+    search_order: bool = True,
+) -> tuple[list[int], dict[int, int], list[int], list[DictionaryBand]]:
+    """Choose and apply the best tested physical order for paired-row packing.
+
+    Direct and escaped positions are permuted independently so DISP's protocol
+    remains unchanged. Phrase priority affects the encoded stream; this step
+    affects only literal geometry.
+    """
+    if not search_order:
+        order = list(range(1, len(ring) + 1))
+        values = [ring[position] for position in order]
+        bands = pack_dictionary(values, room_width)
+        rewritten, new_ring, order = _rewrite_physical_dictionary(
+            symbols,
+            ring,
+            order,
+        )
+        return rewritten, new_ring, order, bands
+
+    references = {
+        position: count
+        for position, _, count in dictionary_usage(symbols, ring)
+    }
+    direct_variants = _order_variants(
+        list(range(1, 17)),
+        ring,
+        references,
+    )
+    escaped_variants = _order_variants(
+        list(range(17, len(ring) + 1)),
+        ring,
+        references,
+    )
+
+    best = None
+    for direct_order in direct_variants:
+        for escaped_order in escaped_variants:
+            order = direct_order + escaped_order
+            values = [ring[position] for position in order]
+            try:
+                bands = pack_dictionary(values, room_width)
+            except ValueError:
+                continue
+            used_widths = [
+                sum(width + 3 for width in band.widths)
+                for band in bands
+            ]
+            key = (
+                len(bands),
+                tuple(-band.constant_count for band in bands),
+                sum(used_widths),
+                max(used_widths, default=0),
+                tuple(order),
+            )
+            if best is None or key < best[0]:
+                best = (key, order, bands)
+    if best is None:
+        raise ValueError(
+            f"{len(ring)} dictionary words do not fit width {room_width}"
+        )
+    _, order, bands = best
+    rewritten, new_ring, order = _rewrite_physical_dictionary(
+        symbols,
+        ring,
+        order,
+    )
+    return rewritten, new_ring, order, bands
+
+
+def dictionary_usage(
+    symbols: list[int],
+    ring: dict[int, int],
+) -> list[tuple[int, str, int]]:
+    """Return physical slot, decoded word, and reference count for the ring."""
+    counts: Counter[int] = Counter()
+    index = 0
+    while index < len(symbols):
+        symbol = symbols[index]
+        index += 1
+        if symbol == vertical.base.ESC:
+            if index >= len(symbols):
+                raise ValueError("truncated escaped dictionary reference")
+            counts[symbols[index]] += 1
+            index += 1
+        elif 1 <= symbol <= 16:
+            counts[symbol] += 1
+
+    usage = []
+    for position in sorted(ring):
+        value = ring[position]
+        word = bytearray()
+        while value:
+            value, byte = divmod(value, vertical.base.B2)
+            word.append(byte)
+        usage.append((position, bytes(word).decode("ascii"), counts[position]))
+    return usage
+
+
 def place_dictionary(
     program: Program,
     x0: int,
     y0: int,
     room_width: int,
     values: list[int],
+    bands: list[DictionaryBand] | None = None,
+    bottom_padding: int = 0,
 ) -> tuple[int, int]:
     """Place a right-aligned vertical-P1 dictionary and return (width, height)."""
-    bands = pack_dictionary(values, room_width)
-    room_height = 2 * len(bands) + 4
+    if bands is None:
+        bands = pack_dictionary(values, room_width)
+    room_height = 2 * len(bands) + 2 + bottom_padding
     program.room(x0, y0, room_width, room_height)
     turn_x = x0 + room_width - 2
 
@@ -319,10 +488,15 @@ def place_dictionary(
         bottom_y = top_y + 1
         pitch = sum(width + 3 for width in band.widths)
         final_band = band_index == len(bands) - 1
-        # Ordinary bands are right-aligned. The final band starts at column
-        # four so its first real bottom slot completes the `vs0s` prefix.
-        base_x = x0 + 4 if final_band else turn_x - pitch - 1
-        if base_x < x0 + 2:
+        base_x = turn_x - pitch - 1
+        if band_index == 0:
+            minimum_base_x = x0 + START_COLUMN + 1
+        elif final_band:
+            # The final westbound row needs `0s1b^` before column two.
+            minimum_base_x = x0 + 7
+        else:
+            minimum_base_x = x0 + 2
+        if base_x < minimum_base_x:
             raise AssertionError((base_x, x0, room_width, band))
         starts = []
         cursor = base_x
@@ -340,6 +514,9 @@ def place_dictionary(
                     vertical.base.p1_slot_cells(top_value, width, True),
                 )
             else:
+                # Keep this as a numeric literal rather than blank space.
+                # Aligned backticks can also pair vertically; the zero-filled
+                # partner prevents an accidental invalid vertical literal.
                 _put_row(
                     program,
                     starts[slot] + 1,
@@ -357,6 +534,8 @@ def place_dictionary(
                     vertical.base.p1_slot_cells(bottom_value, width, False),
                 )
             else:
+                # See the top-row case: this unsent zero is a literal syntax
+                # guard, not an entry in the dictionary ring.
                 _put_row(
                     program,
                     starts[slot],
@@ -364,30 +543,35 @@ def place_dictionary(
                     [" ", "`", *("0" * width), "`"],
                 )
 
-        program.put(x0 + 1, top_y, "@" if band_index == 0 else ">")
+        if band_index == 0:
+            program.put(x0 + START_COLUMN, top_y, "@")
+        else:
+            # This cell is on the room edge, where `>` would become a pipe
+            # endpoint and block the loader.  During preload BP=0, so `x`
+            # turns a southbound man counter-clockwise to face east.
+            program.put(x0 + LATER_START_COLUMN, top_y, "x")
         program.put(turn_x, top_y, "v")
         program.put(turn_x, bottom_y, "<")
-        program.put(x0 + 1, bottom_y, "v")
+        if not final_band:
+            if band_index:
+                program.put(x0 + LATER_START_COLUMN, bottom_y, "v")
 
-    # Keep the buffer loop strictly after the preload.  On the last westbound
-    # row the loader encounters the zero sentinel only after all constants,
-    # then descends directly into the steady r/s iteration loop.
+    # The fixed 2x4 top-left area contains the r/s pump. Constants in this
+    # first band begin after it; later bands recover the horizontal space.
+    for row_offset, row in enumerate(TOP_LEFT_BLOCK_ROWS):
+        _put_row(program, x0 + 1, y0 + 1 + row_offset, row)
+
+    # The lower-left `x` sends BP=0 south during the one-shot preload. After
+    # the final constant, emit the sentinel, set BP=1, and turn north in
+    # column two.  That column is intentionally blank between bands: a
+    # northbound man keeps climbing, while preload paths cross it horizontally.
+    # At the pump row `<x` moves the return west, then odd BP turns it north.
     final_bottom_y = y0 + 2 * len(bands)
-    program.put(x0 + 3, final_bottom_y, "0")
-    program.put(x0 + 2, final_bottom_y, "s")
-    pump_y = final_bottom_y + 1
-    _put_row(
-        program,
-        x0 + 1,
-        pump_y,
-        [">", ">", "r", "s", "v"],
-    )
-    _put_row(
-        program,
-        x0 + 1,
-        pump_y + 1,
-        [" ", "^", "<", "<", "<"],
-    )
+    program.put(x0 + 6, final_bottom_y, "0")
+    program.put(x0 + 5, final_bottom_y, "s")
+    program.put(x0 + 4, final_bottom_y, "1")
+    program.put(x0 + 3, final_bottom_y, "b")
+    program.put(x0 + RETURN_COLUMN, final_bottom_y, "^")
     return room_width, room_height
 
 
@@ -425,7 +609,10 @@ def add_connection_pipes(
     # DECODER -> DISP, retaining the dispatcher attachment used by the
     # original vertical-P1 prototype.
     decoder_send = (decoder_x + 5, decoder_y + decoder_height)
-    disp_stream_in = (disp_x - 1, disp_y + 5)
+    disp_stream_in = (
+        disp_x + DISP_STREAM_IN[0],
+        disp_y + DISP_STREAM_IN[1],
+    )
     decoder_route_y = dictionary_bottom - 3
     program.pipe([
         decoder_send,
@@ -436,7 +623,10 @@ def add_connection_pipes(
 
     # DISP -> UNPACK, across the upper routing strip. It stays east of the
     # feeder connection, so the two pipes do not cross.
-    disp_stream_out = (disp_x + 18, disp_y - 1)
+    disp_stream_out = (
+        disp_x + DISP_STREAM_OUT[0],
+        disp_y + DISP_STREAM_OUT[1],
+    )
     unpack_stream_in = (unpack_x + 7, unpack_y - 1)
     upper_route_y = disp_y - 2
     upper_drop_x = feeder_width + 1
@@ -466,32 +656,28 @@ def add_connection_pipes(
         dictionary_bottom - 2,
     )
     disp_ring_in = (
-        disp_x + disp_width,
-        disp_y + disp_height - 3,
+        disp_x + DISP_RING_IN[0],
+        disp_y + DISP_RING_IN[1],
     )
     ring_forward_y = dictionary_bottom - 2
-    ring_forward_right = disp_x + disp_width + 5
     program.pipe([
         dictionary_ring_out,
-        (ring_forward_right, ring_forward_y),
-        (ring_forward_right, disp_ring_in[1]),
+        (disp_ring_in[0], ring_forward_y),
         disp_ring_in,
-    ], end_direction="W")
+    ], end_direction="N")
 
     disp_ring_out = (
-        disp_x + disp_width,
-        disp_y + disp_height - 4,
+        disp_x + DISP_RING_OUT[0],
+        disp_y + DISP_RING_OUT[1],
     )
     dictionary_ring_in = (
         dictionary_x + dictionary_width,
         dictionary_bottom - 1,
     )
     ring_return_y = dictionary_bottom - 1
-    ring_return_right = ring_forward_right + 2
     program.pipe([
         disp_ring_out,
-        (ring_return_right, disp_ring_out[1]),
-        (ring_return_right, ring_return_y),
+        (disp_ring_out[0], ring_return_y),
         dictionary_ring_in,
     ], end_direction="W")
 
@@ -503,6 +689,7 @@ def build(
     dictionary_width: int = DEFAULT_DICTIONARY_WIDTH,
     dictionary_words: int = DEFAULT_DICTIONARY_WORDS,
     connect_pipes: bool = False,
+    search_dictionary_order: bool = True,
 ) -> tuple[Program, dict[str, object]]:
     if feeder_width < 8:
         raise ValueError("feeder width must be at least 8")
@@ -515,15 +702,60 @@ def build(
         )
 
     LOGGER.info(
-        "building encoding for %d dictionary words",
+        "building raw-text encoding for %d dictionary words",
         dictionary_words,
     )
-    symbols, ring, _ = vertical.build_encoding(
-        extra_phrases=dictionary_words - MIN_DICTIONARY_WORDS,
-        optimize=False,
+    symbols, ring, selection = raw_dictionary.build_encoding(
+        vertical.base.TEXT,
+        dictionary_words,
     )
-    LOGGER.info("remapping references for DP-friendly physical dictionary order")
-    symbols, ring, physical_order = repack_physical_dictionary(symbols, ring)
+    LOGGER.info(
+        "dictionary choice order "
+        "(semantic slot: word, residual occurrences -> final references)"
+    )
+    for action in selection["actions"]:
+        slot = action["slot"]
+        occurrences = action.get("occurrences_at_selection")
+        occurrence_label = (
+            str(occurrences)
+            if occurrences is not None
+            else "required identity"
+        )
+        LOGGER.info(
+            "  %02d: %r [%s], %s -> %d",
+            slot,
+            action["word"],
+            action["kind"],
+            occurrence_label,
+            selection["references"][slot],
+        )
+    if search_dictionary_order:
+        LOGGER.info(
+            "selecting physical order for width %d while preserving reference class",
+            dictionary_width,
+        )
+    else:
+        LOGGER.info("keeping catalog dictionary order (ordering search disabled)")
+    symbols, ring, physical_order, dictionary_bands = (
+        repack_physical_dictionary(
+            symbols,
+            ring,
+            dictionary_width,
+            search_order=search_dictionary_order,
+        )
+    )
+    usage = dictionary_usage(symbols, ring)
+    LOGGER.info(
+        "physical packing order after reference rewrite "
+        "(physical slot: word -> references)"
+    )
+    for physical_position, word, references in usage:
+        LOGGER.info(
+            "  %02d: %r -> %d",
+            physical_position,
+            word,
+            references,
+        )
     LOGGER.info(
         "optimizing feeder layout for width %d",
         feeder_width,
@@ -539,18 +771,40 @@ def build(
 
     tail_y = feeder_rows + 2
     dictionary_x = 0
-    dictionary_values = [ring[position] for position in range(1, dictionary_words + 1)]
+    placed_dictionary_words = len(ring)
+    dictionary_values = [
+        ring[position]
+        for position in range(1, placed_dictionary_words + 1)
+    ]
     LOGGER.info(
         "running dictionary packing DP for width %d",
         dictionary_width,
     )
-    dictionary_bands = pack_dictionary(dictionary_values, dictionary_width)
+    unpadded_dictionary_height = 2 * len(dictionary_bands) + 2
+    # Connected mode needs the dictionary's bottom boundary to cover DISP's
+    # south-wall ring endpoints. Small dictionaries can be shorter than that
+    # service tail, so two fixed footer rows are not always sufficient.
+    dictionary_bottom_padding = (
+        max(
+            2,
+            # Two rows from dictionary top to service top, then DISP's south
+            # port offset, then two distinct route rows before the dictionary
+            # bottom corner.
+            2 + (len(compact.DISP_ROWS) + 2) + 2 - (
+                unpadded_dictionary_height - 1
+            ),
+        )
+        if connect_pipes
+        else 0
+    )
     _, dictionary_height = place_dictionary(
         program,
         dictionary_x,
         tail_y,
         dictionary_width,
         dictionary_values,
+        dictionary_bands,
+        bottom_padding=dictionary_bottom_padding,
     )
     LOGGER.info(
         "placed dictionary: %d bands, %d rows",
@@ -562,7 +816,7 @@ def build(
     # that row down two cells to open a routing strip below the feeder.
     service_y = tail_y + (2 if connect_pipes else 0)
     LOGGER.info(
-        "placing touching horizontal service-room row%s",
+        "placing horizontal service-room row%s",
         " two rows lower" if connect_pipes else "",
     )
     service_x = dictionary_width
@@ -583,12 +837,16 @@ def build(
     service_rooms.append(("output", output_x, service_y, 3, 3))
     service_x += 3
 
-    disp_width = max(len(row) for row in vertical.DISP_DELAYED_ROWS) + 2
+    # DISP's compact west-wall stream input is level with the 3x3 output
+    # room. Keep two routing columns between them: one for the endpoint and
+    # one to stop that arrow also touching the output room's east corner.
+    service_x += 2
+    disp_width = max(len(row) for row in compact.DISP_ROWS) + 2
     disp_width, disp_height = vertical.base.paste_room(
         program,
         service_x,
         service_y,
-        vertical.DISP_DELAYED_ROWS,
+        compact.DISP_ROWS,
     )
     service_rooms.append(
         ("dispatcher", service_x, service_y, disp_width, disp_height)
@@ -630,7 +888,9 @@ def build(
             "y": tail_y,
             "width": dictionary_width,
             "height": dictionary_height,
-            "words": dictionary_words,
+            "bottom_padding": dictionary_bottom_padding,
+            "requested_words": dictionary_words,
+            "words": placed_dictionary_words,
             "left_edge": dictionary_x,
             "right_edge": dictionary_x + dictionary_width - 1,
             "bottom_edge": tail_y + dictionary_height - 1,
@@ -646,10 +906,29 @@ def build(
                 for band in dictionary_bands
             ],
             "physical_order": physical_order,
+            "selection_actions": selection["actions"],
+            "selection_encoding": selection["catalog"]["encoding"],
+            "usage": [
+                {
+                    "position": position,
+                    "word": word,
+                    "references": references,
+                }
+                for position, word, references in usage
+            ],
+            "top_left_block": {
+                "width": TOP_LEFT_BLOCK_WIDTH,
+                "height": len(TOP_LEFT_BLOCK_ROWS),
+                "rows": TOP_LEFT_BLOCK_ROWS,
+                "return_column": RETURN_COLUMN,
+                "start_column": START_COLUMN,
+                "later_start_column": LATER_START_COLUMN,
+            },
         },
         "service_rooms": service_rooms,
         "pipes": pipe_count,
         "connected": connect_pipes,
+        "searched_dictionary_order": search_dictionary_order,
     }
     return program, metadata
 
@@ -676,7 +955,8 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=DEFAULT_DICTIONARY_WORDS,
         help=(
-            "number of current 81x90 dictionary words to place "
+            f"raw-text dictionary budget ({MIN_DICTIONARY_WORDS}.."
+            f"{MAX_DICTIONARY_WORDS}) "
             f"(default: {DEFAULT_DICTIONARY_WORDS})"
         ),
     )
@@ -684,6 +964,14 @@ def parse_args() -> argparse.Namespace:
         "--connect-pipes",
         action="store_true",
         help="move service rooms down two rows and add functional pipes",
+    )
+    parser.add_argument(
+        "--no-order-search",
+        action="store_true",
+        help=(
+            "keep catalog dictionary order instead of auditing physical "
+            "permutations (faster, potentially larger)"
+        ),
     )
     parser.add_argument(
         "-o",
@@ -705,17 +993,20 @@ def main() -> None:
             dictionary_width=args.dictionary_width,
             dictionary_words=args.dictionary_words,
             connect_pipes=args.connect_pipes,
+            search_dictionary_order=not args.no_order_search,
         )
     except ValueError as error:
         raise SystemExit(f"error: {error}") from error
 
     mode_suffix = "-connected" if args.connect_pipes else ""
+    order_suffix = "-natural-order" if args.no_order_search else ""
     output = args.output or os.path.join(
         HERE,
         (
             f"layout-f{args.feeder_width}"
             f"-d{args.dictionary_width}"
             f"-n{args.dictionary_words}"
+            f"{order_suffix}"
             f"{mode_suffix}.man"
         ),
     )

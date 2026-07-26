@@ -59,14 +59,22 @@ harness cannot give you.
 
 **A Rust pass on the public cases is good enough to SUBMIT.** `node sim/difftest.js` compares
 the two engines step-by-step (runner states, pipe contents, output, end reason, parsed topology)
-and as of 2026-07-26 reports **54 passed, 0 failed** — including `fork-into-wall(copy)`, the
-fixture the old note called a known divergence. That divergence is FIXED; the note was stale.
-Since submitting never lowers a score, the cost of a rare false pass is one submission slot
-(max 5 pending), not points. Prefer the oracle as a final check when it is cheap, but do NOT
-block on it: it OOMs outright on LLLM (`Go program has already exited`) and `sim/xray.js` on a
-single 2M-tick pathfinder case does not finish in 10 minutes.
+and as of 2026-07-26 reports **61 passed, 0 failed** — including `fork-into-wall(copy)`, the
+fixture the old note called a known divergence (it is FIXED; the note was stale), and seven
+literal fixtures added with the fix below. Since submitting never lowers a score, the cost of a
+rare false pass is one submission slot (max 5 pending), not points. Prefer the oracle as a final
+check when it is cheap, but do NOT block on it: it OOMs outright on LLLM (`Go program has already
+exited`) and `sim/xray.js` on a single 2M-tick pathfinder case does not finish in 10 minutes.
 The risk the Rust engine does NOT cover is the same one the oracle misses — PRIVATE cases.
-Generality, not engine fidelity, is what loses points.
+Generality, not engine fidelity, is what loses points. The fixtures also only cover what we
+thought to test: they were 54/54 green *while* the literal bug below was silently mis-executing.
+
+**Literal semantics were wrong in `interp/` until 2026-07-26** (fixed, `scratchpad/lit-probe/`):
+backticks pair **per room**, per interior row/column — a global row scan pairs two literals in
+*different* rooms across the wall and rejects them, which is why the Rust engine could not load
+33 of our own files (all of `subset-sum/parallel*`, `sort-numbers/merge-mergercell-v1`). And
+literal content is a nop **only along the literal's own axis**: a man crossing a horizontal
+literal from above executes the digit he lands on. See `docs/hidden-capabilities.md`.
 
 **`sim/xray.js` defaults to `--cap=120000` ticks.** On a multi-million-tick program that window
 may cover only the *setup* phase, and its GLOBAL/HEADROOM percentages will then describe the
@@ -76,6 +84,10 @@ numbers as setup-only. This bit during the pathfinder analysis.
 **Oracle quirk:** long runs can kill the Go wasm with `Error: Go program has already exited`
 (runtime OOM). Grade heavy problems **one file per process**; `subset-sum`'s 20-value case
 hits this every time (it also blows the 15M tick cap on the server — that's why we're 12/20).
+One process per *case* is not always enough: measured 2026-07-26, the oracle OOMs on **11 of
+LLLM's 14 public cases** (every one above ~9M ticks) even alone in a fresh process, and
+`--max-old-space-size` does not help (the OOM is inside the Go heap, not V8's). For those the
+**Rust engine is the only local grader we have** — which is why `interp/` fidelity matters.
 
 ## Repo map
 

@@ -1,0 +1,855 @@
+{
+  "version": 2,
+  "source": "../icfp-history.txt",
+  "encoding": "raw ASCII bytes shifted by 31; no year mapping",
+  "base": 92,
+  "escape": 29,
+  "minimum_words": 17,
+  "maximum_words": 91,
+  "actions": [
+    {
+      "kind": "escaped",
+      "slot": 17,
+      "word": "0",
+      "min_words": 17,
+      "reason": "bare symbol 17 is reserved"
+    },
+    {
+      "kind": "escaped",
+      "slot": 18,
+      "word": "'",
+      "min_words": 18,
+      "reason": "restore direct slot 8 when it is used by a phrase"
+    },
+    {
+      "kind": "direct",
+      "slot": 2,
+      "word": ", ",
+      "min_words": 17,
+      "occurrences_at_selection": 75,
+      "symbol_saving": 75,
+      "source_cell_gain": 140.284087,
+      "selection_basis": "highest residual occurrence count"
+    },
+    {
+      "kind": "direct",
+      "slot": 4,
+      "word": "an",
+      "min_words": 17,
+      "occurrences_at_selection": 58,
+      "symbol_saving": 58,
+      "source_cell_gain": 105.899694,
+      "selection_basis": "highest residual occurrence count"
+    },
+    {
+      "kind": "direct",
+      "slot": 5,
+      "word": ": ",
+      "min_words": 17,
+      "occurrences_at_selection": 38,
+      "symbol_saving": 38,
+      "source_cell_gain": 67.623937,
+      "selection_basis": "highest residual occurrence count"
+    },
+    {
+      "kind": "direct",
+      "slot": 6,
+      "word": "on",
+      "min_words": 17,
+      "occurrences_at_selection": 37,
+      "symbol_saving": 37,
+      "source_cell_gain": 64.66015,
+      "selection_basis": "highest residual occurrence count"
+    },
+    {
+      "kind": "direct",
+      "slot": 7,
+      "word": "d ",
+      "min_words": 17,
+      "occurrences_at_selection": 32,
+      "symbol_saving": 32,
+      "source_cell_gain": 55.84121,
+      "selection_basis": "highest residual occurrence count"
+    },
+    {
+      "kind": "direct",
+      "slot": 8,
+      "word": "or",
+      "min_words": 18,
+      "occurrences_at_selection": 32,
+      "symbol_saving": 32,
+      "source_cell_gain": 54.84121,
+      "selection_basis": "highest residual occurrence count"
+    },
+    {
+      "kind": "direct",
+      "slot": 11,
+      "word": "er",
+      "min_words": 17,
+      "occurrences_at_selection": 31,
+      "symbol_saving": 31,
+      "source_cell_gain": 52.877423,
+      "selection_basis": "highest residual occurrence count"
+    },
+    {
+      "kind": "direct",
+      "slot": 12,
+      "word": "; ",
+      "min_words": 17,
+      "occurrences_at_selection": 30,
+      "symbol_saving": 30,
+      "source_cell_gain": 51.913635,
+      "selection_basis": "highest residual occurrence count"
+    },
+    {
+      "kind": "direct",
+      "slot": 16,
+      "word": "in",
+      "min_words": 17,
+      "occurrences_at_selection": 29,
+      "symbol_saving": 29,
+      "source_cell_gain": 48.949847,
+      "selection_basis": "highest residual occurrence count"
+    },
+    {
+      "kind": "direct",
+      "slot": 13,
+      "word": "en",
+      "min_words": 17,
+      "occurrences_at_selection": 24,
+      "symbol_saving": 24,
+      "source_cell_gain": 39.130908,
+      "selection_basis": "highest residual occurrence count"
+    },
+    {
+      "kind": "escaped",
+      "slot": 19,
+      "word": "\" (",
+      "min_words": 19,
+      "occurrences_at_selection": 20,
+      "symbol_saving": 20,
+      "source_cell_gain": 30.275757,
+      "selection_basis": "highest residual occurrence count"
+    },
+    {
+      "kind": "escaped",
+      "slot": 20,
+      "word": "USA",
+      "min_words": 20,
+      "occurrences_at_selection": 11,
+      "symbol_saving": 11,
+      "source_cell_gain": 11.601666,
+      "selection_basis": "highest residual occurrence count"
+    },
+    {
+      "kind": "escaped",
+      "slot": 21,
+      "word": "ell",
+      "min_words": 21,
+      "occurrences_at_selection": 9,
+      "symbol_saving": 9,
+      "source_cell_gain": 7.67409,
+      "selection_basis": "highest residual occurrence count"
+    },
+    {
+      "kind": "escaped",
+      "slot": 22,
+      "word": "Sim",
+      "min_words": 22,
+      "occurrences_at_selection": 7,
+      "symbol_saving": 7,
+      "source_cell_gain": 3.746515,
+      "selection_basis": "highest residual occurrence count"
+    },
+    {
+      "kind": "escaped",
+      "slot": 23,
+      "word": "es)",
+      "min_words": 23,
+      "occurrences_at_selection": 6,
+      "symbol_saving": 6,
+      "source_cell_gain": 2.782727,
+      "selection_basis": "highest residual occurrence count"
+    },
+    {
+      "kind": "escaped",
+      "slot": 24,
+      "word": "cti",
+      "min_words": 24,
+      "occurrences_at_selection": 6,
+      "symbol_saving": 6,
+      "source_cell_gain": 1.782727,
+      "selection_basis": "highest residual occurrence count"
+    },
+    {
+      "kind": "escaped",
+      "slot": 25,
+      "word": " Pe",
+      "min_words": 25,
+      "occurrences_at_selection": 6,
+      "symbol_saving": 6,
+      "source_cell_gain": 1.782727,
+      "selection_basis": "highest residual occurrence count"
+    },
+    {
+      "kind": "escaped",
+      "slot": 26,
+      "word": "ype",
+      "min_words": 26,
+      "occurrences_at_selection": 5,
+      "symbol_saving": 5,
+      "source_cell_gain": -0.181061,
+      "selection_basis": "highest residual occurrence count"
+    },
+    {
+      "kind": "escaped",
+      "slot": 27,
+      "word": "tim",
+      "min_words": 27,
+      "occurrences_at_selection": 5,
+      "symbol_saving": 5,
+      "source_cell_gain": -0.181061,
+      "selection_basis": "highest residual occurrence count"
+    },
+    {
+      "kind": "escaped",
+      "slot": 28,
+      "word": "igh",
+      "min_words": 28,
+      "occurrences_at_selection": 5,
+      "symbol_saving": 5,
+      "source_cell_gain": -0.181061,
+      "selection_basis": "highest residual occurrence count"
+    },
+    {
+      "kind": "escaped",
+      "slot": 29,
+      "word": "bur",
+      "min_words": 29,
+      "occurrences_at_selection": 5,
+      "symbol_saving": 5,
+      "source_cell_gain": -0.181061,
+      "selection_basis": "highest residual occurrence count"
+    },
+    {
+      "kind": "escaped",
+      "slot": 30,
+      "word": "ati",
+      "min_words": 30,
+      "occurrences_at_selection": 5,
+      "symbol_saving": 5,
+      "source_cell_gain": -0.181061,
+      "selection_basis": "highest residual occurrence count"
+    },
+    {
+      "kind": "escaped",
+      "slot": 31,
+      "word": " St",
+      "min_words": 31,
+      "occurrences_at_selection": 5,
+      "symbol_saving": 5,
+      "source_cell_gain": -0.181061,
+      "selection_basis": "highest residual occurrence count"
+    },
+    {
+      "kind": "escaped",
+      "slot": 32,
+      "word": "tract",
+      "min_words": 32,
+      "occurrences_at_selection": 4,
+      "symbol_saving": 12,
+      "source_cell_gain": 9.565454,
+      "selection_basis": "highest residual occurrence count"
+    },
+    {
+      "kind": "escaped",
+      "slot": 33,
+      "word": "Hask",
+      "min_words": 33,
+      "occurrences_at_selection": 4,
+      "symbol_saving": 8,
+      "source_cell_gain": 3.710303,
+      "selection_basis": "highest residual occurrence count"
+    },
+    {
+      "kind": "escaped",
+      "slot": 34,
+      "word": "el ",
+      "min_words": 34,
+      "occurrences_at_selection": 4,
+      "symbol_saving": 4,
+      "source_cell_gain": -1.144849,
+      "selection_basis": "highest residual occurrence count"
+    },
+    {
+      "kind": "escaped",
+      "slot": 35,
+      "word": "da ",
+      "min_words": 35,
+      "occurrences_at_selection": 4,
+      "symbol_saving": 4,
+      "source_cell_gain": -1.144849,
+      "selection_basis": "highest residual occurrence count"
+    },
+    {
+      "kind": "escaped",
+      "slot": 36,
+      "word": "as ",
+      "min_words": 36,
+      "occurrences_at_selection": 4,
+      "symbol_saving": 4,
+      "source_cell_gain": -1.144849,
+      "selection_basis": "highest residual occurrence count"
+    },
+    {
+      "kind": "escaped",
+      "slot": 37,
+      "word": "199",
+      "min_words": 37,
+      "occurrences_at_selection": 4,
+      "symbol_saving": 4,
+      "source_cell_gain": -1.144849,
+      "selection_basis": "highest residual occurrence count"
+    },
+    {
+      "kind": "escaped",
+      "slot": 38,
+      "word": "tic",
+      "min_words": 38,
+      "occurrences_at_selection": 4,
+      "symbol_saving": 4,
+      "source_cell_gain": -2.144849,
+      "selection_basis": "highest residual occurrence count"
+    },
+    {
+      "kind": "escaped",
+      "slot": 39,
+      "word": "the",
+      "min_words": 39,
+      "occurrences_at_selection": 4,
+      "symbol_saving": 4,
+      "source_cell_gain": -2.144849,
+      "selection_basis": "highest residual occurrence count"
+    },
+    {
+      "kind": "escaped",
+      "slot": 40,
+      "word": "mit",
+      "min_words": 40,
+      "occurrences_at_selection": 4,
+      "symbol_saving": 4,
+      "source_cell_gain": -2.144849,
+      "selection_basis": "highest residual occurrence count"
+    },
+    {
+      "kind": "escaped",
+      "slot": 41,
+      "word": "Davi",
+      "min_words": 41,
+      "occurrences_at_selection": 3,
+      "symbol_saving": 6,
+      "source_cell_gain": -0.217273,
+      "selection_basis": "highest residual occurrence count"
+    },
+    {
+      "kind": "escaped",
+      "slot": 42,
+      "word": "of ",
+      "min_words": 42,
+      "occurrences_at_selection": 3,
+      "symbol_saving": 3,
+      "source_cell_gain": -3.108637,
+      "selection_basis": "highest residual occurrence count"
+    },
+    {
+      "kind": "escaped",
+      "slot": 43,
+      "word": "ic ",
+      "min_words": 43,
+      "occurrences_at_selection": 3,
+      "symbol_saving": 3,
+      "source_cell_gain": -3.108637,
+      "selection_basis": "highest residual occurrence count"
+    },
+    {
+      "kind": "escaped",
+      "slot": 44,
+      "word": "ce ",
+      "min_words": 44,
+      "occurrences_at_selection": 3,
+      "symbol_saving": 3,
+      "source_cell_gain": -3.108637,
+      "selection_basis": "highest residual occurrence count"
+    },
+    {
+      "kind": "escaped",
+      "slot": 45,
+      "word": "am ",
+      "min_words": 45,
+      "occurrences_at_selection": 3,
+      "symbol_saving": 3,
+      "source_cell_gain": -3.108637,
+      "selection_basis": "highest residual occurrence count"
+    },
+    {
+      "kind": "escaped",
+      "slot": 46,
+      "word": "t t",
+      "min_words": 46,
+      "occurrences_at_selection": 3,
+      "symbol_saving": 3,
+      "source_cell_gain": -4.108637,
+      "selection_basis": "highest residual occurrence count"
+    },
+    {
+      "kind": "escaped",
+      "slot": 47,
+      "word": "sso",
+      "min_words": 47,
+      "occurrences_at_selection": 3,
+      "symbol_saving": 3,
+      "source_cell_gain": -4.108637,
+      "selection_basis": "highest residual occurrence count"
+    },
+    {
+      "kind": "escaped",
+      "slot": 48,
+      "word": "s f",
+      "min_words": 48,
+      "occurrences_at_selection": 3,
+      "symbol_saving": 3,
+      "source_cell_gain": -4.108637,
+      "selection_basis": "highest residual occurrence count"
+    },
+    {
+      "kind": "escaped",
+      "slot": 49,
+      "word": "ris",
+      "min_words": 49,
+      "occurrences_at_selection": 3,
+      "symbol_saving": 3,
+      "source_cell_gain": -4.108637,
+      "selection_basis": "highest residual occurrence count"
+    },
+    {
+      "kind": "escaped",
+      "slot": 50,
+      "word": "ram",
+      "min_words": 50,
+      "occurrences_at_selection": 3,
+      "symbol_saving": 3,
+      "source_cell_gain": -4.108637,
+      "selection_basis": "highest residual occurrence count"
+    },
+    {
+      "kind": "escaped",
+      "slot": 51,
+      "word": "ost",
+      "min_words": 51,
+      "occurrences_at_selection": 3,
+      "symbol_saving": 3,
+      "source_cell_gain": -4.108637,
+      "selection_basis": "highest residual occurrence count"
+    },
+    {
+      "kind": "escaped",
+      "slot": 52,
+      "word": "mod",
+      "min_words": 52,
+      "occurrences_at_selection": 3,
+      "symbol_saving": 3,
+      "source_cell_gain": -4.108637,
+      "selection_basis": "highest residual occurrence count"
+    },
+    {
+      "kind": "escaped",
+      "slot": 53,
+      "word": "iot",
+      "min_words": 53,
+      "occurrences_at_selection": 3,
+      "symbol_saving": 3,
+      "source_cell_gain": -4.108637,
+      "selection_basis": "highest residual occurrence count"
+    },
+    {
+      "kind": "escaped",
+      "slot": 54,
+      "word": "ate",
+      "min_words": 54,
+      "occurrences_at_selection": 3,
+      "symbol_saving": 3,
+      "source_cell_gain": -4.108637,
+      "selection_basis": "highest residual occurrence count"
+    },
+    {
+      "kind": "escaped",
+      "slot": 55,
+      "word": "all",
+      "min_words": 55,
+      "occurrences_at_selection": 3,
+      "symbol_saving": 3,
+      "source_cell_gain": -4.108637,
+      "selection_basis": "highest residual occurrence count"
+    },
+    {
+      "kind": "escaped",
+      "slot": 56,
+      "word": "ala",
+      "min_words": 56,
+      "occurrences_at_selection": 3,
+      "symbol_saving": 3,
+      "source_cell_gain": -4.108637,
+      "selection_basis": "highest residual occurrence count"
+    },
+    {
+      "kind": "escaped",
+      "slot": 57,
+      "word": " Se",
+      "min_words": 57,
+      "occurrences_at_selection": 3,
+      "symbol_saving": 3,
+      "source_cell_gain": -4.108637,
+      "selection_basis": "highest residual occurrence count"
+    },
+    {
+      "kind": "escaped",
+      "slot": 58,
+      "word": " Ru",
+      "min_words": 58,
+      "occurrences_at_selection": 3,
+      "symbol_saving": 3,
+      "source_cell_gain": -4.108637,
+      "selection_basis": "highest residual occurrence count"
+    },
+    {
+      "kind": "escaped",
+      "slot": 59,
+      "word": " \"R",
+      "min_words": 59,
+      "occurrences_at_selection": 3,
+      "symbol_saving": 3,
+      "source_cell_gain": -4.108637,
+      "selection_basis": "highest residual occurrence count"
+    },
+    {
+      "kind": "escaped",
+      "slot": 60,
+      "word": " \"A",
+      "min_words": 60,
+      "occurrences_at_selection": 3,
+      "symbol_saving": 3,
+      "source_cell_gain": -4.108637,
+      "selection_basis": "highest residual occurrence count"
+    },
+    {
+      "kind": "escaped",
+      "slot": 61,
+      "word": "virtual)",
+      "min_words": 61,
+      "occurrences_at_selection": 2,
+      "symbol_saving": 12,
+      "source_cell_gain": 3.565454,
+      "selection_basis": "highest residual occurrence count"
+    },
+    {
+      "kind": "escaped",
+      "slot": 62,
+      "word": "rios Vyt",
+      "min_words": 62,
+      "occurrences_at_selection": 2,
+      "symbol_saving": 12,
+      "source_cell_gain": 3.565454,
+      "selection_basis": "highest residual occurrence count"
+    },
+    {
+      "kind": "escaped",
+      "slot": 63,
+      "word": "John ",
+      "min_words": 63,
+      "occurrences_at_selection": 2,
+      "symbol_saving": 6,
+      "source_cell_gain": -1.217273,
+      "selection_basis": "highest residual occurrence count"
+    },
+    {
+      "kind": "escaped",
+      "slot": 64,
+      "word": "ystem",
+      "min_words": 64,
+      "occurrences_at_selection": 2,
+      "symbol_saving": 6,
+      "source_cell_gain": -2.217273,
+      "selection_basis": "highest residual occurrence count"
+    },
+    {
+      "kind": "escaped",
+      "slot": 65,
+      "word": "guage",
+      "min_words": 65,
+      "occurrences_at_selection": 2,
+      "symbol_saving": 6,
+      "source_cell_gain": -2.217273,
+      "selection_basis": "highest residual occurrence count"
+    },
+    {
+      "kind": "escaped",
+      "slot": 66,
+      "word": "Italy",
+      "min_words": 66,
+      "occurrences_at_selection": 2,
+      "symbol_saving": 6,
+      "source_cell_gain": -2.217273,
+      "selection_basis": "highest residual occurrence count"
+    },
+    {
+      "kind": "escaped",
+      "slot": 67,
+      "word": "-base",
+      "min_words": 67,
+      "occurrences_at_selection": 2,
+      "symbol_saving": 6,
+      "source_cell_gain": -2.217273,
+      "selection_basis": "highest residual occurrence count"
+    },
+    {
+      "kind": "escaped",
+      "slot": 68,
+      "word": " prog",
+      "min_words": 68,
+      "occurrences_at_selection": 2,
+      "symbol_saving": 6,
+      "source_cell_gain": -2.217273,
+      "selection_basis": "highest residual occurrence count"
+    },
+    {
+      "kind": "escaped",
+      "slot": 69,
+      "word": " Supp",
+      "min_words": 69,
+      "occurrences_at_selection": 2,
+      "symbol_saving": 6,
+      "source_cell_gain": -2.217273,
+      "selection_basis": "highest residual occurrence count"
+    },
+    {
+      "kind": "escaped",
+      "slot": 70,
+      "word": "e Bo",
+      "min_words": 70,
+      "occurrences_at_selection": 2,
+      "symbol_saving": 4,
+      "source_cell_gain": -4.144849,
+      "selection_basis": "highest residual occurrence count"
+    },
+    {
+      "kind": "escaped",
+      "slot": 71,
+      "word": "Swed",
+      "min_words": 71,
+      "occurrences_at_selection": 2,
+      "symbol_saving": 4,
+      "source_cell_gain": -4.144849,
+      "selection_basis": "highest residual occurrence count"
+    },
+    {
+      "kind": "escaped",
+      "slot": 72,
+      "word": "Didi",
+      "min_words": 72,
+      "occurrences_at_selection": 2,
+      "symbol_saving": 4,
+      "source_cell_gain": -4.144849,
+      "selection_basis": "highest residual occurrence count"
+    },
+    {
+      "kind": "escaped",
+      "slot": 73,
+      "word": " uni",
+      "min_words": 73,
+      "occurrences_at_selection": 2,
+      "symbol_saving": 4,
+      "source_cell_gain": -4.144849,
+      "selection_basis": "highest residual occurrence count"
+    },
+    {
+      "kind": "escaped",
+      "slot": 74,
+      "word": " abs",
+      "min_words": 74,
+      "occurrences_at_selection": 2,
+      "symbol_saving": 4,
+      "source_cell_gain": -4.144849,
+      "selection_basis": "highest residual occurrence count"
+    },
+    {
+      "kind": "escaped",
+      "slot": 75,
+      "word": "ve ",
+      "min_words": 75,
+      "occurrences_at_selection": 2,
+      "symbol_saving": 2,
+      "source_cell_gain": -5.072424,
+      "selection_basis": "highest residual occurrence count"
+    },
+    {
+      "kind": "escaped",
+      "slot": 76,
+      "word": "th ",
+      "min_words": 76,
+      "occurrences_at_selection": 2,
+      "symbol_saving": 2,
+      "source_cell_gain": -5.072424,
+      "selection_basis": "highest residual occurrence count"
+    },
+    {
+      "kind": "escaped",
+      "slot": 77,
+      "word": "ey ",
+      "min_words": 77,
+      "occurrences_at_selection": 2,
+      "symbol_saving": 2,
+      "source_cell_gain": -5.072424,
+      "selection_basis": "highest residual occurrence count"
+    },
+    {
+      "kind": "escaped",
+      "slot": 78,
+      "word": "al ",
+      "min_words": 78,
+      "occurrences_at_selection": 2,
+      "symbol_saving": 2,
+      "source_cell_gain": -5.072424,
+      "selection_basis": "highest residual occurrence count"
+    },
+    {
+      "kind": "escaped",
+      "slot": 79,
+      "word": "ML ",
+      "min_words": 79,
+      "occurrences_at_selection": 2,
+      "symbol_saving": 2,
+      "source_cell_gain": -5.072424,
+      "selection_basis": "highest residual occurrence count"
+    },
+    {
+      "kind": "escaped",
+      "slot": 80,
+      "word": " a ",
+      "min_words": 80,
+      "occurrences_at_selection": 2,
+      "symbol_saving": 2,
+      "source_cell_gain": -5.072424,
+      "selection_basis": "highest residual occurrence count"
+    },
+    {
+      "kind": "escaped",
+      "slot": 81,
+      "word": "t f",
+      "min_words": 81,
+      "occurrences_at_selection": 2,
+      "symbol_saving": 2,
+      "source_cell_gain": -6.072424,
+      "selection_basis": "highest residual occurrence count"
+    },
+    {
+      "kind": "escaped",
+      "slot": 82,
+      "word": "sts",
+      "min_words": 82,
+      "occurrences_at_selection": 2,
+      "symbol_saving": 2,
+      "source_cell_gain": -6.072424,
+      "selection_basis": "highest residual occurrence count"
+    },
+    {
+      "kind": "escaped",
+      "slot": 83,
+      "word": "rea",
+      "min_words": 83,
+      "occurrences_at_selection": 2,
+      "symbol_saving": 2,
+      "source_cell_gain": -6.072424,
+      "selection_basis": "highest residual occurrence count"
+    },
+    {
+      "kind": "escaped",
+      "slot": 84,
+      "word": "ool",
+      "min_words": 84,
+      "occurrences_at_selection": 2,
+      "symbol_saving": 2,
+      "source_cell_gain": -6.072424,
+      "selection_basis": "highest residual occurrence count"
+    },
+    {
+      "kind": "escaped",
+      "slot": 85,
+      "word": "mar",
+      "min_words": 85,
+      "occurrences_at_selection": 2,
+      "symbol_saving": 2,
+      "source_cell_gain": -6.072424,
+      "selection_basis": "highest residual occurrence count"
+    },
+    {
+      "kind": "escaped",
+      "slot": 86,
+      "word": "low",
+      "min_words": 86,
+      "occurrences_at_selection": 2,
+      "symbol_saving": 2,
+      "source_cell_gain": -6.072424,
+      "selection_basis": "highest residual occurrence count"
+    },
+    {
+      "kind": "escaped",
+      "slot": 87,
+      "word": "lis",
+      "min_words": 87,
+      "occurrences_at_selection": 2,
+      "symbol_saving": 2,
+      "source_cell_gain": -6.072424,
+      "selection_basis": "highest residual occurrence count"
+    },
+    {
+      "kind": "escaped",
+      "slot": 88,
+      "word": "les",
+      "min_words": 88,
+      "occurrences_at_selection": 2,
+      "symbol_saving": 2,
+      "source_cell_gain": -6.072424,
+      "selection_basis": "highest residual occurrence count"
+    },
+    {
+      "kind": "escaped",
+      "slot": 89,
+      "word": "ity",
+      "min_words": 89,
+      "occurrences_at_selection": 2,
+      "symbol_saving": 2,
+      "source_cell_gain": -6.072424,
+      "selection_basis": "highest residual occurrence count"
+    },
+    {
+      "kind": "escaped",
+      "slot": 90,
+      "word": "irs",
+      "min_words": 90,
+      "occurrences_at_selection": 2,
+      "symbol_saving": 2,
+      "source_cell_gain": -6.072424,
+      "selection_basis": "highest residual occurrence count"
+    },
+    {
+      "kind": "escaped",
+      "slot": 91,
+      "word": "ich",
+      "min_words": 91,
+      "occurrences_at_selection": 2,
+      "symbol_saving": 2,
+      "source_cell_gain": -6.072424,
+      "selection_basis": "highest residual occurrence count"
+    }
+  ]
+}

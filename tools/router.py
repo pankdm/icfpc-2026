@@ -679,7 +679,11 @@ class Router:
         """A backtick literal parses horizontally AND vertically: any stray glyph in a
         literal cell's row or column span that is itself a literal/backtick would create
         a second parse.  We assert the block's OWN row and column contain no other
-        literal glyphs outside the block."""
+        literal glyphs outside the block.
+
+        This is CONSERVATIVE: the oracle pairs backticks per ROOM (interior rows/columns
+        only), so a literal in a different room on the same row is actually harmless.
+        Relaxing this to same-room-only would free up placements."""
         for (x, y, s, axis) in self.literals:
             n = len(s)
             block = {(x + i, y) if axis == "H" else (x, y + i) for i in range(n)}

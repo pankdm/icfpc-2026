@@ -250,6 +250,18 @@ is confirmed against the oracle. The ones that bite most:
   put reusable patterns below the `# === PATTERNS ===` marker in `littleman.py`.
 - Prototype gadgets in `scratchpad/` (probe rigs, `.man` + driver `.js`/`.py` pairs) before
   folding them into a solution.
+- **NEVER pipe a multi-line script into `python3` / `node` inline (`python3 - <<EOF`, `-c` with
+  a long body). Write it to `scratchpad/<name>.py` and iterate with Edit.** Inline is fine only
+  for a true one-liner. This is the single biggest measured drag on agent throughput: iterating
+  a 60-line heredoc resends the whole body every run, so one cycle costs 10k-130k tokens
+  instead of ~1.5k. Measured over 14 agent runs at a near-constant 250-500k token budget each,
+  the ones averaging 1.3-4.4k tokens/call (66-276 calls) **all shipped a submitted improvement**;
+  the ones averaging 10k-132k (3-29 calls) produced designs and analyses but mostly no `.man`.
+  A grid needs ~100 build-measure-fix cycles to converge; at 45k/cycle you only get ~10, and you
+  will end up writing a design doc instead of a solution. Corollary: **a probe worth running is
+  worth keeping as a file** — `bindsolve.py`, `ev.py`, `cliff9.py`, `serp.py`, `manlint.py`,
+  `portsolve.py` each unblocked a *later* agent, while every inline probe vanished and got
+  re-derived.
 - Commit style: `<slug> <variant>: <what changed>, <box/ticks before->after>, server <score> (<cases>)`.
   Record the **server** score when known — it's the only number that counts.
 - Before submitting: `node tools/grade.js <slug>` (all candidates pass?), sanity-check that

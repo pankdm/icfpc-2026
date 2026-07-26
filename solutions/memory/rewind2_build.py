@@ -51,6 +51,42 @@ WHAT STEP (1) DID AND DID NOT BUY -- measured, don't re-litigate:
     A single man on a straight rsrsrs chain is exactly 0.50 values/tick
     (2 ticks/relay), so ~2.1-2.4 ticks/relay is the realistic floor here.
 
+*** THE cmd/(3,21) CONFLICT IS SOLVED, AND A HARDER BLOCKER FOUND. ***
+cmd fix: route it BELOW HOP, not beside it. With MEM cols 0-16 rows 0-17,
+HOP at cols 4-15 rows 20-23 and p1 = [(14,18),(14,19)] (2 cells into HOP's top
+wall), cmd = [(16,25),(3,25),(3,18)] runs west along row 25 under HOP and north
+up the free col 3. No collision: output room is cols 0-2, HOP is cols 4-15.
+
+THE REAL BLOCKER -- CONTROL'S *WIDTH* ISOLATES THE BELT, not its area:
+lay out 27x27 as MEM cols 0-16 rows 0-17, CONTROL cols 17-26 rows 18-26. Then
+  * right strip  = cols 17-26, rows 0-17   (180 cells)
+  * bottom-left  = cols 0-16,  rows 18-26  (153 cells)
+and these two regions are ONLY DIAGONALLY adjacent, at (16,17)/(17,18). Every
+orthogonal crossing is blocked: (16,17) is MEM's bottom-right corner and
+(17,18) is CONTROL's top-left corner. So a pipe cannot pass between them.
+The belt serpentine must then fit entirely in the bottom-left, which after
+HOP (48), the output room (9), cmd (~20), OUT and p1 leaves only ~72 free
+cells -- and p2 needs ~105. The fold fails by ~33 cells no matter how neatly
+MEM is packed.
+
+=> CONTROL must be at most 8 WIDE (cols 19-26), which opens a 2-wide channel at
+   cols 17-18 rows 18-26 joining the right strip to the bottom. Shrinking
+   CONTROL is therefore not an area optimisation, it is a CONNECTIVITY
+   requirement. Do it first; nothing else about the 27x27 fold works without it.
+   CONTROL is ~19 ops (10 main + 'd' + two 4-op arms) plus ~7 turns, so a
+   2-wide loop needs ~13 rows: about 4x15, or 5x11 if laid 3 wide. Either is
+   <= 8 wide and both beat the current 10x9=90.
+
+MEASURED DUAL-PUMP (from the primitives agent; adopt in the rings):
+  1 man = 0.500 val/tick, 2 men = 1.000, 3 men WORSE than 2 (strict ascending-id
+  contention starves the third). Birth cell must be non-blank -- a blank one
+  lets the clone fly into a wall. Order is preserved because 'r' immediately
+  followed by 's' forces send == receive + 1.
+  NOTE the 1.0 figure is for a straight rsrs chain. In a RING it is
+  2/(2 + 6/nrelay) = 0.727 at nrelay=8, since the lap still pays 'm', 'd' and
+  three turns; rotation ~143 -> ~69 t/op, i.e. ~166 t/op overall. HOP must be
+  pumped too or it becomes the limiter at 0.35 val/tick.
+
 NEXT STEP -- NARROW MEM TO 17 WIDE, THEN FOLD TO 27x27. Fully derived, and it
 is the ONLY thing standing between here and beating the champion:
   At avgTicks 5210, box 729 (27x27) = 3.80M local < champion 3.96M. Box 784

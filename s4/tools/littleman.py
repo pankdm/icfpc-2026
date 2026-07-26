@@ -37,9 +37,23 @@ Rect = namedtuple("Rect", "x0 y0 x1 y1 ix0 iy0 ix1 iy1")  # outer + inclusive in
 class Program:
     def __init__(self):
         self.cells = {}
+        # Every clobber of one non-space glyph by a different one. `pipe` and
+        # `room` overwrite silently, so a floorplan search has no other cheap
+        # way to tell a colliding proposal from a legal one (the symptom is a
+        # loader "pipe interrupted" much later).  Recording is free; nothing
+        # reads this unless a caller chooses to.
+        self.overwrites = []
+        # (first_cell, last_cell, length) per pipe.  A pipe's length is its FIFO
+        # capacity as well as its latency, so a floorplan search that reshapes a
+        # queue has to be able to check it did not shrink below the deepest
+        # frontier the program can enqueue.
+        self.pipes = []
 
     # ---- primitives ----
     def put(self, x, y, ch):
+        old = self.cells.get((x, y))
+        if old is not None and old != " " and old != ch:
+            self.overwrites.append((x, y, old, ch))
         self.cells[(x, y)] = ch
         return self
 
@@ -105,6 +119,7 @@ class Program:
                 self.put(x, y, VEC2ARROW[(dx, dy)])
             else:
                 self.put(x, y, "-" if dx != 0 else "|")
+        self.pipes.append((points[0], points[-1], len(cells)))
         return self
 
     # ---- output / scoring ----

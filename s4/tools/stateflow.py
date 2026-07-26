@@ -150,21 +150,31 @@ OUTPUT_PORT_COMPACT = (60, "s", 46, 84)
 
 
 def _compact_components(p, ports, bottom, code_x, scalar_size, scalar_belts,
-                        cell_belts, cell_size=256):
+                        cell_belts, cell_size=256, floor=None):
     """Compact floor: components west->east in port order, short straight feeds.
 
     Matches COMPACT_PORTS. Every pipe descends from its port and jogs only
     inside its own component's horizontal slot, so no two pipes cross.
+
+    ``floor`` overrides the hard-coded geometry offsets, so a port-column search
+    can move the components and the horizontal feed bands together with the
+    ports.  Keys: ``scalar_off``, ``cell_off``, ``ctop``, ``sp_row``, ``ri_row``,
+    ``sc_band``, ``cc_band``, ``rr_band``, ``cr_band``, ``rp_band``,
+    ``sd_band``, ``ss_band``.
     """
+    f = dict(scalar_off=24, cell_off=112, ctop=5, sp_row=8, ri_row=12,
+             sc_band=1, cc_band=2, rr_band=3, cr_band=3, rp_band=5,
+             sd_band=8, ss_band=20)
+    f.update(floor or {})
     b = bottom
     c = code_x
 
     # Round input (ri): straight drop into the input room.
-    p.input_room(ports["ri"][0] - 1, b + 12)
-    p.pipe([(ports["ri"][0], b + 11), ports["ri"]])
+    p.input_room(ports["ri"][0] - 1, b + f["ri_row"])
+    p.pipe([(ports["ri"][0], b + f["ri_row"] - 1), ports["ri"]])
 
     # Scratch echo (sp/rp).
-    sx, sy = ports["sp"][0] - 3, b + 8
+    sx, sy = ports["sp"][0] - 3, b + f["sp_row"]
     p.room(sx, sy, 8, 4)
     p.text(sx + 1, sy + 1, "@>rsv")
     p.put(sx + 5, sy + 2, "<")
@@ -172,25 +182,25 @@ def _compact_components(p, ports, bottom, code_x, scalar_size, scalar_belts,
     p.pipe([ports["sp"], (sx + 3, sy - 1)])
     p.pipe([
         (sx + 4, sy - 1),
-        (sx + 4, b + 5),
-        (ports["rp"][0], b + 5),
+        (sx + 4, b + f["rp_band"]),
+        (ports["rp"][0], b + f["rp_band"]),
         ports["rp"],
     ])
 
     # Scalar RAM (sc/rr), banked.
-    scalar_x, scalar_y = c + 24, b + 5
+    scalar_x, scalar_y = c + f["scalar_off"], b + f["ctop"]
     scalar = split_ram.build(p, scalar_x, scalar_y, scalar_size, scalar_belts)
     p.pipe([
         ports["sc"],
-        (ports["sc"][0], b + 1),
-        (scalar["command"][0], b + 1),
+        (ports["sc"][0], b + f["sc_band"]),
+        (scalar["command"][0], b + f["sc_band"]),
         scalar["command"],
     ])
     p.pipe([
         scalar["reply"],
         scalar["reply_turn"],
-        (scalar["reply_turn"][0], b + 3),
-        (ports["rr"][0], b + 3),
+        (scalar["reply_turn"][0], b + f["rr_band"]),
+        (ports["rr"][0], b + f["rr_band"]),
         ports["rr"],
     ])
 
@@ -199,41 +209,41 @@ def _compact_components(p, ports, bottom, code_x, scalar_size, scalar_belts,
     # sa's port column IS dx+8, so the address feed drops straight in; sd
     # descends west of the room; ss wraps around the east side to the bottom.
     if "sa" in ports:
-        dx, dy = ports["sa"][0] - 8, b + 5
+        dx, dy = ports["sa"][0] - 8, b + f["ctop"]
         p.display(dx, dy, 18, 18)
         p.pipe([ports["sa"], (dx + 8, dy - 1)])
         p.pipe([
             ports["sd"],
-            (ports["sd"][0], dy + 8),
-            (dx - 1, dy + 8),
+            (ports["sd"][0], dy + f["sd_band"]),
+            (dx - 1, dy + f["sd_band"]),
         ])
         p.pipe([
             ports["ss"],
-            (ports["ss"][0], dy + 20),
-            (dx + 8, dy + 20),
+            (ports["ss"][0], dy + f["ss_band"]),
+            (dx + 8, dy + f["ss_band"]),
             (dx + 8, dy + 18),
         ])
 
     # Output room (so): a straight drop in the band the display vacated.
     if "so" in ports:
         sox = ports["so"][0]
-        p.output_room(sox - 1, b + 8)
+        p.output_room(sox - 1, b + f["sp_row"])
         p.pipe([ports["so"], (sox, b + 7)])
 
     # Cell RAM (cc/cr), banked.
-    cell_x, cell_y = c + 112, b + 5
+    cell_x, cell_y = c + f["cell_off"], b + f["ctop"]
     cell = split_ram.build(p, cell_x, cell_y, cell_size, cell_belts)
     p.pipe([
         ports["cc"],
-        (ports["cc"][0], b + 2),
-        (cell["command"][0], b + 2),
+        (ports["cc"][0], b + f["cc_band"]),
+        (cell["command"][0], b + f["cc_band"]),
         cell["command"],
     ])
     p.pipe([
         cell["reply"],
         cell["reply_turn"],
-        (cell["reply_turn"][0], b + 3),
-        (ports["cr"][0], b + 3),
+        (cell["reply_turn"][0], b + f["cr_band"]),
+        (ports["cr"][0], b + f["cr_band"]),
         ports["cr"],
     ])
 
@@ -266,6 +276,7 @@ def build_program(
     cell_size=256,
     queue_rows=6,
     queue_right_off=320,
+    floor=None,
 ):
     """Compile *flow* and attach the shared stateful-problem hardware.
 
@@ -328,14 +339,22 @@ def build_program(
     if compact:
         _compact_components(
             p, ports, bottom, code_x, scalar_size, scalar_belts, cell_belts,
-            cell_size=cell_size,
+            cell_size=cell_size, floor=floor,
         )
         return p
 
     # Components sit below the controller. All controller ports leave through
     # its bottom wall and route outside the room before entering a component.
-    scalar_x, scalar_y = code_x + 48, bottom + 5
-    cell_x, cell_y = code_x + (164 if packed_cell else 148), bottom + 5
+    # `floor` overrides every hard-coded offset so a floorplan search can move
+    # the components together with the port columns they feed.
+    g = dict(scalar_off=48, cell_off=(164 if packed_cell else 148), ctop=5,
+             scratch_off=18, scratch_row=12, ri_row=12, display_off=110,
+             cc_band=1 if packed_cell else 2, cr_band=3,
+             queue_off=268, queue_row=6, queue_left=280, queue_tail=266,
+             sd_band=-4, sa_band=-3, ss_band=20)
+    g.update(floor or {})
+    scalar_x, scalar_y = code_x + g["scalar_off"], bottom + g["ctop"]
+    cell_x, cell_y = code_x + g["cell_off"], bottom + g["ctop"]
     scalar = (
         split_ram.build(p, scalar_x, scalar_y, scalar_size, scalar_belts)
         if fast_scalar_ram else belt_ram.build(p, scalar_x, scalar_y, scalar_size)
@@ -368,27 +387,27 @@ def build_program(
         )
 
     # Round input.
-    p.input_room(ports["ri"][0] - 1, bottom + 12)
-    p.pipe([(ports["ri"][0], bottom + 11), ports["ri"]])
+    p.input_room(ports["ri"][0] - 1, bottom + g["ri_row"])
+    p.pipe([(ports["ri"][0], bottom + g["ri_row"] - 1), ports["ri"]])
 
     # Two-value scratch echo. This is used to stage dynamic addresses/payloads.
-    scratch_y = bottom + 12
-    scratch_x = code_x + 18
+    scratch_y = bottom + g["scratch_row"]
+    scratch_x = code_x + g["scratch_off"]
     p.room(scratch_x, scratch_y, 8, 4)
     p.text(scratch_x + 1, scratch_y + 1, "@>rsv")
     p.put(scratch_x + 5, scratch_y + 2, "<")
     p.put(scratch_x + 2, scratch_y + 2, "^")
     p.pipe([
-        (code_x + 20, bottom),
-        (code_x + 20, scratch_y - 3),
+        ports["sp"],
+        (ports["sp"][0], scratch_y - 3),
         (scratch_x + 3, scratch_y - 3),
         (scratch_x + 3, scratch_y - 1),
     ])
     p.pipe([
         (scratch_x + 4, scratch_y - 1),
         (scratch_x + 4, scratch_y - 3),
-        (code_x + 30, scratch_y - 3),
-        (code_x + 30, bottom),
+        (ports["rp"][0], scratch_y - 3),
+        ports["rp"],
     ])
 
     command = scalar["command"]
@@ -448,8 +467,8 @@ def build_program(
         elif packed_cell:
             p.pipe([
                 ports["cc"],
-                (ports["cc"][0], bottom + 1),
-                (packed["command"][0], bottom + 1),
+                (ports["cc"][0], bottom + g["cc_band"]),
+                (packed["command"][0], bottom + g["cc_band"]),
                 packed["command"],
             ])
             p.pipe([
@@ -462,16 +481,16 @@ def build_program(
         else:
             p.pipe([
                 ports["cc"],
-                (ports["cc"][0], bottom + 2),
-                (cell["command"][0], bottom + 2),
+                (ports["cc"][0], bottom + g["cc_band"]),
+                (cell["command"][0], bottom + g["cc_band"]),
                 cell["command"],
             ])
         if cell_replicas == 1:
             p.pipe([
                 cell["reply"],
                 cell["reply_turn"],
-                (cell["reply_turn"][0], bottom + 3),
-                (ports["cr"][0], bottom + 3),
+                (cell["reply_turn"][0], bottom + g["cr_band"]),
+                (ports["cr"][0], bottom + g["cr_band"]),
                 ports["cr"],
             ])
     else:
@@ -499,7 +518,7 @@ def build_program(
 
     # Addressable 16x16 display. With the banked scalar RAM (32x32 instead of
     # the 78x43 belt) the sd feeder clears the scalar block 18 rows sooner.
-    display_x = code_x + 110
+    display_x = code_x + g["display_off"]
     display_y = bottom + (
         scalar_display_offset
         if scalar_display_offset is not None
@@ -511,18 +530,18 @@ def build_program(
     # components instead of crossing their rooms or recirculation belts.
     p.pipe([
         ports["sa"],
-        (ports["sa"][0], display_y - 3),
-        (display_x + 8, display_y - 3),
+        (ports["sa"][0], display_y + g["sa_band"]),
+        (display_x + 8, display_y + g["sa_band"]),
         (display_x + 8, display_y - 1),
     ])
     p.pipe([
         ports["sd"],
-        (ports["sd"][0], display_y - 4),
-        (scalar_x - 3, display_y - 4),
+        (ports["sd"][0], display_y + g["sd_band"]),
+        (scalar_x - 3, display_y + g["sd_band"]),
         (scalar_x - 3, display_y + 8),
         (display_x - 1, display_y + 8),
     ])
-    swap_band = display_y + (110 if cell_replicas > 1 else 20)
+    swap_band = display_y + (110 if cell_replicas > 1 else g["ss_band"])
     p.pipe([
         ports["ss"],
         (ports["ss"][0], swap_band),
@@ -535,8 +554,8 @@ def build_program(
     # exceed the maximum useful 16x16 BFS frontier, while the relay provides
     # FIFO order at pipeline throughput.
     if queue:
-        queue_x = code_x + (600 if cell_replicas > 1 else 268)
-        queue_y = bottom + 6
+        queue_x = code_x + (600 if cell_replicas > 1 else g["queue_off"])
+        queue_y = bottom + g["queue_row"]
         p.room(queue_x, queue_y, 8, 6)
         p.text(queue_x + 1, queue_y + 1, "@>rsv")
         p.put(queue_x + 5, queue_y + 2, "<")
@@ -550,7 +569,7 @@ def build_program(
         # so the serpentine is parametric; queue_rows=6/right=320 keeps the
         # original ~379-cell shape for legacy builds.
         right = code_x + (652 if cell_replicas > 1 else queue_right_off)
-        left = code_x + (612 if cell_replicas > 1 else 280)
+        left = code_x + (612 if cell_replicas > 1 else g["queue_left"])
         queue_path = [
             (queue_x + 4, queue_y + 6),
             (queue_x + 4, queue_y + 8),
@@ -564,8 +583,8 @@ def build_program(
         tail_y = queue_y + 9 + queue_rows
         queue_path.extend([
             (current_x, tail_y),
-            (code_x + (598 if cell_replicas > 1 else 266), tail_y),
-            (code_x + (598 if cell_replicas > 1 else 266), bottom + 3),
+            (code_x + (598 if cell_replicas > 1 else g["queue_tail"]), tail_y),
+            (code_x + (598 if cell_replicas > 1 else g["queue_tail"]), bottom + 3),
             (ports["qr"][0], bottom + 3),
             ports["qr"],
         ])

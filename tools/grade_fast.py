@@ -5,8 +5,9 @@ Measured ~17x faster than the WASM oracle (0.07s vs 1.19s for sudoku's six cases
 it skips a Go/WASM boot per invocation. That multiplies every search: most candidates a
 search generates are rejects, and paying the oracle to reject them is the dominant cost.
 
-USE IT AS A PRE-FILTER, NOT AS THE JUDGE. `interp/` is a reimplementation and still has one
-known divergence from the reference (`fork-into-wall`, per `node sim/difftest.js`), so:
+USE IT AS A PRE-FILTER, NOT AS THE JUDGE. `interp/` is a reimplementation; `node sim/difftest.js`
+is green as of 2026-07-26 (61/61, including `fork-into-wall` and the literal fixtures), but the
+fixtures only cover what we thought to test, so:
 
     fast reject  -> discard the candidate (cheap, and rejects are the common case)
     fast pass    -> RE-GRADE with tools/grade_json.js before believing it

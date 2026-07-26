@@ -83,6 +83,62 @@ cases.push({ name: 'lit-corner', rows: rows(`
 |.\`...H|
 +------+`), steps: 20 });
 
+// Literal content is a nop only ALONG the literal's own axis. A man crossing a horizontal
+// literal from above executes the digit he lands on (A = digit); only the closing backtick
+// loads the whole literal. Symmetrically for a vertical literal crossed horizontally.
+cases.push({ name: 'lit-cross-h-digit', rows: rows(`
++-----+
+|@.v..|
+|\`12\`.|
+|..M.H|
+|..>^.|
++-----+`), steps: 12 });
+
+cases.push({ name: 'lit-cross-v-digit', rows: rows(`
++------+
+|..\`...|
+|@.5..H|
+|..\`...|
++------+`), steps: 10 });
+
+// Literals are scoped to one ROOM: two literals on the same row in different rooms must not
+// pair across the wall between them (a global row scan rejects real programs the oracle loads).
+cases.push({ name: 'lit-two-rooms-same-row', rows: rows(`
++----+ +----+
+|@\`  | |\`  H|
+|.1  | |2..<|
+|.\`  | |\`...|
++----+ +----+`), steps: 12 });
+
+// ...but WITHIN one room a non-digit between two backticks is a load error on BOTH axes.
+cases.push({ name: 'lit-junk-in-row', rows: rows(`
++--------+
+|@\` M \`2\`|
++--------+`), steps: 4 });
+
+cases.push({ name: 'lit-junk-in-col', rows: rows(`
++-----+
+|@\`1\`.|
+|.M...|
+|.\`2\`.|
++-----+`), steps: 4 });
+
+// A backtick with no partner on either axis is a load error.
+cases.push({ name: 'lit-unmatched', rows: rows(`
++-----+
+|@7\`.H|
++-----+`), steps: 4 });
+
+// Three backticks in a column: (0,1) pair, the third is left unmatched -> load error.
+cases.push({ name: 'lit-odd-tick-col', rows: rows(`
++---+
+|@\`.|
+|.1.|
+|.\`.|
+|.2.|
+|.\`.|
++---+`), steps: 4 });
+
 // ---- basic pipe + IO (hand-built echo) ----
 cases.push({ name: 'echo-simple', rows: rows(`
 +-+ +-+

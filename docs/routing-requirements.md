@@ -29,8 +29,10 @@ Every cell is exactly one of:
 - `WALL` — room/display border; exclusive (fatal to walk).
 - `ROOM` — room interior (men live here; pipes may not enter).
 - `LITERAL` — a backtick-literal block; rigid, must stay clear on BOTH axes (littleman
-  parses literals horizontally AND vertically — a stray backtick in the column/row is a
-  load error).
+  parses literals horizontally AND vertically — a stray backtick in the same room's row or
+  column is a load error; pairing is scoped to one room, so a backtick in a *different* room
+  on the same row is harmless). A man-glide may cross a literal's digits, but the digit it
+  lands on executes (`A = digit`) — see `docs/hidden-capabilities.md`.
 
 The router's collision test keys off these types, not a boolean occupied bit.
 

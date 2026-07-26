@@ -44,6 +44,19 @@ inferred from the binary and marked. Companion to `multi-man-interactions.md`.
 - Literals load only on the **closing** backtick (overwrite); read in the walk direction
   (reversed westward); a **corner backtick opens H+V literals sharing digits**; rejected
   if digits overflow i64 in *either* direction.
+- **Backticks pair per ROOM, per interior row and column** — within one interior row (or
+  column) they pair consecutively (0,1),(2,3),… Two literals on the same row in *different*
+  rooms never pair across the wall between them (that pairing is what a global row scan gets
+  wrong, and it rejects real programs: sort-numbers, subset-sum, sudoku all rely on it).
+  Inside one room a non-digit between a pair is a **load error on both axes**, and a backtick
+  with no partner on either axis is `unmatched backtick`. An all-space span carries no value:
+  crossing either of its backticks is a nop.
+- **Literal content is a nop only ALONG the literal's own axis.** A man who crosses a
+  horizontal literal *vertically* executes the digit he lands on (`A = digit`) — the literal
+  itself only loads on the closing backtick. Same for a vertical literal crossed horizontally.
+  A digit cell inside a literal is therefore live traffic, not padding, for perpendicular
+  paths. (Both rules verified against the oracle: `scratchpad/lit-probe/`, and pinned as
+  difftest fixtures `lit-cross-*`, `lit-two-rooms-same-row`, `lit-junk-in-*`, `lit-unmatched`.)
 
 ## Fork / `Y`, collision, walls
 See `multi-man-interactions.md` (owns this). TL;DR: `Y` forks (may be grader-gated);

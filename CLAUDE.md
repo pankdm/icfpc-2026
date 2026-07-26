@@ -54,9 +54,17 @@ cached `tests/<slug>.json`. Local PASS ⇒ public-case PASS (same wasm the serve
 oracle and it is what makes any search or profiling loop affordable — pathfinder's 7 cases take
 ~60s on Rust and *minutes* on wasm (`sim/xray.js` on a 2M-tick pathfinder case does not finish
 in 10 minutes). Use it as a **pre-filter, not the judge**: fast reject ⇒ discard; fast pass ⇒
-re-grade with `tools/grade.js` before believing it (`interp/` has one known divergence,
-`fork-into-wall`, per `node sim/difftest.js`). `lm` also has `--profile` and `--inspect=N`
-(single-tick JSON snapshot) which the wasm harness cannot give you.
+re-grade with `tools/grade.js` before believing it. `node sim/difftest.js` is green (61/61 as of
+2026-07-26, `fork-into-wall` included) — but it only covers what we thought to test, and it never
+covers private cases. `lm` also has `--profile` and `--inspect=N` (single-tick JSON snapshot)
+which the wasm harness cannot give you.
+
+**Literal semantics were wrong in `interp/` until 2026-07-26** (fixed, `scratchpad/lit-probe/`):
+backticks pair **per room**, per interior row/column — a global row scan pairs two literals in
+*different* rooms across the wall and rejects them, which is why the Rust engine could not load
+33 of our own files (all of `subset-sum/parallel*`, `sort-numbers/merge-mergercell-v1`). And
+literal content is a nop **only along the literal's own axis**: a man crossing a horizontal
+literal from above executes the digit he lands on. See `docs/hidden-capabilities.md`.
 
 **`sim/xray.js` defaults to `--cap=120000` ticks.** On a multi-million-tick program that window
 may cover only the *setup* phase, and its GLOBAL/HEADROOM percentages will then describe the
@@ -66,6 +74,10 @@ numbers as setup-only. This bit during the pathfinder analysis.
 **Oracle quirk:** long runs can kill the Go wasm with `Error: Go program has already exited`
 (runtime OOM). Grade heavy problems **one file per process**; `subset-sum`'s 20-value case
 hits this every time (it also blows the 15M tick cap on the server — that's why we're 12/20).
+One process per *case* is not always enough: measured 2026-07-26, the oracle OOMs on **11 of
+LLLM's 14 public cases** (every one above ~9M ticks) even alone in a fresh process, and
+`--max-old-space-size` does not help (the OOM is inside the Go heap, not V8's). For those the
+**Rust engine is the only local grader we have** — which is why `interp/` fidelity matters.
 
 ## Repo map
 

@@ -251,19 +251,24 @@ def lay_controller(p, flow, x0=0, y0=0):
         "sc": (50, "s"),
         "rr": (74, "r"),
         "sd": (80, "s"),
+        "sa": (118, "s"),
         "ss": (140, "s"),
     }
     layout = flowgrid.lay_cfg_controller(
         p, flow, spec, code_x=CTRL_CODE, x0=x0, y0=y0
     )
-    ports = layout["ports"]
-    return ports["ri"], ports["rr"], ports["sc"], ports["sd"], ports["ss"]
+    return layout["ports"]
 
 
-def build_program(flow, ram_size):
+def build_program(flow, ram_size, display_addr=False):
     """Attach a compiled Flow to the shared input/RAM/scratch/display hardware."""
     p = lm.Program()
-    inp, ram_reply, ram_cmd, data, swap = lay_controller(p, flow)
+    ports = lay_controller(p, flow)
+    inp = ports["ri"]
+    ram_reply = ports["rr"]
+    ram_cmd = ports["sc"]
+    data = ports["sd"]
+    swap = ports["ss"]
     # Place RAM and display below the controller, then route outside its bbox.
     cy = inp[1]
     rox, roy = CTRL_CODE + 48, cy + 80
@@ -295,6 +300,9 @@ def build_program(flow, ram_size):
     p.pipe([(data[0], cy), (data[0], dy - 3), (dx - 3, dy - 3),
             (dx - 3, dy + 8),
             (dx - 1, dy + 8)])
+    if display_addr:
+        addr = ports["sa"]
+        p.pipe([(addr[0], cy), (addr[0], dy - 1)])
     p.pipe([(swap[0], cy), (swap[0], dy + 20), (dx + 8, dy + 20), (dx + 8, dy + 18)])
     return p
 

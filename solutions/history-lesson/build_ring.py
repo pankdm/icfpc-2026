@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""history-lesson: ring-dictionary build (v1).
+"""history-lesson: ring-dictionary build.
 
 Pipeline: feeder ->(chunks) decoder(/92) ->(syms) DISP (classify + ring
 lookup) ->(raw ascii / packed / 0) year ->(values) unpack(/128) -> O.
@@ -13,7 +13,11 @@ sentinel -1 and full-rotation restore).
 
 Rooms were unit-verified in scratchpad/history-ring/ (roomsim + tests).
 
-Usage: python3 build_ring.py [W]
+Usage:
+  python3 build_ring.py                         # reproduce best/82x82.man
+  python3 build_ring.py --narrow                # build candidates/81x82.man
+  python3 build_ring.py --legacy                # reproduce history-ring.man
+  python3 build_ring.py --legacy 82 --variable  # reproduce 82x83 intermediate
 """
 from __future__ import annotations
 
@@ -25,6 +29,7 @@ from collections import Counter
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, "..", "..", "tools"))
 from littleman import Program
+from optimize_feeder import Band, optimize_feeder
 
 B1 = 92
 B2 = 128
@@ -36,11 +41,15 @@ TEXT = open(os.path.join(HERE, "icfp-history.txt"), "rb").read()
 
 STEP = B2 ** 5
 CORR = B2 ** 4 - 10 * B2 ** 5
+NARROW_EXTRA_PAIRS = 3
 
 
 # ---------------------------------------------------------------- encoder --
 
 def tokenize(data: bytes) -> list[int]:
+    # Keep the predictable year prefixes out of the general dictionary.  A
+    # single zero later asks the stateful YEAR room to emit the next prefix.
+    # Token 13 is likewise reserved for the frequent two-byte ", " spelling.
     toks, i, year = [], 0, FIRST_YEAR
     while i < len(data):
         if year <= LAST_YEAR:
@@ -97,6 +106,9 @@ def replace_nonoverlap(stream, pat, rep):
 
 
 def choose_phrases(stream):
+    # The dictionary is deliberately selected against *source-grid* cost, not
+    # merely compressed-stream length: every chosen phrase also consumes a
+    # literal and a send instruction in P1.
     dig1 = math.log10(B1)
     forbidden = set(STOLEN) | {0, ESC}
     singles_left = len(SMALL_FREE)
@@ -149,8 +161,59 @@ def choose_phrases(stream):
     return stream, phrases
 
 
-def build_encoding(table_budget=None):
+def add_best_pair_phrases(stream, phrases, count):
+    """Add escape-pair phrases ranked only by symbol-stream reduction.
+
+    The main dictionary optimizer charges P1 source cells.  The narrow build
+    has already made room for ``count`` more constants, so their relevant
+    objective is `(tokens - 2) * occurrences`.  Recompute after every choice
+    because candidates overlap.
+    """
+    forbidden = set(STOLEN) | {0, ESC}
+    chosen = []
+    for _ in range(count):
+        candidates = []
+        n = len(stream)
+        for m in range(3, 10):
+            local = Counter()
+            for i in range(n - m + 1):
+                seg = tuple(stream[i:i + m])
+                if any((s in forbidden) or s < 1 for s in seg):
+                    continue
+                if len(phrase_bytes(seg)) > 9:
+                    continue
+                packed = pack128(phrase_bytes(seg))
+                if not fits_literal(packed) or len(str(packed)) > 18:
+                    continue
+                local[seg] += 1
+            for seg, occurrences in local.items():
+                if occurrences < 2:
+                    continue
+                hits = count_nonoverlap(stream, seg)
+                saving = (m - 2) * hits
+                if saving > 0:
+                    # Prefer a shorter preload literal after symbol saving.
+                    digits = len(str(pack128(phrase_bytes(seg))))
+                    candidates.append(
+                        (saving, -digits, m, hits, phrase_bytes(seg), seg)
+                    )
+        if not candidates:
+            raise ValueError(f"only found {len(chosen)} extra pair phrases")
+        _, _, _, _, _, seg = max(candidates)
+        stream = replace_nonoverlap(stream, seg, [-len(phrases) - 1])
+        phrases.append((seg, False))
+        chosen.append(phrase_bytes(seg))
+    return stream, chosen
+
+
+def build_encoding(table_budget=None, extra_pair_count=0, tail_constants=False):
     stream, phrases = choose_phrases(tokenize(TEXT))
+    if extra_pair_count:
+        stream, chosen = add_best_pair_phrases(
+            stream, phrases, extra_pair_count
+        )
+        if extra_pair_count == NARROW_EXTRA_PAIRS:
+            assert set(chosen) == {b"Baltim", b", Italy", b"iotis, "}
 
     def table_cells(phr):
         # entries + identities + placeholders + sentinel, in preload cells
@@ -205,10 +268,25 @@ def build_encoding(table_budget=None):
     # --- template layout for P1 group B (pairs), 4 rows x nB slots ---
     # Assign pair values to a grid so every column's backtick count is even
     # and spans stay digit/space-only (oracle vertical-literal rule).
-    pair_vals = [pack128(phrase_bytes(phrases[i][0])) for i in pairs]
+    if tail_constants:
+        # Keep the original 19-entry four-row grid.  Its old sentinel cell
+        # becomes an unsent filler, while all new constants and the one real
+        # sentinel move to the first pump row.
+        grid_pairs = pairs[:19]
+        tail_pairs = pairs[19:]
+        assert len(grid_pairs) == 19
+        assert len(tail_pairs) == extra_pair_count
+    else:
+        grid_pairs = pairs
+        tail_pairs = []
+    pair_vals = [pack128(phrase_bytes(phrases[i][0])) for i in grid_pairs]
     order = sorted(range(len(pair_vals)),
                    key=lambda i: -len(str(pair_vals[i])))
-    nB = -(-(len(pair_vals) + 1) // 4)           # +1 for the zero sentinel
+    nB = (
+        -(-len(pair_vals) // 4)
+        if tail_constants
+        else -(-(len(pair_vals) + 1) // 4)       # +1 for the zero sentinel
+    )
     grid = [[None] * nB for _ in range(4)]       # rows 0..3 = P1 rows 3..6
     # widest chunk goes to the physically-last slot; sentinel to slot 0
     chunks_desc = [order[i * 4:(i + 1) * 4] for i in range(nB)]
@@ -224,7 +302,7 @@ def build_encoding(table_budget=None):
     for j, chunk in enumerate(chunks_desc):
         pj = phys.index(j)
         for r, i in enumerate(chunk):
-            cellgrid[r][pj] = pairs[i]
+            cellgrid[r][pj] = grid_pairs[i]
     # position numbering: preload order row-major, west rows reversed
     posmap = {}
     pos = 17
@@ -238,10 +316,10 @@ def build_encoding(table_budget=None):
             posmap[idx] = pos
             ring[pos] = pack128(phrase_bytes(phrases[idx][0]))
             pos += 1
-    # sentinel (0) belongs at the very last preload position: row 3 (west),
-    # slot 0.  Ensure that cell is free; if occupied, swap its entry into a
-    # free cell.
-    if cellgrid[3][0] is not None:
+    # In the legacy layout the sentinel belongs at the very last preload
+    # position: row 3 (west), slot 0.  The narrow layout fills this slot and
+    # emits its sentinel later on the extra eastbound row.
+    if not tail_constants and cellgrid[3][0] is not None:
         # find a free cell and move the occupant there
         moved = cellgrid[3][0]
         done = False
@@ -265,11 +343,16 @@ def build_encoding(table_budget=None):
                 posmap[idx] = pos
                 ring[pos] = pack128(phrase_bytes(phrases[idx][0]))
                 pos += 1
+    for i in tail_pairs:
+        posmap[i] = pos
+        ring[pos] = pack128(phrase_bytes(phrases[i][0]))
+        pos += 1
     for i in pairs:
         slot_of[i] = ("pair", posmap[i])
     layout = dict(TB=TB, cellgrid=cellgrid,
                   val_of={i: pack128(phrase_bytes(phrases[i][0]))
-                          for i in pairs})
+                          for i in pairs},
+                  tail_pairs=tail_pairs)
 
     symbols = []
     for t in stream:
@@ -290,6 +373,9 @@ def build_encoding(table_budget=None):
 
 
 def pack_chunks(symbols, digit_widths):
+    # A feeder literal is decimal source text but its numeric value is a
+    # little-endian base-92 bundle.  Do not end a bundle with zero: repeated
+    # divmod in DECODER would otherwise lose that final zero marker.
     maxsym = 1
     while (B1 ** (maxsym + 1)) < 2 ** 63:
         maxsym += 1
@@ -311,6 +397,9 @@ def pack_chunks(symbols, digit_widths):
 
 
 def verify(chunks, ring):
+    # This is the semantic counterpart of the grid below.  Keeping it here is
+    # important: the room program is densely folded, while this follows the
+    # five stages in their logical (rather than spatial) order.
     syms = []
     for c in chunks:
         while c:
@@ -347,6 +436,11 @@ def verify(chunks, ring):
 
 # ------------------------------------------------------------- room grids --
 
+# DISP is the dispatch/lookup room.  It receives base-92 symbols from
+# DECODER.  Ordinary symbols add 31; a zero is forwarded to YEAR; small
+# symbols and ESC,pair-index references rotate the P1 ring until the requested
+# packed entry is found, emit it, then restore the complete ring (including
+# its -1 sentinel) to canonical order.
 DISP_ROWS = [
     "v@<<s<<<<<<<<            ",
     ">`17`Mr  X^              ",
@@ -356,11 +450,26 @@ DISP_ROWS = [
     "            ^W        s< ",
 ]
 
+# The sentinel restore path in DISP_ROWS spends its sixth row only walking
+# west from the ring send back to the selected value in B.  At width 81 there
+# are four unused columns to the right of the narrow dispatcher.  Route that
+# cold path east instead, swap there, and return along the first row.  This
+# turns DISP from 26x8 into 30x7 without changing its ports or hot lookup loop.
+DISP_FOLDED_ROWS = [
+    "v@<<s<<<<<<<<              <",
+    ">`17`Mr  X^                 ",
+    " >`31`+^ -                  ",
+    "vX~`92`M+X+b >> mdrMs>rv    ",
+    ">rb          ^^sr<   ^sX sW^",
+]
+
+# Repeated /92 emits one least-significant stream symbol per feeder chunk.
 DECODER_ROWS = [
     ">W/WsWX@v",
     "^`29`M<r<",
 ]
 
+# Repeated /128 turns a packed raw-ASCII dictionary/year value into bytes.
 UNPACK_ROWS = [
     ">W/Ws WX@v",
     "^`821`M<r<",
@@ -368,6 +477,9 @@ UNPACK_ROWS = [
 
 
 def year_rows():
+    # YEAR stores its next packed "; YYYY: " value in A.  STEP advances five
+    # ASCII digits at once; after ten years CORR fixes the decimal carry from
+    # 2009 -> 2010 (and again 2019 -> 2020).
     d_init = str(pack128(f"; {FIRST_YEAR}: ".encode()))
     d_step = str(STEP)
     d_corr = str(abs(CORR))
@@ -406,6 +518,9 @@ def paste_room(program, x0, y0, rows, w=None, h=None):
 
 
 def feeder(program, chunks, digit_widths, width):
+    # One serpentine walker visits every literal exactly once.  Reversing the
+    # decimal digits on westbound rows makes the literal value direction-
+    # invariant, so the compact two-dimensional packing preserves stream order.
     slots = len(digit_widths)
     group_widths = [d + 3 for d in digit_widths]
     group_starts = [sum(group_widths[:i]) for i in range(slots)]
@@ -451,6 +566,56 @@ def feeder(program, chunks, digit_widths, width):
     return rows
 
 
+def variable_feeder(program, bands: list[Band], width: int):
+    """Render a DP-optimized feeder whose slot widths vary by two-row band."""
+    left = 1
+    content_left = 2
+    right = width - 2
+    for band_index, band in enumerate(bands):
+        starts = []
+        x = content_left
+        for digits in band.widths:
+            starts.append(x)
+            x += digits + 3
+        assert x + 3 <= width, (x + 3, width)
+
+        for parity, chunks in enumerate((band.top, band.bottom)):
+            row = 2 * band_index + parity
+            y = row + 1
+            east = parity == 0
+            for logical_slot, chunk in enumerate(chunks):
+                physical_slot = (
+                    logical_slot if east else len(band.widths) - 1 - logical_slot
+                )
+                digits = band.widths[physical_slot]
+                decimal = (
+                    str(chunk.value).zfill(digits) if chunk is not None else "0" * digits
+                )
+                send = "s" if chunk is not None else " "
+                if east:
+                    slot_x = starts[physical_slot] + 1
+                    cells = ["`", *decimal, "`", send]
+                else:
+                    slot_x = starts[physical_slot]
+                    cells = [send, "`", *decimal[::-1], "`"]
+                put_row(program, slot_x, y, cells)
+            if east:
+                if row:
+                    program.put(left, y, ">")
+                program.put(right, y, "v")
+            else:
+                program.put(right, y, "<")
+                program.put(
+                    left,
+                    y,
+                    "H" if band_index == len(bands) - 1 else "v",
+                )
+    program.put(left, 1, "@")
+    rows = 2 * len(bands)
+    program.room(0, 0, width, rows + 2)
+    return rows
+
+
 def p1_slot_cells(v, width, east):
     """Standard slot rendering: value zfilled to slot width."""
     d = str(v).zfill(width)
@@ -459,17 +624,29 @@ def p1_slot_cells(v, width, east):
 
 def p1_room(program, x0, y0, width, ring, layout):
     """Template preload room: 2 group-A rows (smalls 1..16, 8 slots) and
-    4 group-B rows (pairs grid + zero sentinel), all slot-aligned so every
-    column's backtick count is even.  Inline pump on the last row."""
+    4 group-B rows, all slot-aligned so every column's backtick count is
+    even.  The baseline puts its zero sentinel in group B and its pump at the
+    lower left.  The narrow variant fills group B, sends tail constants plus
+    the sentinel on row 7, and moves the pump to the lower right."""
     smalls = [ring[v] for v in range(1, 17)]
     szA = [len(str(v)) for v in smalls]
     TA = [max(szA[j], szA[15 - j]) for j in range(8)]
     TB = layout["TB"]
     cellgrid = layout["cellgrid"]
+    tail_pairs = layout["tail_pairs"]
     nB = len(TB)
     inner = width - 4
     assert sum(TA) + 3 * 8 <= inner, (sum(TA) + 24, inner)
-    assert sum(TB) + 3 * nB + 4 <= inner + 1, (sum(TB) + 3 * nB, inner)
+    if tail_pairs:
+        assert sum(TB) + 3 * nB <= inner - 2, (
+            sum(TB) + 3 * nB,
+            inner,
+        )
+    else:
+        assert sum(TB) + 3 * nB + 4 <= inner + 1, (
+            sum(TB) + 3 * nB,
+            inner,
+        )
 
     def place_row(y, vals, widths, east):
         # feeder-style alignment: slot pitch w+3; east cells at start+1,
@@ -481,7 +658,14 @@ def p1_room(program, x0, y0, width, ring, layout):
             acc += w + 3
         endx = acc
         for j, (v, w) in enumerate(zip(vals, widths)):
-            cells = p1_slot_cells(v, w, east)
+            if v is None:
+                cells = (
+                    ["`", *("0" * w), "`", " "]
+                    if east
+                    else [" ", "`", *("0" * w), "`"]
+                )
+            else:
+                cells = p1_slot_cells(v, w, east)
             x = starts[j] + 1 if east else starts[j]
             put_row(program, x, y, cells)
         return endx
@@ -493,14 +677,16 @@ def p1_room(program, x0, y0, width, ring, layout):
         # entries 9..16 must sit reversed for preload order 9,10,...,16
         (smalls[8:16][::-1], TA, False),
     ]
-    # group B rows
-    from_gridvals = []
+    # Group B contains the multi-symbol phrase entries.  In the baseline its
+    # last zero is the sentinel observed by DISP after one full rotation.
     for r in range(4):
         vals = []
         for pj in range(nB):
             idx = cellgrid[r][pj]
             if idx is None:
-                vals.append(0)          # zero sentinel / filler
+                # Baseline: the sole empty cell is the sentinel.  Narrow
+                # variant: it is an unsent vertical-literal filler.
+                vals.append(None if tail_pairs else 0)
             else:
                 vals.append(layout["val_of"][idx])
         rows_spec.append((vals, TB, r % 2 == 0))
@@ -519,49 +705,215 @@ def p1_room(program, x0, y0, width, ring, layout):
         else:
             program.put(x0 + width - 2, y, "<")
             program.put(x0 + 1, y, "v")
-            if last:
+            if last and not tail_pairs:
                 # descend to the pump rows below the data
                 put_row(program, x0 + 1, y + 1, [">", ">", "r", "s", "v"])
                 put_row(program, x0 + 1, y + 2, [" ", "^", "<", "<", "<"])
+    if tail_pairs:
+        # The last data row already descends at the left.  Send the remaining
+        # constants eastbound on the first pump row, followed by the sentinel.
+        # Matching unsent zero literals below preserve vertical backtick
+        # pairing.  The steady `r,s` pump occupies the rightmost five interior
+        # cells, leaving the entire preceding span available to constants.
+        values = [layout["val_of"][i] for i in tail_pairs] + [0]
+        widths = [len(str(v)) for v in values]
+        starts = []
+        acc = x0 + 2
+        for w in widths:
+            starts.append(acc)
+            acc += w + 3
+        pump_x = x0 + width - 6
+        assert acc + 1 <= pump_x, (acc, pump_x)
+        extra_y = y0 + 1 + nrows
+        dummy_y = extra_y + 1
+        program.put(x0 + 1, extra_y, ">")
+        for start, value, slot_width in zip(starts, values, widths):
+            put_row(
+                program,
+                start + 1,
+                extra_y,
+                p1_slot_cells(value, slot_width, True),
+            )
+            dummy = ["`", *("0" * slot_width), "`", " "]
+            put_row(program, start + 1, dummy_y, dummy)
+        put_row(program, pump_x, extra_y, [">", ">", "r", "s", "v"])
+        put_row(program, pump_x, dummy_y, [" ", "^", "<", "<", "<"])
     program.put(x0 + 1, y0 + 1, "@")
     return room_h
 
 
 def audit_vertical_ticks(program):
     """Oracle rule: consecutive same-column backticks must have only
-    digits/spaces between.  Returns list of (x, ya, yb)."""
+    digits/spaces between, within one room.  Returns list of (x, ya, yb).
+
+    Room scoping matters: walls terminate literal parsing, so ticks in two
+    vertically stacked rooms must never be paired with each other.
+    """
     cells = program.cells
-    W = max(p[0] for p in cells) + 1
-    H = max(p[1] for p in cells) + 1
     bad = []
-    for x in range(W):
-        ticks = [y for y in range(H) if cells.get((x, y)) == "`"]
-        for i in range(0, len(ticks) - 1, 2):
-            a, b = ticks[i], ticks[i + 1]
-            for y in range(a + 1, b):
-                c = cells.get((x, y), " ")
-                if not (c.isdigit() or c == " "):
-                    bad.append((x, a, b))
-                    break
+    for room in program.rooms:
+        for x in range(room.ix0, room.ix1 + 1):
+            ticks = [
+                y
+                for y in range(room.iy0, room.iy1 + 1)
+                if cells.get((x, y)) == "`"
+            ]
+            for i in range(0, len(ticks) - 1, 2):
+                a, b = ticks[i], ticks[i + 1]
+                for y in range(a + 1, b):
+                    c = cells.get((x, y), " ")
+                    if not (c.isdigit() or c == " "):
+                        bad.append((x, a, b))
+                        break
     return bad
 
 
-def build(W=83):
-    assert W >= 83
-    symbols, ring, layout = build_encoding()
-    dw = (18, 18, 18, W - 17 - 54)
-    assert dw[3] >= 4
-    chunks = pack_chunks(symbols, dw)
+def build(W=83, variable=False, compact_tail=False, narrow=False):
+    assert W >= (81 if narrow else (82 if variable else 83))
+    if narrow:
+        if (W, variable, compact_tail) != (81, True, True):
+            raise ValueError(
+                "the narrow tail requires W=81, variable=True, compact_tail=True"
+            )
+    elif compact_tail and (W != 82 or not variable):
+        raise ValueError("the compact 82x82 tail requires W=82 and variable=True")
+    symbols, ring, layout = build_encoding(
+        extra_pair_count=NARROW_EXTRA_PAIRS if narrow else 0,
+        tail_constants=narrow,
+    )
+    if variable:
+        bands = optimize_feeder(symbols, W)
+        chunks = [chunk.value for band in bands for chunk in band.chunks]
+        dw = None
+    else:
+        dw = (18, 18, 18, W - 17 - 54)
+        assert dw[3] >= 4
+        chunks = pack_chunks(symbols, dw)
+        bands = None
     assert verify(chunks, ring), "encoding does not reproduce the text"
-    program = build_once(W, chunks, dw, ring, layout)
+    if compact_tail:
+        program = build_compact_once(
+            W, chunks, ring, layout, bands, narrow=narrow
+        )
+    else:
+        program = build_once(W, chunks, dw, ring, layout, bands=bands)
     bad = audit_vertical_ticks(program)
     assert not bad, f"vertical tick audit failed: {bad[:4]}"
     return program
 
 
-def build_once(W, chunks, dw, ring, layout):
+def build_champion():
+    """Build the checked-in 82x82 champion."""
+    program = build(82, variable=True, compact_tail=True)
+    assert program.footprint() == (82, 82, 6724)
+    return program
+
+
+def build_narrow():
+    """Build the constant-tail 81x82 variant."""
+    program = build(81, variable=True, compact_tail=True, narrow=True)
+    assert program.footprint() == (81, 82, 6724)
+    return program
+
+
+def build_compact_once(W, chunks, ring, layout, bands, narrow=False):
+    """Place the optimized feeder and the hand-folded 18-row service tail."""
     program = Program()
-    R1 = feeder(program, chunks, dw, W)
+    feeder_rows = variable_feeder(program, bands, W)
+    assert feeder_rows == 62
+    tail_top = feeder_rows + 2
+    assert tail_top == 64
+
+    # Service rooms occupy the top eight rows of the tail.  P1 is below them,
+    # rather than above them as in build_once(), which removes the old gap rows.
+    paste_room(program, 2, tail_top, UNPACK_ROWS)
+    program.output_room(17, tail_top)
+    yw, yh = paste_room(program, 20, tail_top, year_rows())
+    assert (yw, yh) == (29, 7)
+    disp_width = 26 if narrow else None
+    dwid, dh = paste_room(program, 51, tail_top, DISP_ROWS, w=disp_width)
+    assert (dwid, dh) == ((26 if narrow else 27), 8)
+    paste_room(program, 4, tail_top + 4, DECODER_ROWS)
+    p1h = p1_room(program, 0, tail_top + 8, W - 2, ring, layout)
+    assert p1h == 10
+
+    # feeder -> DECODER
+    program.pipe([(1, tail_top), (1, tail_top + 5), (3, tail_top + 5)])
+    # UNPACK -> O
+    program.pipe([(14, tail_top + 1), (16, tail_top + 1)])
+    # DISP -> YEAR
+    program.pipe([(50, tail_top + 1), (49, tail_top + 1)])
+    # YEAR -> UNPACK.  The two adjacent bends at x15 are intentional.
+    program.pipe([
+        (19, tail_top + 3),
+        (15, tail_top + 3),
+        (15, tail_top + 2),
+        (14, tail_top + 2),
+    ])
+    # DECODER -> DISP.  Its last cell is a north-to-east corner into DISP.
+    program.pipe(
+        [
+            (15, tail_top + 5),
+            (16, tail_top + 5),
+            (16, tail_top + 7),
+            (50, tail_top + 7),
+            (50, tail_top + 2),
+        ],
+        end_direction="E",
+    )
+
+    if narrow:
+        # The 38-entry narrow dictionary plus sentinel needs at least 38
+        # combined ring cells.  This folded leg has 45 cells: after returning
+        # up x79 it folds down x78 above P1, staying inside columns 0..80.
+        program.pipe(
+            [
+                (77, tail_top),
+                (80, tail_top),
+                (80, tail_top + 17),
+                (79, tail_top + 17),
+                (79, tail_top + 1),
+                (78, tail_top + 1),
+                (78, tail_top + 7),
+            ],
+            end_direction="S",
+        )
+        # Shrinking DISP by its unused rightmost interior column frees x77 for
+        # the minimum return pipe from P1.
+        program.pipe(
+            [(77, tail_top + 7), (77, tail_top + 6)],
+            end_direction="W",
+        )
+    else:
+        # Dictionary ring, at its exact semantic capacity floor: 2 + 33 = 35.
+        # DISP -> P1 takes the two outer columns down and back up.  The last
+        # cell turns south into P1's top border.
+        program.pipe(
+            [
+                (78, tail_top),
+                (81, tail_top),
+                (81, tail_top + 17),
+                (80, tail_top + 17),
+                (80, tail_top + 7),
+                (79, tail_top + 7),
+            ],
+            end_direction="S",
+        )
+        # P1 -> DISP is the minimum two-cell return; its final cell turns west.
+        program.pipe(
+            [(78, tail_top + 7), (78, tail_top + 6)],
+            end_direction="W",
+        )
+    return program
+
+
+def build_once(W, chunks, dw, ring, layout, bands=None):
+    program = Program()
+    R1 = (
+        variable_feeder(program, bands, W)
+        if bands is not None
+        else feeder(program, chunks, dw, W)
+    )
     yf = R1 + 1
 
     p1y = yf + 1
@@ -613,11 +965,34 @@ def build_once(W, chunks, dw, ring, layout):
 
 
 def main():
-    W = int(sys.argv[1]) if len(sys.argv) > 1 else 83
-    program = build(W)
-    out = os.path.join(HERE, "history-ring.man")
+    legacy = "--legacy" in sys.argv
+    variable = "--variable" in sys.argv
+    narrow = "--narrow" in sys.argv
+    positional = [
+        arg for arg in sys.argv[1:]
+        if arg not in ("--legacy", "--variable", "--narrow")
+    ]
+    if narrow:
+        if legacy or variable or positional:
+            raise SystemExit("--narrow does not accept other modes or a width")
+        program = build_narrow()
+        name = os.path.join("candidates", "81x82.man")
+    elif legacy:
+        W = int(positional[0]) if positional else 83
+        program = build(W, variable=variable)
+        name = f"history-ring-variable-{W}.man" if variable else "history-ring.man"
+    else:
+        if positional or variable:
+            raise SystemExit(
+                "default build is best/82x82.man; use --legacy [W] [--variable] "
+                "for an older layout"
+            )
+        program = build_champion()
+        name = os.path.join("best", "82x82.man")
+    out = os.path.join(HERE, name)
+    os.makedirs(os.path.dirname(out), exist_ok=True)
     with open(out, "w") as f:
-        f.write(program.render() + "\n")
+        f.write(program.render() + ("\n" if legacy else ""))
     w, h, score = program.footprint()
     print(f"wrote {out}: {w}x{h} score={score}")
 

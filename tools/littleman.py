@@ -37,6 +37,7 @@ Rect = namedtuple("Rect", "x0 y0 x1 y1 ix0 iy0 ix1 iy1")  # outer + inclusive in
 class Program:
     def __init__(self):
         self.cells = {}
+        self.rooms = []
 
     # ---- primitives ----
     def put(self, x, y, ch):
@@ -64,7 +65,9 @@ class Program:
             self.put(x + w - 1, y + j, ver)
         for cx, cy in [(x, y), (x + w - 1, y), (x, y + h - 1), (x + w - 1, y + h - 1)]:
             self.put(cx, cy, cor)
-        return Rect(x, y, x + w - 1, y + h - 1, x + 1, y + 1, x + w - 2, y + h - 2)
+        rect = Rect(x, y, x + w - 1, y + h - 1, x + 1, y + 1, x + w - 2, y + h - 2)
+        self.rooms.append(rect)
+        return rect
 
     def input_room(self, x, y):
         r = self.room(x, y, 3, 3)
@@ -84,11 +87,16 @@ class Program:
         self.put(x, y, "@")
         return self
 
-    def pipe(self, points):
+    def pipe(self, points, *, end_direction=None):
         """Draw a pipe through orthogonal waypoints [(x,y), ...].
         Arrowheads at the start, every bend, and the end; body glyphs on straights.
         The start cell's *backward* neighbour must sit on the source room's border and
         the end cell's *forward* neighbour on the destination room's border.
+
+        ``end_direction`` may override the final path segment's direction (E/W/N/S).
+        Use it when the final pipe cell is itself a corner: the incoming segment reaches
+        that cell in one direction, then its arrowhead turns into an adjacent destination
+        wall in another direction.
         """
         cells = []
         for i in range(len(points) - 1):
@@ -99,6 +107,11 @@ class Program:
                 cells.append((x0 + dx * k, y0 + dy * k, dx, dy))
         lx, ly = points[-1]
         cells.append((lx, ly, cells[-1][2], cells[-1][3]))
+        if end_direction is not None:
+            if end_direction not in DIRS:
+                raise ValueError(f"invalid pipe end direction {end_direction!r}")
+            dx, dy = DIRS[end_direction]
+            cells[-1] = (lx, ly, dx, dy)
         for idx, (x, y, dx, dy) in enumerate(cells):
             bend = idx > 0 and (cells[idx - 1][2], cells[idx - 1][3]) != (dx, dy)
             if idx == 0 or idx == len(cells) - 1 or bend:

@@ -286,12 +286,20 @@ class Sandbox:
 
 # ── grading ──────────────────────────────────────────────────────────────────
 def grade(slug, man_path, cases, timeout, cap=None):
-    cmd = ["node", os.path.join(REPO, "tools", "grade_json.js"), slug, man_path]
-    if cases:
-        cmd += ["--cases", cases]
-    if cap:
-        cmd += ["--cap", str(int(cap))]
-    cmd += ["--failfast"]
+    if os.environ.get("AUTOTUNE_ENGINE") == "rust" and not cases:
+        # Rust engine (grade_fast) for problems whose heavy cases OOM the wasm
+        # oracle (e.g. subset-sum n=20). Same JSON keys; no --cases support.
+        cmd = [sys.executable, os.path.join(REPO, "tools", "grade_fast.py"),
+               slug, man_path, "--jobs", "2"]
+        if cap:
+            cmd += ["--cap", str(int(cap))]
+    else:
+        cmd = ["node", os.path.join(REPO, "tools", "grade_json.js"), slug, man_path]
+        if cases:
+            cmd += ["--cases", cases]
+        if cap:
+            cmd += ["--cap", str(int(cap))]
+        cmd += ["--failfast"]
     try:
         r = subprocess.run(cmd, cwd=REPO, capture_output=True, text=True, timeout=timeout)
     except subprocess.TimeoutExpired:

@@ -95,6 +95,10 @@ class Flow(flowgrid.Flow):
     def commit(self):
         return self.const(1).e("ss")
 
+    def out(self):
+        """Send A to the output room (requires output_port=True)."""
+        return self.e("so")
+
     def queue_push(self):
         return self.e("qs")
 
@@ -139,7 +143,14 @@ COMPACT_PORTS = {
 }
 
 
-def _compact_components(p, ports, bottom, code_x, scalar_size, scalar_belts, cell_belts):
+# Port specs for the integer output room (problems with no display). The
+# column reuses the display band, so it is only valid with display=False.
+OUTPUT_PORT_DEFAULT = (130, "s", 100, 135)
+OUTPUT_PORT_COMPACT = (60, "s", 46, 84)
+
+
+def _compact_components(p, ports, bottom, code_x, scalar_size, scalar_belts,
+                        cell_belts, cell_size=256):
     """Compact floor: components west->east in port order, short straight feeds.
 
     Matches COMPACT_PORTS. Every pipe descends from its port and jogs only
@@ -187,24 +198,31 @@ def _compact_components(p, ports, bottom, code_x, scalar_size, scalar_belts, cel
     # reading order (sa top, sd west, ss bottom) matches the classic layout.
     # sa's port column IS dx+8, so the address feed drops straight in; sd
     # descends west of the room; ss wraps around the east side to the bottom.
-    dx, dy = ports["sa"][0] - 8, b + 5
-    p.display(dx, dy, 18, 18)
-    p.pipe([ports["sa"], (dx + 8, dy - 1)])
-    p.pipe([
-        ports["sd"],
-        (ports["sd"][0], dy + 8),
-        (dx - 1, dy + 8),
-    ])
-    p.pipe([
-        ports["ss"],
-        (ports["ss"][0], dy + 20),
-        (dx + 8, dy + 20),
-        (dx + 8, dy + 18),
-    ])
+    if "sa" in ports:
+        dx, dy = ports["sa"][0] - 8, b + 5
+        p.display(dx, dy, 18, 18)
+        p.pipe([ports["sa"], (dx + 8, dy - 1)])
+        p.pipe([
+            ports["sd"],
+            (ports["sd"][0], dy + 8),
+            (dx - 1, dy + 8),
+        ])
+        p.pipe([
+            ports["ss"],
+            (ports["ss"][0], dy + 20),
+            (dx + 8, dy + 20),
+            (dx + 8, dy + 18),
+        ])
+
+    # Output room (so): a straight drop in the band the display vacated.
+    if "so" in ports:
+        sox = ports["so"][0]
+        p.output_room(sox - 1, b + 8)
+        p.pipe([ports["so"], (sox, b + 7)])
 
     # Cell RAM (cc/cr), banked.
     cell_x, cell_y = c + 112, b + 5
-    cell = split_ram.build(p, cell_x, cell_y, 256, cell_belts)
+    cell = split_ram.build(p, cell_x, cell_y, cell_size, cell_belts)
     p.pipe([
         ports["cc"],
         (ports["cc"][0], b + 2),
@@ -243,6 +261,9 @@ def build_program(
     merge_pad=None,
     block_gap=None,
     boustrophedon=False,
+    display=True,
+    output_port=False,
+    cell_size=256,
 ):
     """Compile *flow* and attach the shared stateful-problem hardware.
 
@@ -256,12 +277,21 @@ def build_program(
         raise ValueError("compact mode has no queue port map yet")
     if compact and cell_replicas > 1:
         raise ValueError("compact mode does not support replicated cell RAM")
+    if output_port and display:
+        raise ValueError("output_port reuses the display band; needs display=False")
+    if cell_size != 256 and not fast_cell_ram:
+        raise ValueError("cell_size != 256 requires fast_cell_ram")
     base_ports = COMPACT_PORTS if compact else DEFAULT_PORTS
     p = lm.Program()
     port_spec = base_ports.copy() if queue else {
         name: spec for name, spec in base_ports.items()
         if name not in ("qs", "qr")
     }
+    if not display:
+        for name in ("sa", "sd", "ss"):
+            port_spec.pop(name, None)
+    if output_port:
+        port_spec["so"] = OUTPUT_PORT_COMPACT if compact else OUTPUT_PORT_DEFAULT
     if cell_replicas > 1:
         port_spec.pop("cc")
         port_spec.pop("cr")
@@ -295,7 +325,8 @@ def build_program(
 
     if compact:
         _compact_components(
-            p, ports, bottom, code_x, scalar_size, scalar_belts, cell_belts
+            p, ports, bottom, code_x, scalar_size, scalar_belts, cell_belts,
+            cell_size=cell_size,
         )
         return p
 
@@ -326,7 +357,7 @@ def build_program(
         packed = packeds[0]
     else:
         cell = (
-            split_ram.build(p, cell_x, cell_y, 256, cell_belts)
+            split_ram.build(p, cell_x, cell_y, cell_size, cell_belts)
             if fast_cell_ram else belt_ram.build(p, cell_x, cell_y, 256)
         )
         packed = (
@@ -455,6 +486,14 @@ def build_program(
             (ports["cr"][0], cell["reply"][1]),
             ports["cr"],
         ])
+
+    # Output room (so): straight drop below the controller in the display band.
+    if output_port:
+        sox = ports["so"][0]
+        p.output_room(sox - 1, bottom + 8)
+        p.pipe([ports["so"], (sox, bottom + 7)])
+    if not display:
+        return p
 
     # Addressable 16x16 display. With the banked scalar RAM (32x32 instead of
     # the 78x43 belt) the sd feeder clears the scalar block 18 rows sooner.

@@ -291,6 +291,35 @@ class Plan:
             if order is None:
                 order = self._default_order(layout, pipe_len)
             order = [bad] + [i for i in order if i != bad]   # loser routes first next time
+        return self._shuffle_route(layout, pipe_len, margin, order, tighten, last)
+
+    def _shuffle_route(self, layout, pipe_len, margin, order, tighten, last,
+                       fixed=()):
+        """Last resort: RANDOM net orders (negotiated congestion, cheap edition).
+
+        `loser routes first` explores three points of a 38! permutation space, and on a
+        floorplan that Z3 has already squeezed to the envelope it is routinely three
+        losing points: measured on snake at M=204, every proposal died in the router
+        while a different net order routed the very same block positions.  A pipe that
+        cannot route is then reported as an unroutable FLOORPLAN, the CEGAR loop bans
+        those block positions, and the search walks away from a layout that was fine.
+        `fixed` nets keep their slot at the head (GroupPlan's reusable routes)."""
+        tries = getattr(self, "route_shuffles", 0)
+        if not tries:
+            return None, last
+        rng = random.Random(getattr(self, "route_seed", 0))
+        pool = [i for i in (order or self._default_order(layout, pipe_len))
+                if i not in set(fixed)]
+        for _ in range(tries):
+            cand = list(pool)
+            rng.shuffle(cand)
+            if last is not None and last in cand:
+                cand = [last] + [i for i in cand if i != last]
+            paths, bad = self._route_pass(layout, pipe_len, margin,
+                                          list(fixed) + cand, tighten)
+            if paths is not None:
+                return paths, None
+            last = bad
         return None, last
 
     def _default_order(self, layout, pipe_len):
@@ -369,6 +398,13 @@ class Plan:
         Re-deriving a route that already exists is pure downside: the router will happily
         find a different path of the same length whose glyphs the oracle then parses as a
         different number of pipes. Only nets that actually moved get re-routed."""
+        # --no-reuse: re-derive every route even when nothing moved.  A generated
+        # champion's pipes are as long as its own router happened to make them, and a
+        # pipe's length is LATENCY: snake's RAM fan carries 17..113-cell pipes between
+        # rooms 60 cells apart, so re-routing at the minimum is a pure tick win at a
+        # constant box, with the grade as the gate (length is also FIFO capacity).
+        if getattr(self, "no_reuse", False):
+            return None
         osrc = (p.cells[0][0] - p.dirs[0][0], p.cells[0][1] - p.dirs[0][1])
         odst = (p.cells[-1][0] + p.dirs[-1][0], p.cells[-1][1] + p.dirs[-1][1])
         if tuple(src) != osrc or tuple(dst) != odst:
@@ -975,12 +1011,21 @@ def main():
                     help="re-derive any pipe whose route leaves the blocks' bounding box")
     ap.add_argument("--pin-attach", action="store_true",
                     help="keep every pipe attached where it is on its room border")
+    ap.add_argument("--route-tries", type=int, default=0,
+                    help="extra random net orders to try before declaring a floorplan "
+                         "unroutable (see Plan._shuffle_route)")
+    ap.add_argument("--no-reuse", action="store_true",
+                    help="re-route every pipe even when its endpoints did not move "
+                         "(with --pipe-len free this shortens a generated champion's "
+                         "pipes, which is latency, at an unchanged box)")
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--time-limit", type=float)
     ap.add_argument("-v", "--verbose", action="store_true")
     args = ap.parse_args()
 
     plan = Plan(args.man)
+    plan.no_reuse = args.no_reuse
+    plan.route_shuffles = args.route_tries
     if args.guard:
         plan.adjacency_ok_base = True
     print(f"{Path(args.man).name}: {len(plan.blocks)} blocks "

@@ -94,6 +94,14 @@ own output namespace and avoids lowercase-read multiplexing entirely. The
 unfolded proof is 104×28 and reaches correct UNVIS/NEXT state in 88 ticks; it
 should be folded 2×2 for the real four-lane floorplan.
 
+The probe now runs persistently for consecutive layers. NEXT must visit its
+four direction pipes in order: an earlier `R`-based any-ready loop mixed a late
+take from one layer with an early take from the next. With ordered sites, two
+different adversarial layers pass; the unfolded layout produces the first
+result at tick 133 and the second at tick 303 (170-tick issue interval). Most
+of that interval is the deliberately long return corridor, so folding is also
+a latency optimization.
+
 ## Round reset
 
 OPEN sends its word to UNVIS. Parent workers receive zero. FRONT receives the

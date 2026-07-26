@@ -74,9 +74,9 @@ def delayed_dispatcher_rows():
 DISP_DELAYED_ROWS = delayed_dispatcher_rows()
 
 
-def build_encoding():
+def build_encoding(extra_phrases=EXTRA_PHRASES):
     symbols, logical_ring, _ = base.build_encoding(
-        extra_pair_count=EXTRA_PHRASES
+        extra_pair_count=extra_phrases
     )
 
     # Replace two low-value direct entries with the shared year affixes.
@@ -88,8 +88,23 @@ def build_encoding():
     logical_ring[zero_digit_slot] = base.pack128(b"0")
     logical_ring[9] = base.pack128(b"; 20")
     logical_ring[15] = base.pack128(b": ")
-    assert sorted(logical_ring) == list(range(1, 45))
-    assert sorted(LOGICAL_ORDER) == list(range(1, 45))
+    dictionary_words = 38 + extra_phrases
+    assert sorted(logical_ring) == list(range(1, dictionary_words + 1))
+    if extra_phrases == EXTRA_PHRASES:
+        logical_order = LOGICAL_ORDER
+    else:
+        # Preserve as much of the tuned 44-word order as exists, then append
+        # any new logical positions.  The layout-builder is free to repack
+        # these physical values into its independently optimized bands.
+        logical_order = [
+            logical for logical in LOGICAL_ORDER
+            if logical <= dictionary_words
+        ]
+        logical_order.extend(
+            logical for logical in range(1, dictionary_words + 1)
+            if logical not in logical_order
+        )
+    assert sorted(logical_order) == list(range(1, dictionary_words + 1))
 
     logical_symbols = []
     year = base.FIRST_YEAR
@@ -114,7 +129,7 @@ def build_encoding():
 
     new_position = {
         logical: physical
-        for physical, logical in enumerate(LOGICAL_ORDER, start=1)
+        for physical, logical in enumerate(logical_order, start=1)
     }
     ring = {
         new_position[logical]: value
@@ -157,7 +172,8 @@ def build_encoding():
     assert bytes(output) == base.TEXT
 
     bands = base.optimize_feeder(physical_symbols, WIDTH)
-    assert len(bands) == 32
+    if extra_phrases == EXTRA_PHRASES:
+        assert len(bands) == 32
     return physical_symbols, ring, bands
 
 

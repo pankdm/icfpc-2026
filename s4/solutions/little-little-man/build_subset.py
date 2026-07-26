@@ -258,6 +258,7 @@ def lay_controller(
     tight_gaps=False,
     dedup_edges=False,
     lay_fn=None,
+    port_cols=None,
 ):
     if port_profile == "compact" and banked:
         spec = {
@@ -296,6 +297,13 @@ def lay_controller(
             "sd": (80, "s"),
             "sa": (118, "s"),
             "ss": (140, "s"),
+        }
+    if port_cols:
+        # Absolute columns from a routability-constrained anneal; the spec's
+        # first field is an offset from code_x, so convert back.
+        spec = {
+            name: (port_cols[name] - code_x,) + tuple(entry[1:])
+            for name, entry in spec.items()
         }
     if lay_fn is not None:
         layout = lay_fn(p, flow, spec, code_x=code_x)
@@ -413,6 +421,7 @@ def build_program(
     lay_fn=None,
     hw_layout="wide",
     hw_gap=2,
+    port_cols=None,
 ):
     """Attach a compiled Flow to the shared input/RAM/scratch/display hardware."""
     p = lm.Program()
@@ -428,6 +437,7 @@ def build_program(
         tight_gaps=tight_gaps,
         dedup_edges=dedup_edges,
         lay_fn=lay_fn,
+        port_cols=port_cols,
     )
     inp = ports["ri"]
     ram_reply = ports["rr"]

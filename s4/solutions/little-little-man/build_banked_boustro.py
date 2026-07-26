@@ -2,6 +2,7 @@
 """Build the banked/deduplicated LLM interpreter with a dense controller."""
 
 import argparse
+import json
 import os
 import sys
 
@@ -42,7 +43,7 @@ def alias_empty_gotos(flow):
 
 
 def build(code_x=45, op_slack=0, verify=True, hw_layout="wide", hw_gap=2,
-          flat_branch=False):
+          flat_branch=False, port_cols=None):
     flow = alias_empty_gotos(dedup.build_flow())
     layout = {}
 
@@ -71,6 +72,7 @@ def build(code_x=45, op_slack=0, verify=True, hw_layout="wide", hw_gap=2,
         lay_fn=lay,
         hw_layout=hw_layout,
         hw_gap=hw_gap,
+        port_cols=port_cols,
     )
     if verify:
         boustro.verify_bindings(program, layout)
@@ -86,10 +88,14 @@ if __name__ == "__main__":
     parser.add_argument("--hw", choices=("wide", "tight"), default="wide")
     parser.add_argument("--hw-gap", type=int, default=2)
     parser.add_argument("--flat-branch", action="store_true")
+    parser.add_argument("--port-cols", help="JSON dict of absolute port columns")
+    parser.add_argument("--tag", default="")
     args = parser.parse_args()
     suffix = "" if args.hw == "wide" else f"-hw{args.hw_gap}"
     if args.flat_branch:
         suffix += "-fb"
+    suffix += args.tag
+    port_cols = json.loads(args.port_cols) if args.port_cols else None
     output = args.out or os.path.join(
         HERE,
         f"pipe-io-banked-dedup-boustro-cx{args.code_x}-o{args.op_slack}{suffix}.man",
@@ -101,6 +107,7 @@ if __name__ == "__main__":
         hw_layout=args.hw,
         hw_gap=args.hw_gap,
         flat_branch=args.flat_branch,
+        port_cols=port_cols,
     )
     program.save(output)
     print(

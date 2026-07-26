@@ -28,10 +28,12 @@ hot tick needs (`class`, digit value) are a single `/` apart.
 
 # ---------------------------------------------------------------- ring layout
 # `da` (fill cursor) shares the round-counter slot: they are never both live.
-PERSIST = ['Wd', 'Nn', 'mi', 'md', 'hd', 'AA', 'BB', 'mdp', 'clrp',
-           'TCLS', 'TCOL', 'TDIR', 'kc', 'cw']
-TEMP = ['t0', 't1', 't2', 't3', 't4', 't5']
-STATE = PERSIST + TEMP
+# Slot -> ring-position assignment is free (the belt is symmetric under
+# relabelling) and every access costs (pos(target)-head) mod n rotations, so this
+# order is the output of `ringopt2.py`: 5,179 -> 4,589 emitted ops at identical
+# semantics.
+STATE = ['Wd', 'Nn', 't0', 'TCLS', 't3', 't2', 'md', 'mi', 'cw', 'mdp', 'hd',
+         'AA', 't1', 'clrp', 'TCOL', 'TDIR', 'kc', 't5', 't4', 'BB']
 DA = 'kc'            # fill display cursor reuses the k counter
 
 C_SPACE, C_N, C_E, C_S, C_W = 0, 1, 2, 3, 4

@@ -60,6 +60,15 @@ will have moved on. `diff -u tools/X.py s4/tools/X.py` is the review unit.
 | snake | `linked-compact-reflow-cx10-o0` | 64,009 | 18.435B | 15.110B |
 | pathfinder | `reverse-bfs-bitset5-s4-smt` | 115,600 | 293.037B | 240.426B |
 | LLLM | `reflow3-233x234` | 54,756 | 224.146B | 168.892B |
+| LLM | `pipe-io-banked-dedup-boustro-hw2-fb-anneal` | 848,241 | **9.437T** | (this is live) |
+
+LLM update (2026-07-26): 277x1137 / 15.03T -> 394x921 / **9.437T server, 28/28**,
+via a packed hardware band, two-row branches, and a constrained port-column
+anneal. See `git log s4/solutions/little-little-man`. Its remaining height is
+`194 block rows + 96 goto rows + 213 branch rows + ~373 forced newlines`; the
+newlines are the only term left with real slack and they need pipe-band OVERLAP
+(duplicate attachments per port), not reordering -- the order is already within
+1% of the minimum-feedback-arc optimum.
 
 **Every repo candidate is worse than what is live, and the live builds are not in
 git.** Benchmark against the repo candidate's own measured score, not against the

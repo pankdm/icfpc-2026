@@ -36,8 +36,16 @@ async function loadProblem(slug) {
     const cases = Array.isArray(j) ? j : (j.cases || []);
     problem.publicTestData = (problem.publicTestData || []).concat(cases);
   }
+  // FAIL-FAST: grade the cheapest case first. A broken candidate usually fails on any
+  // case, so rejecting on the smallest one avoids paying for the expensive ones. Ordering
+  // cannot change the verdict (every case must pass) and avgTicks is order-independent.
+  if (process.argv.includes('--failfast')) {
+    const size = tc => JSON.stringify(tc.rounds || tc).length;
+    problem.publicTestData = (problem.publicTestData || []).slice().sort((a, b) => size(a) - size(b));
+  }
   const w = await boot();
-  const g = L.gradeAll(w, L.manRows(L.readMan(file)), problem);
+  const g = L.gradeAll(w, L.manRows(L.readMan(file)), problem,
+                       { stopOnFail: process.argv.includes('--failfast') });
   console.log(JSON.stringify({
     passed: g.passed, total: g.total,
     footprint: g.footprint, avgTicks: g.avgTicks, score: g.score,

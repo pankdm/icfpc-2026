@@ -35,7 +35,12 @@ def main():
         st = lib.problem_standings(p["id"]) or {}
         board = st.get("rows") or []
         mine = next((r for r in board if (r.get("teamName") or "") == args.team), None)
-        full = [r for r in board if r.get("rank") is not None and r.get("score") is not None]
+        # Board best = best score among teams that pass EVERY case. Ranking is by cases
+        # passed first, so the cheapest scores on the board belong to partial-passers with
+        # tiny programs (sudoku: 49,720 at 5/20, ranked 63rd) — comparing against those
+        # invents gaps that do not exist.
+        full = [r for r in board if r.get("rank") is not None and r.get("score") is not None
+                and r.get("casesPassed") == r.get("casesTotal")]
         best = min((r["score"] for r in full), default=None)
         total = max((r.get("casesTotal") or 0) for r in board) if board else 0
         passed = (mine or {}).get("casesPassed")

@@ -123,8 +123,8 @@ class MacroKnob:
 
     A single literal cannot express the move that usually matters. Geometry here is written
     as calls like `L.put(x, y, ch)` / `hrun(x, y, …)`, so the x (or y) coordinate of every
-    such call inside one function IS a block. Shifting them together is exactly the move
-    behind hand-wins like tcp's "relocate the checker WEST into dead space" (1.75x).
+    such call inside one function IS a block. Shifting a block into dead space is a move
+    that has repeatedly paid by hand; a per-literal search cannot reach it at all.
 
     `value` is a delta (always 0 at rest); applying d rewrites every span to its own value+d.
     The key embeds the current span sum, so after an accepted shift the knob is a NEW key and
@@ -188,6 +188,32 @@ def patch(src, knob, value):
     return "".join(lines)
 
 
+# Every glyph a littleman program may legally contain: structural, I/O, and the whole
+# instruction set. A builder's chatter ("footprint (69, 130, 16900)") contains characters
+# outside this set, which is what separates a printed grid from the noise around it.
+GLYPHS = set("+-|=:IO0123456789`MWbmq]*%/N&~{}<>^vVXdaxYHsSrRU@. \t")
+
+
+def grid_from_text(text):
+    """Pull a littleman grid out of a builder's stdout, or None.
+
+    Takes the longest run of consecutive lines that are made only of legal glyphs and
+    contains at least one room corner, so surrounding log lines are ignored."""
+    best, run = [], []
+    for line in (text or "").splitlines():
+        if line.strip() and set(line) <= GLYPHS:
+            run.append(line.rstrip())
+        else:
+            if len(run) > len(best):
+                best = run
+            run = []
+    if len(run) > len(best):
+        best = run
+    if len(best) >= 3 and any("+" in ln for ln in best) and any("|" in ln or ":" in ln for ln in best):
+        return "\n".join(best) + "\n"
+    return None
+
+
 # ── sandbox ──────────────────────────────────────────────────────────────────
 class Sandbox:
     """A throwaway repo view: symlinked tools/sim/tests + a private copy of the solution
@@ -230,11 +256,19 @@ class Sandbox:
             return None, "builder timeout"
         after = self.snapshot()
         touched = [k for k, v in after.items() if before.get(k) != v]
-        if not touched:
-            err = (r.stderr or r.stdout or "").strip().splitlines()
-            return None, ("builder wrote nothing" if r.returncode == 0
-                          else f"builder failed: {err[-1] if err else r.returncode}")
-        return {k: open(os.path.join(self.root, k), "rb").read() for k in touched}, None
+        if touched:
+            return {k: open(os.path.join(self.root, k), "rb").read() for k in touched}, None
+        # Some builders PRINT the grid rather than saving it, and some save to a temp file
+        # and delete it. Those are perfectly good builders, so fall back to reading the grid
+        # off stdout — in this repo that alone more than doubled the number of reachable
+        # problems, so it matters more than any search heuristic.
+        if r.returncode == 0:
+            grid = grid_from_text(r.stdout or "")
+            if grid:
+                return {"<stdout>": grid.encode()}, None
+        err = (r.stderr or r.stdout or "").strip().splitlines()
+        return None, ("builder wrote nothing" if r.returncode == 0
+                      else f"builder failed: {err[-1] if err else r.returncode}")
 
     def cleanup(self):
         shutil.rmtree(self.root, ignore_errors=True)
@@ -247,6 +281,7 @@ def grade(slug, man_path, cases, timeout, cap=None):
         cmd += ["--cases", cases]
     if cap:
         cmd += ["--cap", str(int(cap))]
+    cmd += ["--failfast"]
     try:
         r = subprocess.run(cmd, cwd=REPO, capture_output=True, text=True, timeout=timeout)
     except subprocess.TimeoutExpired:
@@ -261,17 +296,35 @@ def grade(slug, man_path, cases, timeout, cap=None):
 
 
 class GradeCache:
-    """Grade each DISTINCT .man once. Most knob perturbations are inert (the grid comes
-    out byte-identical) or collide with another candidate's grid, and grading is ~3x the
-    cost of a build — so keying on the grid content is most of the tuner's throughput."""
+    """Grade each DISTINCT .man once, and remember it across runs (tl-651q).
 
-    def __init__(self):
+    Most knob perturbations are inert (the grid comes out byte-identical) or collide with
+    another candidate's grid, and grading is ~3x the cost of a build — so keying on grid
+    content is most of the tuner's throughput. The on-disk half means a re-run, a resumed
+    sweep, or a second agent never re-grades a grid that has already been graded."""
+
+    PATH = os.path.join(REPO, ".autotune-cache.json")
+
+    def __init__(self, slug, persist=True):
+        self.slug, self.persist = slug, persist
         self._by_hash = {}
         self._lock = __import__("threading").Lock()
         self.hits = 0
+        self._dirty = 0
+        if persist and os.path.exists(self.PATH):
+            try:
+                self._by_hash = json.load(open(self.PATH)).get(slug, {})
+            except (OSError, ValueError):
+                self._by_hash = {}
+        self.preloaded = len(self._by_hash)
+
+    @staticmethod
+    def _key(man_text):
+        import hashlib
+        return hashlib.sha1(man_text.encode()).hexdigest()[:16]
 
     def get(self, man_text, compute):
-        h = hash(man_text)
+        h = self._key(man_text)
         with self._lock:
             if h in self._by_hash:
                 self.hits += 1
@@ -279,7 +332,52 @@ class GradeCache:
         res = compute()
         with self._lock:
             self._by_hash[h] = res
+            self._dirty += 1
+            if self.persist and self._dirty >= 25:
+                self._flush()
         return res
+
+    def _flush(self):
+        try:
+            all_slugs = {}
+            if os.path.exists(self.PATH):
+                try:
+                    all_slugs = json.load(open(self.PATH))
+                except ValueError:
+                    pass
+            all_slugs[self.slug] = self._by_hash
+            tmp = self.PATH + ".tmp"
+            json.dump(all_slugs, open(tmp, "w"))
+            os.replace(tmp, self.PATH)
+            self._dirty = 0
+        except OSError:
+            pass
+
+    def close(self):
+        with self._lock:
+            if self.persist and self._dirty:
+                self._flush()
+
+
+def checkpoint(slug, target, builder_rel, best_src, best_man, accepted, base, best):
+    """Persist the best-so-far the MOMENT it is accepted (tl-r269).
+
+    A crash mid-sweep otherwise discards a confirmed win and the whole run has to be
+    repeated. Returns the paths written."""
+    stem = os.path.splitext(os.path.basename(target))[0].removesuffix("-tuned")
+    man_out = os.path.join(REPO, os.path.dirname(target), f"{stem}-tuned.man")
+    src_out = os.path.join(REPO, os.path.splitext(builder_rel)[0].removesuffix("_tuned") + "_tuned.py")
+    try:
+        open(man_out, "w", encoding="utf-8").write(best_man.rstrip("\n") + "\n")
+        open(src_out, "w", encoding="utf-8").write(best_src)
+        json.dump({"slug": slug, "target": target, "builder": builder_rel,
+                   "baseline_score": base.get("score"), "best_score": best.get("score"),
+                   "accepted": [{"knob": n, "from": w, "to": v, "score": s}
+                                for n, w, v, s in accepted]},
+                  open(os.path.join(REPO, os.path.dirname(target), f"{stem}-tuned.json"), "w"), indent=1)
+    except OSError as e:
+        print(f"  (checkpoint failed: {e})")
+    return man_out, src_out
 
 
 def evaluate(slug, builder_rel, source, args, target, cases, cache=None, baseline_man=None, cap=None):
@@ -407,6 +505,7 @@ def main():
     ap.add_argument("--timeout", type=float, default=120)
     ap.add_argument("--no-screen", action="store_true",
                     help="skip the build-only screening pass (it drops inert/always-breaking knobs)")
+    ap.add_argument("--no-cache", action="store_true", help="do not read/write .autotune-cache.json")
     ap.add_argument("--no-macros", action="store_true",
                     help="disable macro knobs (coordinated block shifts)")
     ap.add_argument("--tick-factor", type=float, default=4.0,
@@ -469,7 +568,9 @@ def main():
         print(f"candidate tick cap: {tick_cap:,} ({args.tick_factor}x baseline avg)")
 
     best_src, best, best_man = source, base, base_man
-    cache = GradeCache()
+    cache = GradeCache(args.slug, persist=not args.no_cache)
+    if cache.preloaded:
+        print(f"grade cache: {cache.preloaded} grids remembered from earlier runs")
     tried = set()      # (knob.key, value) already evaluated — never pay for it twice
     accepted = []
     out_of_budget = False
@@ -536,6 +637,30 @@ def main():
             print(f"  ACCEPT {k.name} {k.value} -> {v}:  {fmt(res)}")
             accepted.append((k.name, k.value, v, score))
             best_src, best, best_man = src, res, man
+
+            # LINE SEARCH (tl-w6g1): a win means this knob is pointing somewhere good —
+            # keep stepping the same way while it keeps paying, instead of restarting the
+            # whole wave for each single step. "If one column helps, five might."
+            step, at = v - k.value, v
+            while not out_of_budget and time.time() - t_start <= args.budget:
+                nxt = at + step
+                live_k = next((x for x in find_knobs(best_src, args.scope) if x.key == k.key), None) \
+                    if not isinstance(k, MacroKnob) else \
+                    next((x for x in find_macro_knobs(best_src) if x.name == k.name), None)
+                if live_k is None or (k.key, nxt) in tried:
+                    break
+                probe = patch(best_src, live_k, nxt if not isinstance(k, MacroKnob) else step)
+                res2, man2 = evaluate(args.slug, builder_rel, probe, args, target,
+                                      args.cases, cache, best_man, tick_cap)
+                tried.add((k.key, nxt))
+                if not is_win(res2, best["score"]):
+                    break
+                print(f"  ACCEPT {k.name} -> {nxt} (line search):  {fmt(res2)}")
+                accepted.append((k.name, at, nxt, res2["score"]))
+                best_src, best, best_man = probe, res2, man2
+                at = nxt
+
+            checkpoint(args.slug, target, builder_rel, best_src, best_man, accepted, base, best)
         if out_of_budget:
             print("budget exhausted")
             break
@@ -546,6 +671,7 @@ def main():
     # ── report / write ──────────────────────────────────────────────────────
     print()
     if not accepted:
+        cache.close()
         print(f"no improvement found (baseline score {base['score']:,.0f})")
         return
     gain = base["score"] / best["score"]
@@ -565,6 +691,7 @@ def main():
             return
     open(man_out, "w", encoding="utf-8").write(best_man.rstrip("\n") + "\n")
     open(src_out, "w", encoding="utf-8").write(best_src)
+    cache.close()
     print(f"\nwrote {os.path.relpath(man_out, REPO)}\n      {os.path.relpath(src_out, REPO)}")
     print(f"verify:  node tools/grade.js {args.slug} {os.path.relpath(man_out, REPO)}")
 

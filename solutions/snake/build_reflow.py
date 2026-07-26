@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build the scalar-banked Pathfinder with a boustrophedon controller."""
+"""Build Snake with compact services and a boustrophedon controller."""
 
 import argparse
 import os
@@ -10,11 +10,10 @@ sys.path.insert(0, os.path.join(HERE, "..", "..", "tools"))
 
 import boustro
 import stateflow
-import build_fifo
+import build as snake
 
 
 def alias_empty_gotos(flow):
-    """Remove operation-free goto aliases before physical layout."""
     direct = {}
     for label, tokens in flow.blocks.items():
         ops = [token for token in tokens if not isinstance(token, tuple)]
@@ -42,8 +41,8 @@ def alias_empty_gotos(flow):
     return flow
 
 
-def build(belts=9, scalar_belts=4, code_x=0, op_slack=0, verify=True):
-    flow = alias_empty_gotos(build_fifo.build_flow())
+def build(code_x=10, op_slack=0, verify=True):
+    flow = alias_empty_gotos(snake.build_flow())
     layout = {}
 
     def lay(program, graph, port_spec, code_x=code_x):
@@ -59,17 +58,13 @@ def build(belts=9, scalar_belts=4, code_x=0, op_slack=0, verify=True):
 
     program = stateflow.build_program(
         flow,
-        scalar_size=build_fifo.SCALAR_RAM_N,
-        scalar_belts=scalar_belts,
-        fast_scalar_ram=True,
-        scalar_command_band=2,
-        scalar_reply_band=1,
-        scalar_display_offset=60,
+        scalar_size=snake.SCALAR_RAM_N,
         code_x=code_x,
-        queue=True,
+        compact=True,
         fast_cell_ram=True,
-        cell_belts=belts,
-        packed_cell=True,
+        cell_belts=8,
+        fast_scalar_ram=True,
+        scalar_belts=4,
         lay_fn=lay,
     )
     if verify:
@@ -79,21 +74,16 @@ def build(belts=9, scalar_belts=4, code_x=0, op_slack=0, verify=True):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--belts", type=int, default=9)
-    parser.add_argument("--scalar-belts", type=int, default=4)
-    parser.add_argument("--code-x", type=int, default=0)
+    parser.add_argument("--code-x", type=int, default=10)
     parser.add_argument("--op-slack", type=int, default=0)
     parser.add_argument("--out")
     parser.add_argument("--no-verify", action="store_true")
     args = parser.parse_args()
     output = args.out or os.path.join(
         HERE,
-        "reverse-bfs-fifo-b9-s"
-        f"{args.scalar_belts}-reflow-cx{args.code_x}-o{args.op_slack}.man",
+        f"linked-compact-reflow-cx{args.code_x}-o{args.op_slack}.man",
     )
     program, layout = build(
-        args.belts,
-        args.scalar_belts,
         args.code_x,
         args.op_slack,
         verify=not args.no_verify,

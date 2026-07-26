@@ -161,3 +161,27 @@ measure whether height comes from executable CFG rows, return corridors, or
 service placement.  Reflow only the part that drives the box; after blank
 travel falls, switch to protocol or algorithm work if exact controller
 `r`/`s` cells dominate.
+
+## Snake application
+
+Applying the same layouter to Snake's existing compact service floor produced:
+
+```text
+baseline linked-compact-cx60-cb8.man
+  220x347, avg 237548, local score 28.603B
+
+reflow linked-compact-reflow-cx10-o0.man
+  170x253, avg 186425, local score 11.933B
+```
+
+All five public cases pass in both Rust and the organizer WASM.  The reflow
+cuts average ticks by 21.5%, the scoring box by 46.8%, and local score by
+58.3%.  The minimum binding-safe controller origin is `code_x=10`; `code_x=0`
+cannot reach the first receive port's Voronoi band.  Increasing operation
+slack from 0 through 100 did not reduce controller height because port bands,
+not the general operation limit, force the row wraps.
+
+On `the long game`, the reflow controller executes about 376k receives and
+212k blanks in 626k total ticks.  As in Pathfinder, geometry exposed serialized
+service receives as the next bottleneck.  Further square-folding requires
+fewer CFG rows or a more compact service protocol, not extra horizontal slack.

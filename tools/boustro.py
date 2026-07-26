@@ -27,6 +27,43 @@ class Conflict(RuntimeError):
     pass
 
 
+def verify_bindings(program, layout):
+    """Check every recorded controller port op against actual pipe ownership."""
+    import pipecheck
+
+    rows = program.render().splitlines()
+    width = max(len(row) for row in rows)
+    rows = [row.ljust(width) for row in rows]
+    min_x, min_y, _, _ = program.bounds()
+    topology = pipecheck.analyze(rows)
+    if topology.get("type") == "error":
+        raise RuntimeError(topology.get("message"))
+    incoming, outgoing = pipecheck.attachments(topology)
+    attachment_positions = {}
+    for pipe_i, pipe in enumerate(topology["pipes"]):
+        path = pipe.get("path") or []
+        if not path:
+            continue
+        if pipe.get("src") == 0:
+            attachment_positions[("out", pipe_i)] = tuple(path[0]["pos"])
+        if pipe.get("dst") == 0:
+            attachment_positions[("in", pipe_i)] = tuple(path[-1]["pos"])
+
+    bad = []
+    for (x, y), port in layout["intent"].items():
+        grid_x, grid_y = x - min_x, y - min_y
+        kind = "out" if rows[grid_y][grid_x] == "s" else "in"
+        candidates = (outgoing if kind == "out" else incoming).get(0, [])
+        selected = pipecheck.bind((grid_x, grid_y), candidates)
+        selected_position = attachment_positions.get((kind, selected))
+        wanted_x = layout["ports"][port][0] - min_x
+        if selected_position is None or selected_position[0] != wanted_x:
+            bad.append(((x, y), port, selected_position, wanted_x))
+    if bad:
+        raise RuntimeError(f"{len(bad)} wrong port bindings; first: {bad[0]}")
+    print(f"bindings OK: {len(layout['intent'])} controller ops")
+
+
 class Cursor:
     def __init__(self, opmin, opmax):
         self.cells = {}

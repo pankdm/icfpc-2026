@@ -382,8 +382,23 @@ def build():
     # has no outgoing pipe at all (fatal no-pipe on its first 's').
     # ...then north up col X_P2, which the serpentine deliberately keeps clear
     # (its horizontal runs start at col 11).
+    # BELT LENGTH IS A FIFO-SAFETY PARAMETER, not just latency.  Two rules:
+    #  (a) THROUGHPUT CEILING.  100 values live in a loop of L = |p1| + |p2|
+    #      cells and each advances at most one cell per tick, so a value's
+    #      round trip is >= L ticks and (Little's law) the belt can never
+    #      sustain more than 100/L values/tick.  A 2-man relay ring demands
+    #      ~0.73, so L = 126 (ceiling 0.794) is only 9% clear -- too close.
+    #  (b) p2 MUST STAY LONGER THAN 100.  Whichever station is slowest, the
+    #      standing queue of ~100 values forms immediately UPSTREAM of it, at
+    #      the DESTINATION end of p2.  While |p2| > 100 that queue cannot
+    #      reach p2's SOURCE cell, so HOP's `s` never blocks -- which is what
+    #      keeps a multi-man HOP FIFO-correct.  (Two men only invert order
+    #      when both are blocked holding values, because contention is by
+    #      ascending man id, not by who received first.)  Shrinking p2 below
+    #      ~104 would silently reorder the belt.
+    # So: p2 105, p1 11 -> L = 116, ceiling 0.862 val/tick, p2 slack ~9 cells.
     p2 = [(25, 26), (25, 27), (11, 27), (11, 28), (31, 28), (31, 29),
-          (11, 29), (11, 30), (31, 30), (31, 31), (X_P2, 31),
+          (11, 29), (11, 30), (26, 30), (26, 31), (X_P2, 31),
           (X_P2, PIPE_ROW)]
     for pts in (out, cmd, ipipe, p1, p2):
         p.pipe(pts)

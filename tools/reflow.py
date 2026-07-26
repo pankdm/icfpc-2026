@@ -647,6 +647,130 @@ def cmd_build(args):
     return max(w, h) ** 2
 
 
+# ============================================================ band v2 assembly
+
+def cmd_build2(args):
+    """Like `build`, but the satellite band is re-composed instead of carried verbatim:
+
+    - room2 rises to sit 3 rows under room0 (pipe2's 23 cells land on its west wall at the
+      SAME cell as before — the landing row is free to differ from the man's row, since a
+      room with one incoming pipe binds every `r` to it regardless of position);
+    - the display tucks 3 rows under room2's bottom-right, as close as pipe7's 4 cells
+      allow (sa/sd re-attach on room2's wall; every `s` re-binding is re-derived and
+      checked against the reference nearest rule);
+    - room4 and both 400-cell delay lines move into the dead region east of room3, folded
+      with comb teeth so each keeps exactly 400 cells.
+
+    Saves 17 rows of band height over `build` (73 -> 56)."""
+    src = load_rows(args.man)
+    topo = analyze(src)
+    sites = {"in": [], "out": []}
+    for i, p in enumerate(topo["pipes"]):
+        path = p.get("path") or []
+        if not path:
+            continue
+        if p.get("src") == 0:
+            sites["out"].append((i, tuple(path[0]["pos"])))
+        if p.get("dst") == 0:
+            sites["in"].append((i, tuple(path[-1]["pos"])))
+
+    def band_of(cell, ch):
+        if ch in "rq":
+            return ("in", nearest(sites["in"], cell))
+        if ch == "s":
+            return ("out", nearest(sites["out"], cell))
+        return None
+
+    blocks = blockify(src, topo, band_of)
+    lay, _entry, expect = emit_room0(blocks, args.width)
+    XI, H = lay.bbox()
+    XW = XI + 1
+    A = H + 2
+
+    cells = dict(lay.cells)
+
+    def blit(x0, y0, block_rows):
+        for dy, line in enumerate(block_rows):
+            for dx, ch in enumerate(line):
+                if ch != " ":
+                    if (x0 + dx, y0 + dy) in cells:
+                        sys.exit(f"blit conflict at ({x0+dx},{y0+dy})")
+                    cells[(x0 + dx, y0 + dy)] = ch
+
+    for x in range(0, XW + 1):
+        cells[(x, 0)] = cells[(x, H + 1)] = "-"
+    for y in range(1, H + 1):
+        cells[(0, y)] = cells[(XW, y)] = "|"
+    for c in ((0, 0), (XW, 0), (0, H + 1), (XW, H + 1)):
+        cells[c] = "+"
+
+    a = ATTACH
+    R4X = 115                                   # room4's west wall
+    # pipe1's serpentine teeth (5 teeth x depth 16 = +160 over the straight route)
+    wp1 = [(10, A), (10, A + 53), (90, A + 53), (90, A + 22)]
+    x = 91
+    for _ in range(5):
+        wp1 += [(x, A + 22), (x, A + 6), (x + 1, A + 6), (x + 1, A + 22)]
+        x += 4
+    wp1 += [(164, A + 22), (164, A + 24)]
+    # pipe8's teeth (8 teeth x depth 9 = +144)
+    wp8 = [(181, A + 28), (181, A + 55)]
+    x = 176
+    for _ in range(8):
+        wp8 += [(x, A + 55), (x, A + 46), (x - 1, A + 46), (x - 1, A + 55)]
+        x -= 4
+    wp8 += [(8, A + 55), (8, A - 1)]
+    pipes = {
+        3: [(a[("in", 3)], A + 2), (a[("in", 3)], A - 1)],
+        0: [(a[("out", 0)], A), (a[("out", 0)], A + 18)],
+        5: [(a[("in", 5)], A + 17), (a[("in", 5)], A - 1)],
+        2: [(a[("out", 2)], A), (a[("out", 2)], A + 20), (18, A + 20)],
+        1: wp1,
+        8: wp8,
+        # sa: room2 bottom wall -> display top wall, the 4 cells that pin the display
+        7: [(26, A + 29), (26, A + 30), (25, A + 30), (25, A + 31), (25, A + 32)],
+        # sd: room2 bottom wall -> display west wall
+        6: [(20, A + 29), (20, A + 39), (22, A + 39)],
+        # ss: room2 top wall -> around the east -> display bottom wall (one +4 detour).
+        # The first step must leave the wall PERPENDICULAR or the loader records src -1.
+        4: [(28, A + 2), (28, A + 1), (43, A + 1), (43, A + 8), (41, A + 8),
+            (41, A + 11), (43, A + 11), (43, A + 51), (26, A + 51), (26, A + 49)],
+    }
+    want = {0: 18, 1: 400, 2: 23, 3: 3, 5: 18, 8: 400, 4: 89, 6: 12, 7: 4}
+    for pi, wps in pipes.items():
+        path = draw_pipe(wps, drop_last=True)
+        if len(path) != want[pi]:
+            sys.exit(f"pipe{pi} is {len(path)} cells, need {want[pi]}")
+        for c, ch in path:
+            if c in cells:
+                sys.exit(f"pipe{pi} collides at {c} with {cells[c]!r}")
+            cells[c] = ch
+
+    # room1 (input), room3 (fast rotator), room4 (92-slot), room2, display — verbatim
+    blit(12, A + 3, [src[y][21:24] for y in range(1068, 1071)])
+    blit(45, A + 18, [src[y][41:58] for y in range(1083, 1087)])
+    blit(R4X, A + 24, [src[y][1:95] for y in range(1465, 1469)])
+    blit(18, A + 3, [src[y][122:138] for y in range(1070, 1096)])
+    blit(22, A + 32, [src[y][128:146] for y in range(1100, 1118)])
+
+    # room2's own `s` ops must re-derive to the same roles: sa/sd/ss by nearest
+    r2_out = [(7, (26, A + 29)), (6, (20, A + 29)), (4, (28, A + 2))]
+    for cell, pipe_want in (((26, A + 27), 7), ((20, A + 27), 6), ((28, A + 6), 4)):
+        got = nearest(r2_out, cell)
+        if got != pipe_want:
+            sys.exit(f"room2 s at {cell} binds pipe{got}, want pipe{pipe_want}")
+
+    bad = check_bands(expect, H)
+    if bad:
+        sys.exit(f"{len(bad)} ops bind the wrong pipe, first {bad[:3]}")
+
+    open(args.out, "w").write(render(cells))
+    w = max(x for x, _ in cells) + 1
+    h = max(y for _, y in cells) + 1
+    print(f"  wrote {args.out}  {w}x{h}  box {max(w, h) ** 2:,}   room0 {XW+1}x{H+2}")
+    return max(w, h) ** 2
+
+
 def main():
     ap = argparse.ArgumentParser()
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -665,6 +789,11 @@ def main():
                    help="last column the main serpentine may use (247 is the measured "
                         "optimum: wider rows trade height for width one-for-one)")
     c.set_defaults(fn=cmd_build)
+    c2 = sub.add_parser("build2", help="build + re-composed satellite band (17 rows shorter)")
+    c2.add_argument("man")
+    c2.add_argument("out")
+    c2.add_argument("--width", type=int, default=247)
+    c2.set_defaults(fn=cmd_build2)
     args = ap.parse_args()
     args.fn(args)
 

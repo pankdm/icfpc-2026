@@ -33,6 +33,16 @@ MIN_DICTIONARY_WORDS = 38
 MAX_DICTIONARY_WORDS = 91
 LOGGER = logging.getLogger(__name__)
 
+# A physical permutation found by the width-constrained packing search. Direct
+# positions remain in the first sixteen slots and escaped positions after
+# them, so references can be remapped without changing the stream protocol.
+# At dictionary width 52 this reaches the six-band source-width lower bound.
+PACKING_ORDER_44 = [
+    9, 5, 12, 6, 10, 2, 15, 14, 4, 11, 16, 1, 3, 7, 13, 8,
+    25, 18, 22, 34, 36, 39, 27, 30, 29, 19, 17, 20, 35, 37,
+    38, 41, 21, 28, 31, 42, 32, 43, 40, 24, 26, 23, 33, 44,
+]
+
 
 @dataclass(frozen=True)
 class DictionaryBand:
@@ -243,6 +253,54 @@ def _put_row(program: Program, x: int, y: int, cells) -> None:
             program.put(x + dx, y, glyph)
 
 
+def repack_physical_dictionary(
+    symbols: list[int],
+    ring: dict[int, int],
+) -> tuple[list[int], dict[int, int], list[int]]:
+    """Permute physical entries and rewrite every dictionary reference."""
+    count = len(ring)
+    direct_order = PACKING_ORDER_44[:16]
+    escaped_order = [
+        position for position in PACKING_ORDER_44[16:]
+        if position <= count
+    ]
+    escaped_order.extend(
+        position for position in range(17, count + 1)
+        if position not in escaped_order
+    )
+    order = direct_order + escaped_order
+    assert sorted(order) == list(range(1, count + 1))
+
+    new_position = {
+        old_position: physical_position
+        for physical_position, old_position in enumerate(order, start=1)
+    }
+    assert all(new_position[position] <= 16 for position in range(1, 17))
+    assert all(new_position[position] >= 17 for position in range(17, count + 1))
+
+    rewritten = []
+    index = 0
+    while index < len(symbols):
+        symbol = symbols[index]
+        index += 1
+        if symbol == vertical.base.ESC:
+            rewritten.extend([
+                symbol,
+                new_position[symbols[index]],
+            ])
+            index += 1
+        elif 1 <= symbol <= 16:
+            rewritten.append(new_position[symbol])
+        else:
+            rewritten.append(symbol)
+
+    new_ring = {
+        new_position[old_position]: value
+        for old_position, value in ring.items()
+    }
+    return rewritten, new_ring, order
+
+
 def place_dictionary(
     program: Program,
     x0: int,
@@ -333,10 +391,110 @@ def place_dictionary(
     return room_width, room_height
 
 
+def add_connection_pipes(
+    program: Program,
+    *,
+    feeder_width: int,
+    feeder_rows: int,
+    dictionary: tuple[int, int, int, int],
+    service_rooms: list[tuple[str, int, int, int, int]],
+) -> int:
+    """Connect the laid-out rooms with spacious, non-optimized pipes."""
+    room_by_name = {
+        name: (x, y, width, height)
+        for name, x, y, width, height in service_rooms
+    }
+    dictionary_x, dictionary_y, dictionary_width, dictionary_height = dictionary
+    decoder_x, decoder_y, decoder_width, decoder_height = room_by_name["decoder"]
+    unpack_x, unpack_y, unpack_width, unpack_height = room_by_name["unpack"]
+    output_x, output_y, _, output_height = room_by_name["output"]
+    disp_x, disp_y, disp_width, disp_height = room_by_name["dispatcher"]
+
+    feeder_bottom = feeder_rows + 1
+
+    # Feeder -> DECODER: the two-row gap above the shifted service row exists
+    # specifically for this short vertical connection.
+    feeder_decoder_x = decoder_x + 6
+    program.pipe([
+        (feeder_decoder_x, feeder_bottom + 1),
+        (feeder_decoder_x, decoder_y - 1),
+    ])
+
+    dictionary_bottom_outside = dictionary_y + dictionary_height
+    lower_route_y = dictionary_bottom_outside + 2
+
+    # DECODER -> DISP, retaining the dispatcher attachment used by the
+    # original vertical-P1 prototype.
+    decoder_send = (decoder_x + 5, decoder_y + decoder_height)
+    disp_stream_in = (disp_x - 1, disp_y + 5)
+    program.pipe([
+        decoder_send,
+        (decoder_send[0], lower_route_y),
+        (disp_stream_in[0], lower_route_y),
+        disp_stream_in,
+    ], end_direction="E")
+
+    # DISP -> UNPACK, across the upper routing strip. It stays east of the
+    # feeder connection, so the two pipes do not cross.
+    disp_stream_out = (disp_x + 18, disp_y - 1)
+    unpack_stream_in = (unpack_x + 7, unpack_y - 1)
+    upper_route_y = disp_y - 2
+    upper_drop_x = feeder_width + 1
+    program.pipe([
+        disp_stream_out,
+        (disp_stream_out[0], upper_route_y),
+        (upper_drop_x, upper_route_y),
+        (upper_drop_x, unpack_stream_in[1]),
+        unpack_stream_in,
+    ], end_direction="S")
+
+    # UNPACK -> output, entering the output room from below.
+    unpack_send = (unpack_x + 4, unpack_y + unpack_height)
+    output_in = (output_x + 1, output_y + output_height)
+    output_route_y = dictionary_bottom_outside + 1
+    program.pipe([
+        unpack_send,
+        (unpack_send[0], output_route_y),
+        (output_in[0], output_route_y),
+        output_in,
+    ], end_direction="N")
+
+    # Dictionary -> DISP and DISP -> dictionary. These intentionally generous
+    # routes also provide far more than the ring's required word capacity.
+    dictionary_ring_out = (
+        dictionary_x + 4,
+        dictionary_bottom_outside,
+    )
+    disp_ring_in = (disp_x + 18, disp_y + disp_height)
+    ring_forward_y = dictionary_bottom_outside + 8
+    program.pipe([
+        dictionary_ring_out,
+        (dictionary_ring_out[0], ring_forward_y),
+        (disp_ring_in[0], ring_forward_y),
+        disp_ring_in,
+    ], end_direction="N")
+
+    disp_ring_out = (disp_x + 22, disp_y + disp_height)
+    dictionary_ring_in = (
+        dictionary_x + 2,
+        dictionary_bottom_outside,
+    )
+    ring_return_y = ring_forward_y + 2
+    program.pipe([
+        disp_ring_out,
+        (disp_ring_out[0], ring_return_y),
+        (dictionary_ring_in[0], ring_return_y),
+        dictionary_ring_in,
+    ], end_direction="N")
+
+    return 6
+
+
 def build(
     feeder_width: int = DEFAULT_FEEDER_WIDTH,
     dictionary_width: int = DEFAULT_DICTIONARY_WIDTH,
     dictionary_words: int = DEFAULT_DICTIONARY_WORDS,
+    connect_pipes: bool = False,
 ) -> tuple[Program, dict[str, object]]:
     if feeder_width < 8:
         raise ValueError("feeder width must be at least 8")
@@ -352,18 +510,17 @@ def build(
         "building encoding for %d dictionary words",
         dictionary_words,
     )
-    symbols, ring, candidate_bands = vertical.build_encoding(
-        extra_phrases=dictionary_words - MIN_DICTIONARY_WORDS
+    symbols, ring, _ = vertical.build_encoding(
+        extra_phrases=dictionary_words - MIN_DICTIONARY_WORDS,
+        optimize=False,
     )
+    LOGGER.info("remapping references for DP-friendly physical dictionary order")
+    symbols, ring, physical_order = repack_physical_dictionary(symbols, ring)
     LOGGER.info(
         "optimizing feeder layout for width %d",
         feeder_width,
     )
-    bands = (
-        candidate_bands
-        if feeder_width == vertical.WIDTH
-        else vertical.base.optimize_feeder(symbols, feeder_width)
-    )
+    bands = vertical.base.optimize_feeder(symbols, feeder_width)
     program = Program()
     feeder_rows = vertical.base.variable_feeder(program, bands, feeder_width)
     LOGGER.info(
@@ -393,10 +550,13 @@ def build(
         dictionary_height,
     )
 
-    # Put every remaining room in the same row as the dictionary. Adjacent
-    # room walls occupy neighbouring columns with no empty gap, so the tail
-    # grows only to the right.
-    LOGGER.info("placing touching horizontal service-room row")
+    # Put every remaining room in one horizontal row. Connected mode moves
+    # that row down two cells to open a routing strip below the feeder.
+    service_y = tail_y + (2 if connect_pipes else 0)
+    LOGGER.info(
+        "placing touching horizontal service-room row%s",
+        " two rows lower" if connect_pipes else "",
+    )
     service_x = dictionary_width
     service_rooms = []
     for name, rows in [
@@ -405,26 +565,42 @@ def build(
     ]:
         width = max(len(row) for row in rows) + 2
         width, height = vertical.base.paste_room(
-            program, service_x, tail_y, rows
+            program, service_x, service_y, rows
         )
-        service_rooms.append((name, service_x, tail_y, width, height))
+        service_rooms.append((name, service_x, service_y, width, height))
         service_x += width
 
     output_x = service_x
-    program.output_room(output_x, tail_y)
-    service_rooms.append(("output", output_x, tail_y, 3, 3))
+    program.output_room(output_x, service_y)
+    service_rooms.append(("output", output_x, service_y, 3, 3))
     service_x += 3
 
     disp_width = max(len(row) for row in vertical.DISP_DELAYED_ROWS) + 2
     disp_width, disp_height = vertical.base.paste_room(
         program,
         service_x,
-        tail_y,
+        service_y,
         vertical.DISP_DELAYED_ROWS,
     )
     service_rooms.append(
-        ("dispatcher", service_x, tail_y, disp_width, disp_height)
+        ("dispatcher", service_x, service_y, disp_width, disp_height)
     )
+
+    pipe_count = 0
+    if connect_pipes:
+        LOGGER.info("routing six functional connection pipes")
+        pipe_count = add_connection_pipes(
+            program,
+            feeder_width=feeder_width,
+            feeder_rows=feeder_rows,
+            dictionary=(
+                dictionary_x,
+                tail_y,
+                dictionary_width,
+                dictionary_height,
+            ),
+            service_rooms=service_rooms,
+        )
 
     LOGGER.info("validating vertical literals and layout metadata")
     bad_ticks = vertical.base.audit_vertical_ticks(program)
@@ -453,9 +629,11 @@ def build(
                 sum(width + 3 for width in band.widths)
                 for band in dictionary_bands
             ],
+            "physical_order": physical_order,
         },
         "service_rooms": service_rooms,
-        "pipes": 0,
+        "pipes": pipe_count,
+        "connected": connect_pipes,
     }
     return program, metadata
 
@@ -487,6 +665,11 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--connect-pipes",
+        action="store_true",
+        help="move service rooms down two rows and add functional pipes",
+    )
+    parser.add_argument(
         "-o",
         "--output",
         help="output .man path (default encodes the three layout parameters)",
@@ -505,23 +688,26 @@ def main() -> None:
             feeder_width=args.feeder_width,
             dictionary_width=args.dictionary_width,
             dictionary_words=args.dictionary_words,
+            connect_pipes=args.connect_pipes,
         )
     except ValueError as error:
         raise SystemExit(f"error: {error}") from error
 
+    mode_suffix = "-connected" if args.connect_pipes else ""
     output = args.output or os.path.join(
         HERE,
         (
             f"layout-f{args.feeder_width}"
             f"-d{args.dictionary_width}"
-            f"-n{args.dictionary_words}.man"
+            f"-n{args.dictionary_words}"
+            f"{mode_suffix}.man"
         ),
     )
     LOGGER.info("saving generated layout to %s", output)
     program.save(output)
     width, height, _ = program.footprint()
     dictionary = metadata["dictionary"]
-    print(f"wrote {output}: {width}x{height}, pipes=0")
+    print(f"wrote {output}: {width}x{height}, pipes={metadata['pipes']}")
     print(
         "feeder "
         f"{args.feeder_width}x{metadata['feeder_rows'] + 2}; "

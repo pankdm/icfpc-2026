@@ -34,7 +34,11 @@ class LayoutBuilderTest(unittest.TestCase):
     def test_dp_packs_every_constant(self):
         dictionary = self.metadata["dictionary"]
         self.assertEqual(sum(dictionary["constants_per_band"]), 44)
-        self.assertEqual(dictionary["bands"], 7)
+        self.assertEqual(dictionary["bands"], 6)
+        self.assertEqual(
+            dictionary["constants_per_band"],
+            [9, 9, 6, 6, 6, 8],
+        )
         self.assertEqual(
             len(dictionary["slots_per_band"]),
             dictionary["bands"],
@@ -74,6 +78,7 @@ class LayoutBuilderTest(unittest.TestCase):
 
     def test_no_pipes_are_declared(self):
         self.assertEqual(self.metadata["pipes"], 0)
+        self.assertFalse(self.metadata["connected"])
 
     def test_buffer_loop_follows_all_constant_bands(self):
         dictionary = self.metadata["dictionary"]

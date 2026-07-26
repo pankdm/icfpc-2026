@@ -46,6 +46,11 @@ vs0s
  ^<<<
 ```
 
+The builder may permute physical dictionary positions while keeping direct
+entries in positions 1–16 and escaped entries after them. It rewrites feeder
+references to match. At the default 52-column width this lets the DP attain
+the six-band lower bound and embeds the three-row loop two rows higher.
+
 After the last constant, the loader sends the zero sentinel and enters the
 `r`/`s` buffer iteration loop; the loop remains physically and semantically at
 the end of the preload path.
@@ -53,3 +58,26 @@ the end of the preload path.
 The generated `.man` is not a runnable solution. It has no pipes by design,
 so its `r` and `s` instructions would fail if executed. Pipe attachment and
 routing are a later phase.
+
+## Connected mode
+
+Pass `--connect-pipes` to generate a runnable version:
+
+```bash
+python3 solutions/history-lesson/layout-builder/build.py --connect-pipes
+```
+
+This moves DECODER, UNPACK, output, and DISP two rows below their pipe-free
+positions, leaving the dictionary in place. It then adds six intentionally
+spacious, non-optimized routes: the four streaming pipeline links and both
+directions of the dictionary ring. Connected outputs receive a `-connected`
+filename suffix by default.
+
+Verify a connected default build with both interpreters:
+
+```bash
+python3 tools/grade_fast.py history-lesson \
+  solutions/history-lesson/layout-builder/layout-f81-d52-n44-connected.man
+node tools/grade.js history-lesson \
+  solutions/history-lesson/layout-builder/layout-f81-d52-n44-connected.man
+```

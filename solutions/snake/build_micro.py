@@ -345,14 +345,15 @@ def build(save_to=None, CBOT=66, RING_PAD=0):
     blocks = {}
 
     def block(name, hw=None):
-        """Reserve an approach row + first op row; wire the highway turn-off."""
-        y_app = rows(); y_ops = R.take()
+        """Enter a block straight off the highway: the turn-off IS the first op row."""
+        y_ops = R.take()
         if hw is not None:
-            L.put(hw, y_app, "<")
-        L.put(1, y_app, "v")
-        L.put(1, y_ops, ">")
-        blocks[name] = (y_app, y_ops, hw)
-        E.at(2, y_ops, "E")
+            L.put(hw, y_ops, "<")
+            blocks[name] = (y_ops, hw)
+            E.at(hw - 1, y_ops, "W")
+        else:
+            L.put(1, y_ops, ">")
+            E.at(2, y_ops, "E")
         return y_ops
 
     def endblock():

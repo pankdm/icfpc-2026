@@ -1,13 +1,15 @@
 # History Lesson — ring dictionary build
 
-`best/82x82.man` is the checked-in champion for this problem.  It has an
-**82×82** non-space footprint, so its footprint-only score is **6,724**.
-`build_ring.py` reproduces it byte-for-byte; the `.man` file is not a
-hand-maintained second source of truth.
+`best/82x82.man` remains the checked-in champion.  The narrower
+`candidates/81x82.man` is not yet considered valid for promotion to `best/`.
+It has an **81×82** non-space footprint and therefore the same footprint-only
+score of **6,724**.  `build_ring.py --narrow` reproduces the candidate
+byte-for-byte; the default builder invocation reproduces the champion.
 
 | Candidate | Footprint | Score |
 | --- | ---: | ---: |
 | `best/82x82.man` | 82×82 | 6,724 |
+| `candidates/81x82.man` | 81×82 | 6,724 |
 | `history-ring.man` | 83×83 | 6,889 |
 | `history-lesson-with-year.man` | 84×84 | 7,056 |
 | `history-lesson-v3.man` / `v4.man` | 85×85 / 85×84 | 7,225 |
@@ -232,25 +234,48 @@ For the encoding-only analysis of adding more dictionary entries, using
 multiword entries, and minimizing feeder literal count independently of
 layout, see [`FEEDER-DICTIONARY.md`](FEEDER-DICTIONARY.md).
 
+## Narrow constant-tail variant
+
+`candidates/81x82.man` uses the two old pump rows twice:
+
+- the steady `>>rsv` / ` ^<<<` pump is moved to the far right;
+- the first pump row preloads `Baltim`, `iotis, `, and `, Italy`, followed by
+  the ring sentinel;
+- aligned, unsent zero literals on the second row preserve vertical backtick
+  pairing.
+
+Those three phrases are the unique best remaining choices by immediate
+base-92 symbol reduction: each occurs twice and replaces six tokens with an
+escape pair, saving eight symbols.  Together they reduce the stream from
+2,042 to 2,018 symbols.  The width-81 feeder DP then fits in the same 62 rows,
+using 294 literals rather than the old width-82 plan's 304.
+
+The P1 room shrinks from 80 to 79 columns.  DISP drops its unused rightmost
+interior column, which frees the two-cell P1→DISP return pipe at x=77.  The
+other ring leg folds down a second time above P1: it has 45 cells, so the two
+legs provide 47 cells of capacity for the 38 dictionary entries plus sentinel.
+The organizer WASM passes the complete public output in 255,288 ticks.
+
 ## Reproducing the champion
 
 From the repository root:
 
 ```bash
+python3 solutions/history-lesson/build_ring.py --narrow
+git diff --exit-code -- solutions/history-lesson/candidates/81x82.man
 python3 solutions/history-lesson/build_ring.py
 git diff --exit-code -- solutions/history-lesson/best/82x82.man
 python3 scratchpad/history-ring/test_rooms.py
 python3 scratchpad/history-ring/test_year.py
 python3 scratchpad/history-ring/test_disp.py
-node tools/grade_json.js history-lesson solutions/history-lesson/best/82x82.man \
+node tools/grade_json.js history-lesson solutions/history-lesson/candidates/81x82.man \
   --cases tests/history-lesson.json --failfast
 ```
 
-The first command deterministically runs the variable-width feeder DP and
-overwrites `best/82x82.man`.  The second command is the strict reproduction
-gate: no output and exit status zero means the generated file is byte-identical
-to the checked-in champion.  Generation takes roughly 30 seconds on the
-contest machine.
+The two builder commands deterministically run the variable-width feeder DP.
+Each following `git diff` is a strict reproduction gate: no output and exit
+status zero means the generated file is byte-identical to the checked-in
+artifact.  Each generation takes roughly 30 seconds on the contest machine.
 
 Two DSL details are load-bearing:
 

@@ -23,6 +23,47 @@ of MEMORY's pipes attach to its bottom wall, so binding is decided by column:
 Every pipe instruction below is placed to satisfy that, with the margin noted.
 Moving any of these columns silently re-binds instructions -- re-check before
 touching them.
+
+STATUS: 7/7 public + 34/34 fuzz streams (scratchpad/rewind/fuzz.py).
+        box 1764 (32x42), avgTicks 5351, local 9.44M  (~4.18x -> ~39M server).
+        Champion addr-compare is 3.96M local / 15.92M server; leader 9.55M.
+
+WHAT STEP (1) DID AND DID NOT BUY -- measured, don't re-litigate:
+  * box 2500 -> 1764 came ENTIRELY from shortening the belt (235 -> 117 cells).
+  * ticks did NOT improve (5288 -> 5351). The bypass lanes this deleted were
+    simply replaced by a ~32-tick return corridor (up col 17, west along row 4).
+    Per-op cost is still ~240 ticks, split roughly:
+        row 5 compute        16
+        row 6 + ring walk    10
+        ring8   a * 22       ~131   (a = rot>>3, avg 5.94; 2.75 ticks/relay)
+        ring1   r8 * 10      ~35    (r8 avg 3.5; 10 ticks/relay -- WORST cell)
+        tap                  ~22
+        return corridor      ~32
+  * so the remaining tick levers, in order of value:
+      1. ring1 is 10 ticks/relay. Kill the separate remainder ring entirely by
+         entering the MAIN ring at a variable offset so the first partial lap
+         performs exactly r8 relays (entry cells: up-col rows top+4/6/8/10 for
+         1..4 relays, down-col rows top+9/7/5/3 for 5..8). Always enter on an
+         'r', never mid-relay. Worth ~20 ticks/op.
+      2. the return corridor (~32) is pure geometry -- it shrinks with the fold.
+      3. a bigger ring amortises the 6 fixed cells/lap: ticks/relay = 2 + 6/R
+         for R relays per lap (R=8 -> 2.75, R=16 -> 2.375). R=16 needs 20 rows.
+    A single man on a straight rsrsrs chain is exactly 0.50 values/tick
+    (2 ticks/relay), so ~2.1-2.4 ticks/relay is the realistic floor here.
+
+THE FOLD IS THE BINDING CONSTRAINT, AND IT IS AREA-LIMITED, NOT LAZINESS:
+  MEM 19x21=399 + CONTROL 10x9=90 + HOP 12x4=48 + 2 IO rooms=18 + pipes ~133
+  = 688 cells of content. A 26x26 box is 676 -- it DOES NOT FIT. 27x27=729
+  leaves 41 cells of slack, i.e. ~94% packing, which is not routable.
+  So beating the champion needs one of:
+    (a) shrink MEM (399 is the dominant term; its interior is mostly blank
+        corridor), or
+    (b) cut ticks so the box target relaxes (box = 9,547,949 / (92 * t_per_op)).
+  Attachment columns are the trap: putting CMD on MEM's right wall to free the
+  bottom row was tried on paper and re-binds the ring 'r' cells to CMD (ring at
+  (10,9) is 10 from a right-wall CMD but 12 from P2) -- fatal and silent.
+  Any layout move MUST be re-checked against the midpoint rule above and then
+  re-fuzzed, not just re-graded on the 7 public cases.
 """
 import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'tools'))

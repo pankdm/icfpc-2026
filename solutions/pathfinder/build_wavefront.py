@@ -89,6 +89,15 @@ class Flow(stateflow.Flow):
         self.e("M").const(1).e("W", "-", "M").load(TAKE).e("&")
         return self
 
+    def masked_low48(self):
+        """A &= 0x0000ffffffffffff after an arithmetic right shift."""
+        self.store(TAKE).const(1).shift_a(16)
+        self.e("M").const(1).e("W", "-")
+        self.shift_a(48)
+        # Complement the synthesized high-16 mask.
+        self.e("M").const(1).e("N", "~", "M").load(TAKE).e("&")
+        return self
+
     def or_saved(self):
         # A is the second term; the first is waiting in scratch.
         return self.e("M", "rp", "|")
@@ -128,7 +137,7 @@ def contribution(f, direction, word):
     if direction == 1:  # R parent
         return f.shift(FRONT + word, 1, left=False).masked_not_column(column15=True)
     if direction == 2:  # D parent
-        f.shift(FRONT + word, 16, left=False)
+        f.shift(FRONT + word, 16, left=False).masked_low48()
         if word < 3:
             f.store(CAND).load(FRONT + word + 1).masked_low16()
             f.shift_a(48, left=True)

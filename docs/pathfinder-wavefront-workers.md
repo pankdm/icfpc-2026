@@ -33,6 +33,12 @@ D[i] = (F[i] >> 16) | (i<3 ? (F[i+1] & 0xffff) << 48 : 0)
 L[i] = (F[i] << 1) & ~COL0
 ```
 
+The notation above uses logical right shifts. Littleman's `}` is arithmetic:
+the physical U cross-word contribution must mask to 16 bits, and the local D
+contribution must mask to 48 bits. `scratchpad/pathfinder_candidate_workers.py`
+exercises the former with negative words; omitting the mask turns `-1 >> 48`
+into `-1` instead of `65535`.
+
 Each lane's `UNVIS` worker visits four distinct receive cells in strict U/R/D/L
 order. For each candidate `C`, with `B=unvisited`:
 

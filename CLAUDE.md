@@ -4,6 +4,8 @@ We write **littleman** programs (`.man` — a 2D ASCII grid esolang: little men 
 rooms, executing the glyph under them, talking over pipes) and submit them to the contest
 grader. `PROBLEM.md` is the language + scoring reference (read it before writing any grid).
 This file is the *operational* guide: how we work, what already exists, what not to redo.
+For the end-to-end construction, verification, profiling, optimization, and submission
+workflow, read `docs/agent-framework-guide.md`.
 
 **Contest clock** (from `/api/v1/public/contest-clock`): started 2026-07-24 12:00Z,
 lightning ended 2026-07-25 12:00Z, **ends 2026-07-27 12:00Z**; final standings freeze
@@ -21,8 +23,8 @@ Node 20+ (v25 here) and Python 3 stdlib only — **no npm/pip install**.
 - **The dashboard needs a browser session cookie**, not the API key: `~/.icfpc-cookie`
   (or `$ICFPC_COOKIE`). The login form sits behind a Cloudflare Turnstile, so it **cannot
   be scripted** — grab the cookie from DevTools → Network → any `/api/v1/` request.
-- Rust is **not installed** on this machine (`cargo` missing) — `interp/` can't be built
-  here. That's fine: the WASM oracle is ground truth, and it's fast.
+- Rust is installed and `interp/` builds locally. Use it for heavy iteration and profiling;
+  the organizer WASM remains the ground-truth final oracle.
 - **The submitted program text is not retrievable from anywhere** (checked: Bearer
   `GET /submissions/:id` and every `dashboard/*` route omit it). **git is the only copy of
   what we submitted — never submit a build that is not committed.**
@@ -62,13 +64,13 @@ tools/compact_man.py       mechanically delete redundant rows/cols (validator-ch
 sim/                       reference oracle harness + ~30 probe/measure scripts
 interp/                    fast Rust interpreter, full language parity (needs cargo)
 interpreter/               dependency-free Python interpreter + unittests
-docs/                      reverse-engineered semantics (read these)
+docs/                      semantics plus agent-framework-guide.md (read these)
 tests/<slug>.json          cached problem specs incl. publicTestData; index.json = summary
 scratchpad/                throwaway probes, gadget prototypes, POC builders
 ```
 
-Note `docs/OVERVIEW.md`'s "Interpreter status TODO: pipes…" is **stale** — the Rust interp
-got full parity (pipes/IO/literals/display/rounds) in `403a927`.
+The Rust interpreter has full parity for pipes, I/O, literals, displays, and rounds
+(`403a927`), plus profiler and pipe-endpoint diagnostics used by the optimization loop.
 
 ## Where we actually stand
 

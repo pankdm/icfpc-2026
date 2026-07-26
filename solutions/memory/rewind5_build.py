@@ -1,0 +1,335 @@
+#!/usr/bin/env python3
+"""memory rewind v4 -- the 28x28 fold.  box 784, avgTicks 4923, local 3.86M.
+
+*** THE FLOORPLAN, AND THE ONE RULE THAT DETERMINES IT. ***
+A pipe is AT LEAST TWO CELLS LONG, so every pipe hanging off MEM's bottom wall
+costs BOTH row 18 and row 19 in its own column.  Rows 18-19 are therefore
+blocked at cols 1, 4, 9, 14 and NOTHING can run horizontally across them.
+Everything else follows:
+
+  cols  0-16 rows  0-17   MEM            (17x18, unchanged from v3)
+  cols  0- 2 rows 20-22   output room    (straight down the OUT lane, col 1)
+  cols  3-12 rows 20-27   CONTROL        (straight down the CMD lane, col 4)
+  cols 15-17 rows 24-26   input room     -> ipipe (14,25),(13,25) -> CONTROL
+  cols 17-27 rows  0- 3   HOP            (top of the right strip)
+  cols 18-27 rows  4-21   the belt
+
+CONTROL is 8 rows tall (20-27) and 10 wide; it is an IMPASSABLE WALL for rows
+20-27 across cols 3-12, so both west lanes must reach it/the output room
+vertically, and the belt must stay east of col 13.  The belt's return is the
+delicate part -- p1 owns (14,18) and (14,19) by force, so p2 CANNOT come back
+along row 19 from the east.  Instead:
+
+  p1: (14,18) -> (14,19) -> east row 19 to col 17 -> north col 18 -> HOP (18,3)
+  p2: HOP (25,3) -> boustrophedon cols 19-27 rows 5-12 -> south col 19 to row
+      21 -> WEST along row 21 across col 14 -> north col 13 -> WEST along row
+      19 (cols 13..9, all west of p1's col 14) -> (9,18)
+
+so the two halves of the belt interleave without ever crossing.  Belt = 110
+cells (p1 21 + p2 89) for 100 values; see the 2-man pump note at the bottom.
+
+ATTACHMENT COLUMNS MOVED: OUT 3->1 and CMD 1->4, so that the output room can
+sit west of CONTROL instead of underneath it.  Re-derived binding (all four
+pipes attach on row 18, so the |y-18| term cancels and only columns matter):
+    CMD/P2 midpoint 6.5 : `r` at x<=6 reads COMMANDS, at x>=7 reads the BELT
+    OUT/P1 midpoint 7.5 : every `s` must sit at x>=8 to reach the belt
+The write arm's belt read moved 6 -> 7 for this (col 6 binds CMD now).
+
+*** PORTING TRACK B's 2-MAN ENGINE ONTO THIS FLOORPLAN: THE KNOT. ***
+Track B (branch trackB) cuts avgTicks 4923 -> 3984 at box 1764.  Dropping that
+engine into this 784 box would give 3.12M local / ~12.5M server.  It does not
+drop in, and the reason is geometric, not logical -- do not re-derive it:
+
+  * Track B's MEM is 22 WIDE, not 17: the helper pump ring sits at cols 18/19
+    with its retiring `H` at col 20.  The helper cannot move west -- at col 6
+    an `s` is 5 from OUT(1) but 8 from P1(14), so it would bind the OUTPUT
+    pipe.  22 is therefore forced, and the right strip shrinks from cols 17-27
+    to cols 22-27, i.e. 6 wide.
+  * HOP is 7 rows tall (two 2-row rings + a spawn lane) and W+2 wide with
+    W >= 8 (rate (W-3)/W must beat MEM's 0.571).  So HOP is at minimum 10x7 and
+    NO LONGER FITS IN THE 6-WIDE STRIP where v4 puts it.
+  * Forced into the band (rows 20-27) instead, HOP collides with the belt's
+    return.  The knot: p1 owns (14,18) and (14,19) by force, so p2's only way
+    back to (9,18) is row 19 WEST of col 14, which it can only reach by
+    crossing col 14 at rows >= 20 -- and rows 20-27 are now HOP plus CONTROL.
+    Every assignment of the four lane columns either (a) puts CONTROL over
+    P2's column so p2 cannot come up from below, (b) puts the output room
+    (which needs OUT <= col 3) under CONTROL, or (c) leaves the input room
+    with no 2-cell gap to any CONTROL wall.  All three were worked through.
+
+  TWO WAYS OUT, both still worth it because ticks dominate the box here:
+   1. RELAX THE BOX.  29x29 = 841 x 3984 = 3.35M (~13.4M server) and even
+      30x30 = 3.59M still beat this file's 3.86M.  At 29 wide the strip is 7
+      cols, which is exactly enough for a TRANSPOSED HOP (7 wide x W+2 tall,
+      two 2-COLUMN rings + a spawn column).  A south-facing parent births east
+      and west, so `Y` works transposed -- MEM's own fork already does this.
+   2. Keep 28x28 and make HOP cheaper than 10x7.  Anything that shaves HOP to
+      <= 6 wide or gets MEM back under 22 wide unlocks v4's floorplan as-is.
+
+--- protocol, introduced in v3 and unchanged here -------------------------
+PROTOCOL: op before value, no value on reads.
+
+Read rewind2_build.py's docstring first; everything there about pipe binding,
+the vertical rings and the box arithmetic still holds.  This file changes only
+the CONTROL <-> MEMORY wire protocol and re-lays CONTROL accordingly.
+
+OLD wire (v2):  delta, value, op          (reads sent a dummy value 0)
+NEW wire (v3):  delta, op [, value]       (value only on writes)
+
+  CONTROL  main : r(op) b r(addr) -(delta) s(delta) +(addr) M(B=addr) d
+           write: 1 s(op=1) r(value) s(value)
+           read : 0 s(op=0)
+           merge: 1 + M          -- prev := addr+1, run by BOTH arms
+  MEM tap  : r(op) X
+           read arm : r(belt) S            (S = send to every outgoing pipe,
+                                            i.e. output AND belt reinject)
+           write arm: r(value) M r(belt) W s(belt)
+
+Two wins:
+  * a READ now moves 2 values instead of 3 -- one fewer send in CONTROL and one
+    fewer read in MEM, so ticks DROP.
+  * CONTROL's arms shrink from 8 ops to 6, and moving the prev-update ('1','+',
+    'M') onto the MERGED tail (both arms leave B=addr, so it works unchanged for
+    either) cuts the pre-branch main line to 8 ops.  CONTROL is now 8 ROWS tall
+    instead of 9, which is the row the 28x28 fold needs:
+        MEM 18 + cmd 2 + CONTROL 8 = 28.
+
+CONTROL interior (cols 1-8, rows 1-6 of a 10x8 room):
+
+      1 2 3 4 5 6 7 8
+    1 > @ r b r - s v
+    2               +
+    3 M             M
+    4 + v s r s 1 - d      (row 4 read WESTWARD: 1 s r s then 'v')
+    5 1   .         0
+    6 ^ . < . . . s <      (row 6 read WESTWARD from the '<' at col 8)
+
+The write arm turns south at (3,4) and rejoins the read arm's row-6 run at
+(3,6); col 1 rows 3-5 is the shared tail.  Both arms reach (1,1) with B=addr.
+
+MEM's tap is 2 cells shorter, but MEM's height is set by ring8 (top=5,
+nrelay=8 -> bot=16), not by the tap, so MEM stays 17x18.  The read arm still
+has to run along row 10: rows 6-9 of cols 8/9 belong to ring1 and row 8 in
+particular carries ring1's 's' at (9,8).
+
+STATUS: see the commit message.
+"""
+import sys, os
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'tools'))
+from littleman import Program
+
+# MEMORY bottom-wall pipe attachment columns -- unchanged from v2, and the
+# reason every instruction below sits in the column it does.  All four pipes
+# attach on the same row, so the |y - 18| term cancels and binding is decided
+# purely by column:
+#     CMD/P2 midpoint 6.5 : `r` at x<=6 reads COMMANDS, at x>=7 reads the BELT
+#     OUT/P1 midpoint 7.5 : every `s` must sit at x>=8 to reach the belt
+X_OUT, X_CMD, X_P2, X_P1 = 1, 4, 9, 14
+MEM_W, MEM_H = 17, 17          # room(0,0,MEM_W,MEM_H) -> interior 1..15 x 1..15
+PIPE_ROW = MEM_H               # attachment cells sit on row 18
+
+
+def vring(P, down, up, top, nrelay):
+    """Vertical 2-column ring with a MERGED guard-bypass / ring-exit cell.
+
+    The man arrives WESTBOUND on row `top`.  `down` is the southbound column,
+    `up` (== down-1) the northbound one.  Returns the bottom row used.
+    See rewind2_build.py for the full derivation.
+    """
+    dn = 2 * ((nrelay + 1) // 2)       # relay cells on the southbound column
+    upn = 2 * nrelay - dn              # relay cells on the northbound column
+    m_on_up = (dn - upn) >= 1
+    bot = top + (2 if m_on_up else 3) + dn
+    P(down, top, 'a')                  # guard (test BEFORE entering)
+    P(down, top + 1, 'v')              # entry + loop-back turn target
+    off = top + 2
+    if not m_on_up:
+        P(down, top + 2, 'm')          # BP-- once per lap
+        off = top + 3
+    for i in range(dn):                # southbound relays: r s r s ...
+        P(down, off + i, 'rs'[i % 2])
+    P(down, bot, '<')
+    P(up, bot, '^')
+    for i in range(upn):               # northbound relays, in travel order
+        P(up, bot - 1 - i, 'rs'[i % 2])
+    for y in range(top + 2, bot - upn):
+        P(up, y, ' ')
+    if m_on_up:
+        P(up, top + 2, 'm')            # BP-- once per lap (spare up-column cell)
+    P(up, top + 1, 'd')                # BP>0 -> cw(north->east) back to entry
+    P(up, top, '<')                    # merged exit / bypass
+    return bot
+
+
+def build():
+    p = Program()
+    P = p.put
+
+    # ================= MEMORY : cols 0-16, rows 0-17 =================
+    p.room(0, 0, MEM_W, MEM_H)
+
+    # -- init: A=20, BP=20, A=0, then 20 laps x 5 sends of 0 = 100 zeros --
+    # 5 sends/lap keeps every init 's' at x>=9 (the OUT/P1 midpoint is 7.5).
+    # THE ROW THAT 27x27 NEEDED.  v4 spent row 1 on setup and rows 2-3 on the
+    # send loop.  Row 1's cols 9-14 were free, so setup and the loop's send run
+    # now SHARE row 1: the man walks east through `20`,b,0 straight into the
+    # five sends, and the loop is rows 1-2 instead of 2-3.  Everything below
+    # moves up one row and MEM is 17 tall, not 18.
+    for i, c in enumerate("@`20`b0"):      # cols 1-7: A=20, BP=20, A=0
+        P(1 + i, 1, c)
+    P(8, 1, '>')                           # (no-op; the loop re-enters here)
+    for i, c in enumerate("sssss"):        # cols 9-13
+        P(9 + i, 1, c)
+    P(14, 1, 'v'); P(14, 2, '<')
+    for x in range(10, 14):
+        P(x, 2, ' ')
+    P(9, 2, 'm'); P(8, 2, 'd')             # BP>0 -> cw(west->north) back to (8,1)
+    for x in range(2, 8):                  # BP==0 -> west, then down into row 3
+        P(x, 2, ' ')
+    P(1, 2, 'v')
+
+    # -- row 3: delta -> rot -> split rot = 8a + r8 --
+    P(1, 3, '>')
+    for i, c in enumerate("rM`100`W%M8W/"):
+        P(2 + i, 3, c)
+    P(15, 3, 'v')
+
+    # -- row 4: the two rings, flowing WESTWARD --
+    P(15, 4, '<')
+    P(14, 4, 'b')                          # BP = a
+    vring(P, 13, 12, 4, 8)                 # main ring: 8 relays / 22-cell lap
+    P(11, 4, 'W')                          # A = r8 (B survived the relays)
+    P(10, 4, 'b')                          # BP = r8
+    vring(P, 9, 8, 4, 1)                   # remainder ring: 1 relay / 8-cell lap
+    for x in range(5, 8):
+        P(x, 4, ' ')
+    P(4, 4, 'v')
+
+    # -- tap: read the OP first, then dispatch --
+    P(4, 5, 'r')                           # op        (CMD 0 vs P2 5)
+    P(4, 6, 'X')                           # op=1 -> cw(south->west); op=0 -> south
+    # READ arm (op == 0): tap the belt, output AND reinject.  It cannot use
+    # rows 5-8: ring1 owns cols 8/9 there, and (9,7) is its 's'.
+    P(4, 7, ' '); P(4, 8, ' ')
+    P(4, 9, '>'); P(5, 9, ' '); P(6, 9, ' ')
+    P(7, 9, 'r')                           # belt value   (P2 2 vs CMD 3)
+    P(8, 9, 'S')                           # -> output pipe AND belt (reinject)
+    P(9, 9, ' '); P(10, 9, ' '); P(11, 9, 'v')
+    for y in range(10, 15):
+        P(11, y, ' ')
+    P(11, 15, '<')
+    # WRITE arm (op == 1): read the new value, discard the old belt cell, send.
+    P(3, 6, 'v')
+    for y in range(7, 13):
+        P(3, y, ' ')
+    P(3, 13, '>')
+    P(4, 13, 'r')                          # new value    (CMD 0 vs P2 5)
+    P(5, 13, 'M')                          # B = value
+    P(6, 13, ' ')                          # col 6 would tie-ish: CMD 2 vs P2 3
+    P(7, 13, 'r')                          # old value, discarded (P2 2 vs CMD 3)
+    P(8, 13, 'W')                          # A = value
+    P(9, 13, 's')                          # -> belt      (P1 5 vs OUT 8)
+    P(10, 13, 'v'); P(10, 14, ' '); P(10, 15, '<')
+    # -- return: WEST along row 15, then north up the free col 1 into row 3 --
+    for x in range(2, 10):
+        P(x, 15, ' ')
+    P(1, 15, '^')
+    for y in range(4, 15):
+        P(1, y, ' ')
+
+    # ================= CONTROL : 10x8, cols 3-12, rows 20-27 =================
+    CX, CY = 3, 19
+    C = lambda x, y, c: P(CX + x, CY + y, c)
+    p.room(CX, CY, 10, 8)
+    for i, c in enumerate(">@rbr-sv"):     # loop turn, @, op, BP=op, addr,
+        C(1 + i, 1, c)                     #   delta, send delta, south
+    C(8, 2, '+')                           # A = delta + prev = addr
+    C(8, 3, 'M')                           # B = addr
+    C(8, 4, 'd')                           # op>0 -> cw(south->west) = WRITE
+    # WRITE arm, westward along row 4
+    C(7, 4, '1'); C(6, 4, 's')             # send op = 1
+    C(5, 4, 'r'); C(4, 4, 's')             # read the value, send it
+    C(3, 4, 'v'); C(3, 5, ' '); C(3, 6, '<')   # drop onto the shared row-6 tail
+    # READ arm, straight south then west along row 6
+    C(8, 5, '0'); C(8, 6, '<')
+    C(7, 6, 's')                           # send op = 0 (no value follows)
+    for x in (6, 5, 4, 2):
+        C(x, 6, ' ')
+    C(1, 6, '^')
+    # MERGED tail: both arms arrive with B = addr, so prev := addr + 1 here.
+    C(1, 5, '1'); C(1, 4, '+'); C(1, 3, 'M'); C(1, 2, ' ')
+    for y in (2, 3, 5):
+        C(2, y, ' ')
+    for x in (4, 5, 6, 7):
+        C(x, 2, ' '); C(x, 3, ' '); C(x, 5, ' ')
+    C(3, 2, ' '); C(3, 3, ' ')
+
+    # ================= HOP : cols 17-27, rows 0-3 (top of the right strip) ====
+    # Interior is 9 wide (cols 18-26), one column narrower than v3's, because
+    # col 16 belongs to MEM.  6 relay pairs per 18-cell lap = 3.0 ticks/value,
+    # against ring8's 2.75 -- HOP is the belt's slowest stage, so if ticks
+    # regress this room is the first place to look.
+    HX, HY = 17, 0
+    H = lambda x, y, c: P(HX + x, HY + y, c)
+    # 10 wide (cols 17-26) so the box stays 27, but SIX rows: a 2-row loop in
+    # an 8-wide interior only fits 4 relay pairs per 16-tick lap (4.0 t/value)
+    # and that alone cost +407 avgTicks.  A 4-row interior runs the loop round
+    # the rectangle's PERIMETER -- 20 cells carrying 7 pairs, 2.86 t/value,
+    # better than v4's 3.0 in one column less.  Relay pairs never straddle a
+    # turn: each straight run is filled independently and an odd run gives up
+    # its last cell to a blank.
+    p.room(HX, HY, 10, 6)
+    H(1, 1, '>'); H(2, 1, '@')
+    for i, c in enumerate("rsrs"):         # row 1 east, cols 20-23
+        H(3 + i, 1, c)
+    H(7, 1, ' '); H(8, 1, 'v')
+    H(8, 2, 'r'); H(8, 3, 's')             # col 25 south: one pair
+    H(8, 4, '<')
+    for i, c in enumerate("rsrsrs"):       # row 4 west, cols 24-19
+        H(7 - i, 4, c)
+    H(1, 4, '^')
+    H(1, 3, 'r'); H(1, 2, 's')             # col 18 north: one pair
+
+    # ================= IO =================
+    p.output_room(0, 19)                   # cols 0-2, under OUT's column (x=1)
+    p.input_room(15, 23)                   # cols 15-17, east of CONTROL
+
+    # ================= pipes =================
+    # Every lane costs BOTH row 18 and row 19 (a pipe is at least two cells
+    # long), so rows 18-19 are blocked at cols 1, 4, 9 and 14 and no wire can
+    # run horizontally across them.  That is what fixes the floorplan:
+    #   * CONTROL and the output room sit WEST (cols 0-12), reached straight
+    #     down their own lanes;
+    #   * the belt lives EAST, and p2 comes back to (9,19) along row 19 WEST of
+    #     p1's mandatory (14,19), after crossing col 14 down at row 21.
+    # p1 and p2 therefore never cross: p1 = col 14 + row 19 cols 14-17 + col 18,
+    # p2 = cols 19-27 + row 21 cols 13-19 + col 13 + row 19 cols 9-13.
+    out = [(X_OUT, PIPE_ROW), (X_OUT, PIPE_ROW + 1)]        # -> output room top
+    cmd = [(X_CMD, PIPE_ROW + 1), (X_CMD, PIPE_ROW)]        # CONTROL top -> MEM
+    ipipe = [(14, 24), (13, 24)]           # input room left wall -> CONTROL col 12
+    p1 = [(X_P1, PIPE_ROW), (X_P1, 18), (18, 18), (18, 6)]  # -> HOP bottom (18,3)
+    # p2: HOP bottom (25,3) -> boustrophedon over cols 19-27, rows 5-12 -> out
+    # at col 19 -> west along row 21 -> col 13 -> row 19 -> (9,18).
+    p2 = [(25, 6), (19, 6)]
+    for i, y in enumerate(range(7, 17)):   # rows 7..16 snake over cols 19-26
+        p2 += [(19, y), (26, y)] if i % 2 == 0 else [(26, y), (19, y)]
+    p2 += [(19, 20), (13, 20), (13, 18), (X_P2, 18), (X_P2, PIPE_ROW)]
+    for pts in (out, cmd, ipipe, p1, p2):
+        p.pipe(pts)
+    print(f"# P1={pipelen(p1)} P2={pipelen(p2)} total={pipelen(p1)+pipelen(p2)}",
+          file=sys.stderr)
+    return p
+
+
+def pipelen(pts):
+    n = 1
+    for i in range(len(pts) - 1):
+        n += abs(pts[i + 1][0] - pts[i][0]) + abs(pts[i + 1][1] - pts[i][1])
+    return n
+
+
+if __name__ == '__main__':
+    prog = build()
+    out = os.path.join(os.path.dirname(__file__), 'rewind-v5.man')
+    prog.save(out)
+    print(out, prog.footprint())

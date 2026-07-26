@@ -140,6 +140,80 @@ year, unpacker, and output in the lower bands.  Two slim vertical pipes at the
 right close the P1/DISP loop.  The layout is square on purpose: the problem
 scores only `max(width, height)^2`.
 
+## Pipe-length requirements
+
+A Littleman pipe of `L` cells is both an `L`-word FIFO and a transport with
+`L-1` ticks of latency.  Every pipe must contain at least two cells.  Longer
+pipes can delay values and absorb more back-pressure; they do not change FIFO
+order.
+
+There are two different kinds of pipe in this program:
+
+- The five ordinary pipeline links are blocking streaming connections.  Their
+  producers safely park on `s` when a pipe is full, and their consumers safely
+  park on `r` when it is empty.  Consequently they have no
+  correctness-required capacity beyond the language minimum: each may be
+  shortened to **two cells** if the rooms can be placed and routed that close.
+- The two P1/DISP links form the dictionary storage ring.  Their capacities
+  must be considered together and cannot both be minimized independently.
+
+The checked-in layout has these parsed pipe lengths:
+
+| Pipe | Current cells | Semantic requirement |
+| --- | ---: | --- |
+| feeder → DECODER | 21 | at least 2 |
+| DECODER → DISP | 44 | at least 2 |
+| DISP → YEAR | 3 | at least 2 |
+| YEAR → UNPACK | 7 | at least 2 |
+| UNPACK → output | 3 | at least 2 |
+| P1 → DISP | 12 | at least 2; coupled with the return pipe |
+| DISP → P1 | 71 | at least 2; coupled with the forward pipe |
+
+The dictionary contains 35 entries and one `-1` sentinel, for 36 circulating
+words.  During rotation one word can be held by a runner between its `r` and
+`s`, so the exact capacity condition for the current table is:
+
+```text
+len(P1 → DISP) >= 2
+len(DISP → P1) >= 2
+len(P1 → DISP) + len(DISP → P1) >= 35
+```
+
+More generally, the sum must be at least
+`dictionary entries + sentinel - 1`.  This is a correctness requirement, not
+just a throughput preference.  P1 starts preloading while DISP can already
+begin a lookup.  The return leg must retain the prefix that DISP rotates out
+until the sentinel arrives and P1 enters its steady pump loop.  With too little
+combined capacity, P1 blocks before sending the sentinel while DISP blocks
+trying to return the prefix: neither can create the space needed by the other.
+
+Capacity-only interpreter tests confirm the boundary:
+
+- every tested division totaling 35 cells passed, including `2+33`, `5+30`,
+  `20+15`, `30+5`, and `33+2`;
+- `2+32` (34 total cells) deadlocked after five output bytes;
+- all five ordinary links shortened to two cells at once still passed when the
+  ring was `2+33`.
+
+The current ring has `12+71=83` cells, so its length is dominated by physical
+room separation rather than storage need.  It has 48 cells of semantic
+capacity slack.
+
+These are *semantic* minima.  A concrete route may need to be longer because
+its endpoints are farther apart or because it must avoid rooms and other
+pipes.  With fixed endpoint cells, a route needs at least the Manhattan
+distance between its first and last pipe cells plus one cell, and possibly
+more for endpoint direction or obstacle detours.  If an optimization moves an
+attachment rather than merely rerouting between the same attachments, recheck
+nearest-pipe ownership: DISP has multiple incoming and outgoing pipes, and its
+`r`/`s` instructions select by distance to the attachment cell.  Also preserve
+the final arrowhead pointing into the destination wall.
+
+History Lesson is footprint-only, so shorter latency does not directly improve
+its score.  It still affects the tick cap and may change how much time is spent
+blocked; after any pipe reflow, run the complete oracle case rather than
+validating only the topology.
+
 ## Variable-width feeder experiment
 
 `optimize_feeder.py` replaces the feeder's one fixed slot-width tuple with a

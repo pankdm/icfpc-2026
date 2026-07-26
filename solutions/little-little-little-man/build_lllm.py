@@ -39,7 +39,9 @@ import lllm_flow as F
 import lllm_sim as SIM
 
 # ---- tunable integer knobs -------------------------------------------------
-HOLDER_PITCH = 5        # columns between neighbouring holder rooms
+HOLDER_PITCH = 3        # columns between neighbouring holder rooms
+BAND_TIERS = 2          # rows of holder rooms stacked above the controller
+TIER_GAP = 1            # blank rows between two tiers of holder rooms
 HOLDER_W = 4            # holder room outer width
 HOLDER_H = 6            # holder room outer height
 PIPE_GAP = 3            # rows between the device band and the controller
@@ -109,7 +111,8 @@ def entry_labels(blocks):
 class Columns(object):
     def __init__(self, blocks, holder_order, pitch=HOLDER_PITCH,
                  port_gap=PORT_GAP, hwy_gap=HWY_GAP, lead_in=LEAD_IN,
-                 lanes=None, heat=None, code_slack=CODE_SLACK):
+                 lanes=None, heat=None, code_slack=CODE_SLACK,
+                 tiers=BAND_TIERS):
         self.hwy_targets = sorted(entry_labels(blocks))
         # A highway column is only busy between its highest join row and its
         # target row, and men cross an idle one on a BLANK cell, so targets with
@@ -142,14 +145,26 @@ class Columns(object):
             # wall and steal its binding.  Every other port is a bare pipe and
             # may be packed shoulder to shoulder.
             x += max(port_gap, IN_CLEAR) if name == "in" else port_gap
+        # TIERED BAND.  A holder room is 4 wide (2 walls + a 2-cell ring) and
+        # rooms on one row may not share a wall column, so a single row of
+        # holders costs 5 columns each.  Stacking them in `tiers` rows drops
+        # that to 3: neighbouring rooms are on DIFFERENT rows, so they may
+        # overlap in the wall column, and an upper tier's two pipes descend
+        # through exactly the 2-column gap its own tier leaves free below.
+        #   tier 0:  X..X+3         pipes X+1, X+2      (X+6..X+9 next)
+        #   tier 1:      X+3..X+6   pipes X+4, X+5
+        # 3 is the floor: 2 pipe columns plus the wall column that is shared.
         self.holder_room_x = {}
+        self.holder_tier = {}
         self.hr = {}
         self.hw = {}
-        for name in holder_order:
+        for i, name in enumerate(holder_order):
+            self.holder_tier[name] = i % tiers
             self.holder_room_x[name] = x
             self.hr[name] = x + 1
             self.hw[name] = x + 2
             x += pitch
+        x += HOLDER_W - pitch
         self.code_hi = x + code_slack
         self.width = self.code_hi + 3
 
@@ -492,13 +507,14 @@ def checked_room(g, x, y, w, h, glyphs="+-|"):
 # 4.  whole program
 # ===========================================================================
 def build(holder_order=None, pitch=HOLDER_PITCH, ring_lift=RING_LIFT,
-          port_gap=PORT_GAP, lead_in=LEAD_IN, code_slack=CODE_SLACK):
+          port_gap=PORT_GAP, lead_in=LEAD_IN, code_slack=CODE_SLACK,
+          tiers=BAND_TIERS):
     flow = F.build_flow()
     blocks = split_blocks(flow)
     holder_order = holder_order or [h for h in HOLDER_ORDER if h in F.HOLDERS]
     assert sorted(holder_order) == sorted(F.HOLDERS), "HOLDER_ORDER is stale"
     kw = dict(pitch=pitch, port_gap=port_gap, lead_in=lead_in,
-              code_slack=code_slack, heat=SIM.block_heat())
+              code_slack=code_slack, tiers=tiers, heat=SIM.block_heat())
     cols = Columns(blocks, holder_order,
                    lanes=plan_lanes(blocks, holder_order, **kw), **kw)
 
@@ -525,8 +541,14 @@ def build(holder_order=None, pitch=HOLDER_PITCH, ring_lift=RING_LIFT,
     ctrl = checked_room(g, 0, ctrl_top, cols.width, ctrl_bot - ctrl_top + 1)
 
     # ---- device band above the controller ------------------------------
-    band_bot = ctrl_top - PIPE_GAP - 1          # bottom wall row of the rooms
-    band_top = band_bot - (HOLDER_H - 1)
+    # Tier 0 sits nearest the controller; tier t is HOLDER_H + TIER_GAP rows
+    # higher.  band_bot/band_top are the OUTER extent, which is what the input
+    # room, the ring relay and the display are positioned against.
+    def tier_bot(t):
+        return ctrl_top - PIPE_GAP - 1 - t * (HOLDER_H + TIER_GAP)
+
+    band_bot = tier_bot(0)                      # bottom wall row of tier 0
+    band_top = tier_bot(tiers - 1) - (HOLDER_H - 1)
     pipes = {"in": [], "out": []}
 
     def drop_pipe(col, room_bottom_row):
@@ -547,8 +569,10 @@ def build(holder_order=None, pitch=HOLDER_PITCH, ring_lift=RING_LIFT,
 
     for name in holder_order:
         rx = cols.holder_room_x[name]
-        p.room(rx, band_top, HOLDER_W, HOLDER_H)
-        ix, iy = rx + 1, band_top + 1                # interior 2 x (H-2)
+        rbot = tier_bot(cols.holder_tier[name])
+        rtop = rbot - (HOLDER_H - 1)
+        p.room(rx, rtop, HOLDER_W, HOLDER_H)
+        ix, iy = rx + 1, rtop + 1                    # interior 2 x (H-2)
         # 6-cell ring: s first, then r, with '@' parked outside it
         # 6-cell ring  s -> '<' -> 'v' -> r -> '>' -> '^' -> s.  Every turn is a
         # real glyph and '@' sits OUTSIDE the cycle, on a ramp that joins it at
@@ -561,8 +585,8 @@ def build(holder_order=None, pitch=HOLDER_PITCH, ring_lift=RING_LIFT,
         g.put(ix, iy, ARROW_S)
         g.put(ix, iy + 1, "r")
         g.put(ix, iy + 2, ARROW_E)
-        drop_pipe(cols.hr[name], band_bot)
-        lift_pipe(cols.hw[name], band_bot)
+        drop_pipe(cols.hr[name], rbot)
+        lift_pipe(cols.hw[name], rbot)
 
     # ---- debug output room (only wired when lllm_flow.DEBUG_EMIT is set) --
     if F.DEBUG_EMIT:

@@ -130,6 +130,8 @@ def build_program(
     fast_cell_ram=False,
     cell_belts=8,
     packed_cell=False,
+    fast_scalar_ram=False,
+    scalar_belts=4,
 ):
     """Compile *flow* and attach the shared stateful-problem hardware."""
     p = lm.Program()
@@ -155,7 +157,10 @@ def build_program(
     # its bottom wall and route outside the room before entering a component.
     scalar_x, scalar_y = code_x + 48, bottom + 5
     cell_x, cell_y = code_x + (164 if packed_cell else 148), bottom + 5
-    scalar = belt_ram.build(p, scalar_x, scalar_y, scalar_size)
+    scalar = (
+        split_ram.build(p, scalar_x, scalar_y, scalar_size, scalar_belts)
+        if fast_scalar_ram else belt_ram.build(p, scalar_x, scalar_y, scalar_size)
+    )
     cell = (
         split_ram.build(p, cell_x, cell_y, 256, cell_belts)
         if fast_cell_ram else belt_ram.build(p, cell_x, cell_y, 256)
@@ -190,19 +195,34 @@ def build_program(
     ])
 
     command = scalar["command"]
-    p.pipe([
-        ports["sc"],
-        (ports["sc"][0], scalar_y - 3),
-        (scalar_x - 3, scalar_y - 3),
-        (scalar_x - 3, command[1] + 3),
-        (command[0], command[1] + 3),
-        command,
-    ])
-    p.pipe([
-        scalar["reply"],
-        (ports["rr"][0], scalar["reply"][1]),
-        ports["rr"],
-    ])
+    if fast_scalar_ram:
+        p.pipe([
+            ports["sc"],
+            (ports["sc"][0], bottom + 1),
+            (command[0], bottom + 1),
+            command,
+        ])
+        p.pipe([
+            scalar["reply"],
+            scalar["reply_turn"],
+            (scalar["reply_turn"][0], bottom + 3),
+            (ports["rr"][0], bottom + 3),
+            ports["rr"],
+        ])
+    else:
+        p.pipe([
+            ports["sc"],
+            (ports["sc"][0], scalar_y - 3),
+            (scalar_x - 3, scalar_y - 3),
+            (scalar_x - 3, command[1] + 3),
+            (command[0], command[1] + 3),
+            command,
+        ])
+        p.pipe([
+            scalar["reply"],
+            (ports["rr"][0], scalar["reply"][1]),
+            ports["rr"],
+        ])
     if fast_cell_ram:
         if packed_cell:
             p.pipe([
@@ -247,9 +267,10 @@ def build_program(
             ports["cr"],
         ])
 
-    # Addressable 16x16 display.
+    # Addressable 16x16 display. With the banked scalar RAM (32x32 instead of
+    # the 78x43 belt) the sd feeder clears the scalar block 18 rows sooner.
     display_x = code_x + 110
-    display_y = bottom + 60
+    display_y = bottom + (42 if fast_scalar_ram else 60)
     p.display(display_x, display_y, 18, 18)
     # RAM now sits immediately below the controller. Leave each display port
     # vertically, turn in the two-row band above RAM, and descend around the

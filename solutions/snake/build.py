@@ -139,6 +139,11 @@ VARIANTS = {
     # never needed; 60 is the smallest that still fits the pooled lanes.
     "linked.man": {},
     "linked-cx60-fast8.man": dict(code_x=60, fast_cell_ram=True, cell_belts=8),
+    # scalar_belts=8 fails all cases; 4 belts (8 values each) is the working config.
+    "linked-cx60-fast8-fs4.man": dict(
+        code_x=60, fast_cell_ram=True, cell_belts=8,
+        fast_scalar_ram=True, scalar_belts=4,
+    ),
 }
 
 

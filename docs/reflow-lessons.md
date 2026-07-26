@@ -69,7 +69,12 @@ squash`.** Diagnose first: count blocks vs edges with `tools/blockify3.py`.
 
 1. A pipe's **last cell must be an arrowhead pointing at the destination
    wall**. Ending a straight run on `|` silently disconnects it — the loader
-   reports `dst: -1` and nothing errors until the program hangs.
+   reports `dst: -1` and nothing errors until the program hangs. Moreover the
+   loader derives endpoints from MOVE DIRECTIONS, not glyphs: the FIRST move
+   must leave the source wall perpendicular (else `src -1`), and the LAST move
+   direction (`path[-1] - path[-2]`, see interp `border_cell_of_pipe_end`)
+   determines the attachment side — a sideways final approach to a display
+   fails with `display pipe bad side`.
 2. Backtick literals parse on **both axes** and read **reversed westward** —
    literal runs are rigid; never re-head or split one.
 3. A pipe running alongside a room's wall reads as attached to that room and

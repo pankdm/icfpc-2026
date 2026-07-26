@@ -9,10 +9,10 @@ from pathlib import Path
 
 HEADER = (
     ">r-v ",
-    "  vXv",
-    "  rrr",
-    "  rbr",
-    "   r ",
+    "M vXv",
+    "0 rrr",
+    "^<rbr",
+    ">^ r ",
     " v < ",
     "  >v<",
     "   >v",
@@ -24,30 +24,36 @@ PAIR_DECODER = (
     " > >v",
     " vd  ",
     " ms  ",
-    "  > V",
+    "  > v",
 )
 
 WORKER_RETURN = "^   <"
 DISPATCH_LOOP = ">m aH"
 
-SECOND_FIRST = (
-    "  vsW<",
-    " >>WrX",
-    " +^  <",
+SECOND_OTHER = (
+    " -vsW<",
+    "vY>WrX",
+    ">v^  <",
 )
 
-SECOND_OTHER = (
-    ">^vsW<",
-    "^Y>WrX",
-    " +^  <",
+SECOND_FIRST = (
+    " +vsW<",
+    "vY>WrX",
+    ">v^  <",
+)
+
+SECOND_LAST = (
+    " -vsW<",
+    " >>WrX",
+    "  ^  <",
 )
 
 SECOND_INITIALIZER = (
-    " ^ W1<",
-    ">W*-W^",
-    "^`02`<",
+    "@9M{{v",
     "     M",
-    "@9M{{^",
+    "v`02`<",
+    ">W*W1v",
+    " v--W<",
 )
 
 LEFT_INITIALIZER = (
@@ -55,23 +61,22 @@ LEFT_INITIALIZER = (
     "@3M7^",
 )
 
-DECODER_BASE = (
-    "> `2359295`W-v    ",
-    "^bW/RW*4M5<sa<m<  ",
-    "            >m asv",
-    "          ^      <",
+DELAY_DECODER = (
+    ">*MR/WbWdsv",
+    "^4M5sa m<  ",
+    "^Yv  >m asv",
+    "^      4M5<",
+    " ^>        ",
 )
 
-DECODER_SPLIT = DECODER_BASE[:3] + (
-    "        vY^      <",
-    "        <^        ",
-)
-
-DECODER_STEAL = DECODER_BASE + (
-    "          ^       ",
+SUBTRACT_READER = (
+    ">r-sv      ",
+    "^s-r<     <",
+    "@9M{{M1W-M^",
 )
 
 VALUE_OFFSET = 9 << 18
+PACKING_BASE = 20
 
 PARSE_READER = (
     "@3b>  dHv    sWs   <",
@@ -86,15 +91,32 @@ ADJUST_READER_CORE = (
 )
 
 MULTIPLY_READER = (
+    "vM`02`@<",
     ">rsr*s v",
     "^ s*rsr<",
-    " @`20`M^",
+)
+
+DECREMENT_READER = (
+    "vM1@<   ",
+    ">rsr-s v",
+    "^ s-rsr<",
 )
 
 FANOUT_READER = (
-    "         @3b>  dH",
-    ">r/SWSW r-Sv^ mYv",
-    "^W`02`     <    <",
+    "3b>m v>r/SWSW r-Sv",
+    " Hd  Y^W`02`     <",
+)
+
+TOP_HEADER = (
+    "+-++---------------------+  +-----------------------+  +--------+          +--------+",
+    "|I||>WrWsWs    v        <|  | >s     v   <  v     <<|  |vM`02`@<|>>>>>>>>v |vM1@<   |",
+    "+-+|xrbrMN{{M9 < Ym v^  <|>>|vX+rsr <<Y  ^  v  >  ^<|>>|>rsr*s v|     v<<< |>rsr-s v|",
+    "  v|>   sWs    ^Hd  <b3@<|  |>-s    ^ ^M{{M9<  ^  @<|  |^ s*rsr<|     >>>>>|^ s-rsr<|",
+    "  >+---------------------+  +-----------------------+  +--------+     v<<<<+--------+",
+    "+-----------------------------------------------------------------------------------+",
+    "|v @  <                                                         >3b>m v>r/SWSW r-Sv |",
+    "|>5M4*M                                                         ^ Hd  Y^W`02`     < |",
+    "+-----------------------------------------------------------------------------------+",
 )
 
 STARTUP_DELAY_PREFIX = (
@@ -106,21 +128,23 @@ STARTUP_DELAY_PREFIX = (
 LEFT_ROOM_X = 0
 LEFT_ROOM_Y = 0
 PIPE_LENGTH = 2
-MULTIPLIER_INPUT_PIPE_LENGTH = 16
-MULTIPLIER_OUTPUT_PIPE_LENGTH = 16
-RIGHT_ROOM_Y = len(HEADER)
+DECREMENT_GAP_WIDTH = 10
+DECREMENT_INPUT_PIPE_LENGTH = 17
+MULTIPLIER_INPUT_PIPE_LENGTH = PIPE_LENGTH
+RIGHT_ROOM_Y = len(HEADER) - len(SECOND_INITIALIZER)
 READER_ROOM_Y = 0
 FANOUT_ROOM_Y = 5
-MEGABLOCK_Y = 10
-DECODER_COLUMNS = 4
-DECODER_ROWS = 4
-DECODER_BASE_WIDTH = 18
-DECODER_PREFIX_WIDTH = 12
-DECODER_TILE_WIDTH = DECODER_PREFIX_WIDTH + DECODER_BASE_WIDTH
+MEGABLOCK_Y = 9
+DECODER_COLUMNS = 6
+DECODER_ROWS = 2
+DECODER_PREFIX_WIDTH = 9
+DECODER_TILE_WIDTH = 11
 DECODER_TILE_HEIGHT = 5
-DECODER_ROW_SHIFTS = (0, 1, 2, 6)
-DECODER_INTERIOR_WIDTH = 132
-FANOUT_STARTUP_DELAY = 56
+DECODER_INTERIOR_WIDTH = 75
+FANOUT_INTERIOR_WIDTH = 83
+FANOUT_STARTUP_X = 2
+FANOUT_STARTUP_TURN_X = 5
+FANOUT_TRAILING_WIDTH = 1
 
 
 @dataclass(frozen=True)
@@ -176,7 +200,7 @@ def decoder_interior(config: Config, block_id: int) -> tuple[str, ...]:
 
 
 def unpadded_worker_ticks(config: Config) -> int:
-    return 26 + 7 * config.k
+    return 28 + 7 * config.k
 
 
 def worker_padding_rows(config: Config) -> int:
@@ -216,30 +240,48 @@ def add_startup_delay(rows: tuple[str, ...]) -> tuple[str, ...]:
     )
 
 
+def rotate_reader(rows: tuple[str, ...]) -> tuple[str, ...]:
+    translations = str.maketrans("><^vV", "<>v^^")
+    return tuple(
+        row[::-1].translate(translations) + "<"
+        for row in reversed(normalize_rows(rows))
+    )
+
+
 def build_parse_reader() -> tuple[str, ...]:
-    return normalize_rows(PARSE_READER)
+    return rotate_reader(PARSE_READER)
 
 
 def build_adjust_reader() -> tuple[str, ...]:
-    return add_startup_delay(ADJUST_READER_CORE)
+    return rotate_reader(add_startup_delay(ADJUST_READER_CORE))
 
 
 def build_multiply_reader() -> tuple[str, ...]:
     return normalize_rows(MULTIPLY_READER)
 
 
+def build_decrement_reader() -> tuple[str, ...]:
+    return normalize_rows(DECREMENT_READER)
+
+
 def build_fanout_reader(width: int) -> tuple[str, ...]:
     reader = normalize_rows(FANOUT_READER)
     if width < len(reader[0]):
         raise ValueError("fanout room is too narrow")
-    padding = " " * (width - len(reader[0]))
-    rows = [list(padding + row) for row in reader]
-    old_start = rows[0].index("@")
-    new_start = old_start - FANOUT_STARTUP_DELAY
-    if new_start < 0 or any(rows[0][x] != " " for x in range(new_start, old_start)):
-        raise ValueError("fanout room has no space for its startup delay")
-    rows[0][old_start] = " "
-    rows[0][new_start] = "@"
+    core_x = width - len(reader[0]) - FANOUT_TRAILING_WIDTH
+    if not 0 < FANOUT_STARTUP_X < core_x - 2:
+        raise ValueError("fanout room has no space for its startup route")
+    rows = [
+        list(" " * core_x + row + " " * FANOUT_TRAILING_WIDTH)
+        for row in reader
+    ]
+    rows[0][0] = "v"
+    rows[0][FANOUT_STARTUP_X] = "@"
+    rows[0][FANOUT_STARTUP_TURN_X] = "<"
+    rows[0][core_x - 1] = ">"
+    rows[1][0] = ">"
+    rows[1][1:6] = "5M4*M"
+    rows[1][core_x - 1] = "^"
     return tuple("".join(row) for row in rows)
 
 
@@ -250,47 +292,36 @@ def build_decoder_interior() -> tuple[str, ...]:
     ]
     for tile_row in range(DECODER_ROWS):
         for tile_column in range(DECODER_COLUMNS):
-            tile = build_decoder_tile(split=tile_column != 0)
-            left = tile_column * DECODER_TILE_WIDTH + DECODER_ROW_SHIFTS[tile_row]
+            tile = build_decoder_tile()
+            left = DECODER_PREFIX_WIDTH + tile_column * DECODER_TILE_WIDTH
             top = tile_row * DECODER_TILE_HEIGHT
             for row_offset, row in enumerate(tile):
                 for column_offset, instruction in enumerate(row):
                     if instruction != " ":
                         canvas[top + row_offset][left + column_offset] = instruction
 
-    spine_x = DECODER_COLUMNS * DECODER_TILE_WIDTH + max(DECODER_ROW_SHIFTS) + 2
-    detour_x = spine_x + 1
-    canvas[0][spine_x] = "@"
-    canvas[0][detour_x] = "v"
-    for lane in range(DECODER_ROWS):
-        lane_y = lane * DECODER_TILE_HEIGHT + DECODER_TILE_HEIGHT - 1
-        canvas[lane_y][spine_x] = "Y"
-        canvas[lane_y][detour_x] = "H" if lane == DECODER_ROWS - 1 else "v"
-        if lane == 0:
-            canvas[lane_y - 1][spine_x] = "v"
-            canvas[lane_y - 1][detour_x] = "<"
-        if lane < DECODER_ROWS - 1:
-            next_turn_y = lane_y + DECODER_TILE_HEIGHT - 1
-            canvas[next_turn_y][spine_x] = "v"
-            canvas[next_turn_y][detour_x] = "<"
+    initializer_y = DECODER_TILE_HEIGHT + 1
+    for x, instruction in enumerate("@4M5  Y"):
+        canvas[initializer_y][x] = instruction
+    for tile_row in range(DECODER_ROWS):
+        entry_y = (tile_row + 1) * DECODER_TILE_HEIGHT - 1
+        canvas[entry_y][6] = ">"
+        canvas[entry_y][DECODER_INTERIOR_WIDTH - 1] = "H"
     return tuple("".join(row) for row in canvas)
 
 
-def build_decoder_tile(split: bool) -> tuple[str, ...]:
-    base = DECODER_SPLIT if split else DECODER_STEAL
+def build_decoder_tile() -> tuple[str, ...]:
+    base = normalize_rows(DELAY_DECODER)
     canvas = [[" "] * DECODER_TILE_WIDTH for _ in range(DECODER_TILE_HEIGHT)]
     for row_offset, row in enumerate(base):
         for column_offset, instruction in enumerate(row):
             if instruction != " ":
-                canvas[row_offset][DECODER_PREFIX_WIDTH + column_offset] = instruction
-
-    canvas[1][DECODER_PREFIX_WIDTH] = "X"
-    canvas[0][1] = ">"
-    prefix = " ^b`31`W+WN1"
-    for column, instruction in enumerate(prefix):
-        if instruction != " ":
-            canvas[1][column] = instruction
+                canvas[row_offset][column_offset] = instruction
     return tuple("".join(row) for row in canvas)
+
+
+def build_subtract_reader() -> tuple[str, ...]:
+    return normalize_rows(SUBTRACT_READER)
 
 
 def build_left_interior(config: Config, block_id: int = 0) -> tuple[str, ...]:
@@ -308,7 +339,12 @@ def build_left_interior(config: Config, block_id: int = 0) -> tuple[str, ...]:
 
 def build_second_interior(config: Config) -> tuple[str, ...]:
     config.validate()
-    return SECOND_FIRST + SECOND_OTHER * (config.k - 1) + SECOND_INITIALIZER
+    return (
+        SECOND_INITIALIZER
+        + SECOND_FIRST
+        + SECOND_OTHER * (config.k - 2)
+        + SECOND_LAST
+    )
 
 
 def connection_rows(config: Config) -> tuple[int, ...]:
@@ -317,7 +353,10 @@ def connection_rows(config: Config) -> tuple[int, ...]:
         for pair in range(config.k // 2)
         for offset in (1, 4)
     )
-    right_rows = tuple(RIGHT_ROOM_Y + 2 + 3 * worker for worker in range(config.k))
+    right_rows = tuple(
+        RIGHT_ROOM_Y + len(SECOND_INITIALIZER) + 2 + 3 * worker
+        for worker in range(config.k)
+    )
     if left_rows != right_rows:
         raise ValueError("left sends and right receives are not aligned")
     return left_rows
@@ -340,70 +379,101 @@ def render_program(config: Config) -> str:
     parse_reader = build_parse_reader()
     adjust_reader = build_adjust_reader()
     multiply_reader = build_multiply_reader()
+    decrement_reader = build_decrement_reader()
+    subtract_reader = build_subtract_reader()
     left_width = len(left[0])
     local_pipe_x = LEFT_ROOM_X + left_width + 2
     local_right_x = local_pipe_x + PIPE_LENGTH
     megablock_width = local_right_x + len(right[0]) + 2
-    width = megablock_width * config.l
-    fanout_reader = build_fanout_reader(width - 2)
+    megablocks_width = megablock_width * config.l
     decoder = build_decoder_interior()
-    pipeline_width = sum(
-        len(room[0]) + 2 for room in (multiply_reader, adjust_reader, parse_reader)
-    ) + MULTIPLIER_INPUT_PIPE_LENGTH + 2 * PIPE_LENGTH + 3
-    if pipeline_width > width:
-        raise ValueError("reader pipeline is wider than the megablocks")
-    pipeline_x = width - pipeline_width
-    multiply_x = pipeline_x
-    adjust_x = (
-        multiply_x + len(multiply_reader[0]) + 2 + MULTIPLIER_INPUT_PIPE_LENGTH
+    pipeline_width = (
+        3
+        + PIPE_LENGTH
+        + len(parse_reader[0]) + 2
+        + PIPE_LENGTH
+        + len(adjust_reader[0]) + 2
+        + PIPE_LENGTH
+        + len(multiply_reader[0]) + 2
+        + DECREMENT_GAP_WIDTH
+        + len(decrement_reader[0]) + 2
+        + 2
     )
-    parse_x = adjust_x + len(adjust_reader[0]) + 2 + PIPE_LENGTH
-    input_x = parse_x + len(parse_reader[0]) + 2 + PIPE_LENGTH
+    width = max(megablocks_width, pipeline_width)
+    pipeline_x = width - pipeline_width
+    input_x = pipeline_x
+    parse_x = input_x + 3 + PIPE_LENGTH
+    adjust_x = parse_x + len(parse_reader[0]) + 2 + PIPE_LENGTH
+    multiply_x = adjust_x + len(adjust_reader[0]) + 2 + PIPE_LENGTH
+    decrement_x = (
+        multiply_x + len(multiply_reader[0]) + 2 + DECREMENT_GAP_WIDTH
+    )
     megablock_height = max(
         LEFT_ROOM_Y + len(left) + 2,
         RIGHT_ROOM_Y + len(right) + 2,
     )
     storage_bottom = MEGABLOCK_Y + RIGHT_ROOM_Y + len(right) + 1
-    decoder_top = storage_bottom + 2
+    decoder_top = MEGABLOCK_Y + megablock_height
     decoder_right = len(decoder[0]) + 1
-    output_left = decoder_right + PIPE_LENGTH + 1
-    output_top = decoder_top + 1
+    subtract_left = decoder_right + PIPE_LENGTH + 1
+    subtract_top = decoder_top + (len(decoder) - len(subtract_reader)) // 2
+    subtract_right = subtract_left + len(subtract_reader[0]) + 1
+    output_left = subtract_right + PIPE_LENGTH + 1
+    decoder_pipe_y = subtract_top + 2
+    output_top = decoder_pipe_y - 1
     width = max(width, output_left + 3)
+    fanout_reader = build_fanout_reader(pipeline_width - 2)
     height = max(
         MEGABLOCK_Y + megablock_height,
         decoder_top + len(decoder) + 2,
+        subtract_top + len(subtract_reader) + 2,
         output_top + 3,
     )
     canvas = [[" "] * width for _ in range(height)]
 
-    draw_room(canvas, multiply_x, READER_ROOM_Y, multiply_reader)
-    draw_room(canvas, adjust_x, READER_ROOM_Y, adjust_reader)
-    draw_room(canvas, parse_x, READER_ROOM_Y, parse_reader)
     draw_room(canvas, input_x, READER_ROOM_Y + 1, ("I",))
-    for left_room, right_room in (
-        (multiply_x, adjust_x),
-        (adjust_x, parse_x),
-        (parse_x, input_x),
+    draw_room(canvas, parse_x, READER_ROOM_Y, parse_reader)
+    draw_room(canvas, adjust_x, READER_ROOM_Y, adjust_reader)
+    draw_room(canvas, multiply_x, READER_ROOM_Y, multiply_reader)
+    draw_room(canvas, decrement_x, READER_ROOM_Y, decrement_reader)
+    reader_pipe_y = READER_ROOM_Y + 2
+    for left_wall, right_room in (
+        (input_x + 2, parse_x),
+        (parse_x + len(parse_reader[0]) + 1, adjust_x),
+        (adjust_x + len(adjust_reader[0]) + 1, multiply_x),
     ):
-        left_wall = next(
-            room_x + len(room[0]) + 1
-            for room_x, room in (
-                (multiply_x, multiply_reader),
-                (adjust_x, adjust_reader),
-                (parse_x, parse_reader),
-            )
-            if room_x == left_room
-        )
         for x in range(left_wall + 1, right_room):
-            canvas[2][x] = "<"
+            canvas[reader_pipe_y][x] = ">"
 
     draw_room(canvas, 0, FANOUT_ROOM_Y, fanout_reader)
-    multiplier_right = multiply_x + len(multiply_reader[0]) + 1
-    multiplier_output_end = multiplier_right + MULTIPLIER_OUTPUT_PIPE_LENGTH - 1
-    for x in range(multiplier_right + 1, multiplier_output_end):
-        canvas[3][x] = ">"
-    canvas[3][multiplier_output_end] = "v"
-    canvas[4][multiplier_output_end] = "v"
+    multiply_right = multiply_x + len(multiply_reader[0]) + 1
+    gap_left = multiply_right + 1
+    gap_right = decrement_x - 1
+    if gap_right - gap_left + 1 != DECREMENT_GAP_WIDTH:
+        raise ValueError("unexpected decrement buffer gap width")
+    canvas[reader_pipe_y][gap_left] = ">"
+    canvas[reader_pipe_y][gap_left + 1] = "^"
+    for x in range(gap_left + 1, gap_right):
+        canvas[reader_pipe_y - 1][x] = ">"
+    canvas[reader_pipe_y - 1][gap_right - 1] = "v"
+    canvas[reader_pipe_y][gap_right - 1] = "<"
+    canvas[reader_pipe_y][gap_right - 2] = "<"
+    canvas[reader_pipe_y][gap_right - 3] = "v"
+    canvas[reader_pipe_y + 1][gap_right - 3] = ">"
+    canvas[reader_pipe_y + 1][gap_right - 2] = ">"
+    canvas[reader_pipe_y + 1][gap_right - 1] = ">"
+    canvas[reader_pipe_y + 1][gap_right] = ">"
+
+    decrement_right = decrement_x + len(decrement_reader[0]) + 1
+    canvas[reader_pipe_y][decrement_right + 1] = ">"
+    canvas[reader_pipe_y][decrement_right + 2] = "v"
+    canvas[reader_pipe_y + 1][decrement_right + 2] = "<"
+    canvas[reader_pipe_y + 1][decrement_right + 1] = "v"
+    canvas[reader_pipe_y + 2][decrement_right + 1] = "v"
+
+    for y, row in enumerate(TOP_HEADER):
+        canvas[y] = [" "] * width
+        canvas[y][: len(row)] = row
 
     for megablock in range(config.l):
         offset = megablock * megablock_width
@@ -415,7 +485,10 @@ def render_program(config: Config) -> str:
         )
         draw_room(canvas, offset + local_right_x, MEGABLOCK_Y + RIGHT_ROOM_Y, right)
         for row in connection_rows(config):
-            for x in range(offset + local_pipe_x, offset + local_pipe_x + PIPE_LENGTH):
+            for x in range(
+                offset + local_pipe_x,
+                offset + local_pipe_x + PIPE_LENGTH,
+            ):
                 canvas[MEGABLOCK_Y + row][x] = ">"
         if megablock == config.l - 1:
             fanout_x = offset - 2
@@ -434,12 +507,20 @@ def render_program(config: Config) -> str:
         canvas[storage_source_y][storage_pipe_x] = "v"
         for y in range(storage_source_y + 1, decoder_top):
             canvas[y][storage_pipe_x] = "v"
+        if storage_pipe_x >= decoder_right:
+            turn_y = decoder_top - 1
+            target_x = decoder_right - 1
+            for x in range(target_x + 1, storage_pipe_x + 1):
+                canvas[turn_y][x] = "<"
+            canvas[turn_y][target_x] = "v"
 
     draw_room(canvas, 0, decoder_top, decoder)
+    draw_room(canvas, subtract_left, subtract_top, subtract_reader)
+    for x in range(decoder_right + 1, subtract_left):
+        canvas[decoder_pipe_y][x] = ">"
     draw_room(canvas, output_left, output_top, ("O",))
-    output_y = output_top + 1
-    for x in range(decoder_right + 1, output_left):
-        canvas[output_y][x] = ">"
+    for x in range(subtract_right + 1, output_left):
+        canvas[decoder_pipe_y][x] = ">"
     return "\n".join("".join(row).rstrip() for row in canvas) + "\n"
 
 
@@ -504,7 +585,7 @@ def trace_route(
 
 
 def trace_second_worker(
-    message: int, interior: tuple[str, ...] = SECOND_FIRST
+    message: int, interior: tuple[str, ...] = SECOND_OTHER
 ) -> tuple[int, int, int, tuple[int, ...]]:
     x = 4
     y = 1
@@ -561,12 +642,13 @@ def trace_stage(
     literal_content: frozenset[tuple[int, int]] = frozenset(),
     literal_closures: dict[tuple[int, int, tuple[int, int]], int] | None = None,
     start_direction: tuple[int, int] = (1, 0),
+    initial_main: int = 0,
 ) -> StageTrace:
     interior = normalize_rows(interior)
     values = iter(inputs)
     x, y = start
     direction = start_direction
-    main = 0
+    main = initial_main
     backpack = 0
     ticks = 0
     outputs: list[int] = []
@@ -632,6 +714,13 @@ def trace_stage(
             main = literal_closures.get((x, y, direction), main)
         elif instruction.isdigit():
             main = int(instruction)
+        elif instruction == "H":
+            return StageTrace(
+                ticks=ticks + 1,
+                outputs=tuple(outputs),
+                read_ticks=tuple(read_ticks),
+                send_ticks=tuple(send_ticks),
+            )
 
         x += direction[0]
         y += direction[1]
@@ -675,6 +764,12 @@ def startup_read_ticks(
             direction = runner.direction
             if instruction == "M":
                 runner.offhand = runner.main
+            elif instruction == "W":
+                runner.main, runner.offhand = runner.offhand, runner.main
+            elif instruction == "*":
+                runner.main *= runner.offhand
+            elif instruction == "-":
+                runner.main -= runner.offhand
             elif instruction == "b":
                 runner.backpack = runner.main
             elif instruction == "m":
@@ -780,29 +875,52 @@ def verify_second_block(config: Config) -> int:
     return 8
 
 
-def verify_reader_pipeline(config: Config) -> tuple[int, int, int, int]:
+def verify_reader_pipeline(config: Config) -> tuple[int, ...]:
     if config.target_ticks != 8:
         raise ValueError("reader pipeline currently requires target_ticks=8")
 
-    parse_read = trace_stage(PARSE_READER, (16, 1), (0, 37), -VALUE_OFFSET)
-    parse_write = trace_stage(PARSE_READER, (16, 1), (1, 37, -123), -VALUE_OFFSET)
-    adjust_read = trace_stage(ADJUST_READER_CORE, (10, 1), (37, -VALUE_OFFSET), VALUE_OFFSET)
-    adjust_write = trace_stage(ADJUST_READER_CORE, (10, 1), (37, -123), VALUE_OFFSET)
+    parse_read = trace_stage(
+        build_parse_reader(), (3, 1), (0, 37), -VALUE_OFFSET,
+        start_direction=(-1, 0),
+    )
+    parse_write = trace_stage(
+        build_parse_reader(), (3, 1), (1, 37, -123), -VALUE_OFFSET,
+        start_direction=(-1, 0),
+    )
+    adjust_read = trace_stage(
+        build_adjust_reader(), (5, 1), (37, -VALUE_OFFSET), VALUE_OFFSET,
+        start_direction=(-1, 0),
+    )
+    adjust_write = trace_stage(
+        build_adjust_reader(), (5, 1), (37, -123), VALUE_OFFSET,
+        start_direction=(-1, 0),
+    )
     multiply = trace_stage(
         MULTIPLY_READER,
-        (1, 0),
+        (1, 1),
         (37, VALUE_OFFSET - 123, 38, VALUE_OFFSET + 456),
-        20,
-        literal_content=frozenset(((3, 2), (4, 2))),
-        literal_closures={(2, 2, (-1, 0)): 20},
+        PACKING_BASE,
+        literal_content=frozenset(((2, 0), (3, 0))),
+        literal_closures={(1, 0, (-1, 0)): PACKING_BASE},
+    )
+    decrement = trace_stage(
+        DECREMENT_READER,
+        (1, 1),
+        (
+            37,
+            (VALUE_OFFSET - 123) * PACKING_BASE,
+            38,
+            (VALUE_OFFSET + 456) * PACKING_BASE,
+        ),
+        1,
     )
     fanout = trace_stage(
         FANOUT_READER,
-        (1, 1),
-        (37, (VALUE_OFFSET - 123) * 20),
+        (7, 0),
+        (37, (VALUE_OFFSET - 123) * PACKING_BASE - 1),
         20,
-        literal_content=frozenset(((3, 2), (4, 2))),
-        literal_closures={(2, 2, (-1, 0)): 20},
+        literal_content=frozenset(((9, 1), (10, 1))),
+        literal_closures={(8, 1, (-1, 0)): 20},
     )
 
     expected = (
@@ -810,7 +928,11 @@ def verify_reader_pipeline(config: Config) -> tuple[int, int, int, int]:
         (parse_write, 24, (37, -123)),
         (adjust_read, 16, (37, -VALUE_OFFSET)),
         (adjust_write, 16, (37, VALUE_OFFSET - 123)),
-        (fanout, 24, (1, 17, (VALUE_OFFSET - 123) * 20 - 17)),
+        (
+            fanout,
+            24,
+            (1, 17, (VALUE_OFFSET - 123) * PACKING_BASE - 18),
+        ),
     )
     for trace, ticks, outputs in expected:
         if trace.ticks != ticks or trace.outputs != outputs:
@@ -822,27 +944,64 @@ def verify_reader_pipeline(config: Config) -> tuple[int, int, int, int]:
 
     if multiply != StageTrace(
         ticks=16,
-        outputs=(37, (VALUE_OFFSET - 123) * 20, 38, (VALUE_OFFSET + 456) * 20),
+        outputs=(
+            37,
+            (VALUE_OFFSET - 123) * PACKING_BASE,
+            38,
+            (VALUE_OFFSET + 456) * PACKING_BASE,
+        ),
         read_ticks=(0, 2, 8, 10),
         send_ticks=(1, 4, 9, 12),
     ):
         raise ValueError(f"unexpected multiply trace: {multiply}")
 
-    cycles = (parse_read.ticks, adjust_read.ticks, multiply.ticks, fanout.ticks)
-    operation_slots = (3, 2, 2, 3)
+    if decrement != StageTrace(
+        ticks=16,
+        outputs=(
+            37,
+            (VALUE_OFFSET - 123) * PACKING_BASE - 1,
+            38,
+            (VALUE_OFFSET + 456) * PACKING_BASE - 1,
+        ),
+        read_ticks=(0, 2, 8, 10),
+        send_ticks=(1, 4, 9, 12),
+    ):
+        raise ValueError(f"unexpected decrement trace: {decrement}")
+
+    cycles = (
+        parse_read.ticks,
+        adjust_read.ticks,
+        multiply.ticks,
+        decrement.ticks,
+        fanout.ticks,
+    )
+    operation_slots = (3, 2, 2, 2, 3)
     if any(cycle // count != config.target_ticks for cycle, count in zip(cycles, operation_slots)):
         raise ValueError("reader count does not cover its processing loop")
     startup_times = (
-        startup_read_ticks(build_parse_reader(), (16, 1), 3),
-        startup_read_ticks(build_adjust_reader(), (16, 1), 2),
-        startup_read_ticks(build_multiply_reader(), (6, 1), 1),
+        startup_read_ticks(build_parse_reader(), (3, 1), 3),
+        startup_read_ticks(build_adjust_reader(), (5, 1), 2),
+        startup_read_ticks(build_multiply_reader(), (1, 1), 1),
+        startup_read_ticks(build_decrement_reader(), (1, 1), 1),
         startup_read_ticks(
-            build_fanout_reader(DECODER_INTERIOR_WIDTH),
-            (DECODER_INTERIOR_WIDTH - len(FANOUT_READER[0]) + 1, 1),
+            build_fanout_reader(FANOUT_INTERIOR_WIDTH),
+            (
+                FANOUT_INTERIOR_WIDTH
+                - len(FANOUT_READER[0])
+                - FANOUT_TRAILING_WIDTH
+                + 7,
+                0,
+            ),
             3,
         ),
     )
-    expected_startup_times = ((17, 25, 33), (27, 35), (8,), (83, 91, 99))
+    expected_startup_times = (
+        (19, 27, 35),
+        (29, 37),
+        (10,),
+        (7,),
+        (83, 91, 99),
+    )
     if startup_times != expected_startup_times:
         raise ValueError(f"unexpected reader startup schedule: {startup_times}")
     if config.k != 20 or worker_count(config) != 21:
@@ -851,58 +1010,45 @@ def verify_reader_pipeline(config: Config) -> tuple[int, int, int, int]:
 
 
 def verify_decoder() -> tuple[int, int, tuple[int, ...]]:
-    tile = build_decoder_tile(split=False)
-    literal_content = frozenset(
-        (DECODER_PREFIX_WIDTH + x, 0) for x in range(3, 10)
-    ) | frozenset(((4, 1), (5, 1)))
-    literal_closures = {
-        (DECODER_PREFIX_WIDTH + 10, 0, (1, 0)): VALUE_OFFSET - 1,
-        (3, 1, (-1, 0)): 13,
-    }
+    tile = build_decoder_tile()
     traces: list[tuple[int, int, StageTrace]] = []
-    for local_id in range(1, 20):
+    for local_id in range(20):
         for value in (-1_000_000, 0, 1_000_000):
-            encoded = (value + VALUE_OFFSET) * 20 - local_id
+            encoded = (value + VALUE_OFFSET) * PACKING_BASE - local_id - 1
             trace = trace_stage(
                 tile,
-                (DECODER_PREFIX_WIDTH + 4, 1),
+                (3, 0),
                 (encoded,),
-                20,
-                literal_content,
-                literal_closures,
-                (-1, 0),
+                PACKING_BASE,
             )
-            if trace.outputs != (value,):
+            if trace.outputs != (value + VALUE_OFFSET - 1,):
                 raise ValueError(
                     f"decoder produced {trace.outputs} for id={local_id}, value={value}"
                 )
             traces.append((local_id, value, trace))
 
-    synchronized_send_tick = traces[0][2].send_ticks[0] + 4 * traces[0][0]
-    if any(
-        trace.send_ticks[0] + 4 * local_id != synchronized_send_tick
+    synchronized_ticks = {
+        trace.send_ticks[0] + 4 * local_id
         for local_id, _, trace in traces
-    ):
+    }
+    if synchronized_ticks != {82}:
         raise ValueError("decoder outputs are not synchronized by local id")
 
-    id_zero = trace_stage(
-        tile,
-        (DECODER_PREFIX_WIDTH + 4, 1),
-        (VALUE_OFFSET * 20,),
-        20,
-        literal_content,
-        literal_closures,
-        (-1, 0),
+    cycle_ticks = tuple(sorted({trace.ticks for _, _, trace in traces}))
+    subtract = trace_stage(
+        build_subtract_reader(),
+        (1, 0),
+        (VALUE_OFFSET - 1, VALUE_OFFSET + 122),
+        VALUE_OFFSET - 1,
     )
-    if id_zero.outputs != (0,) or not (
-        synchronized_send_tick - 8 < id_zero.send_ticks[0] < synchronized_send_tick + 8
+    if subtract != StageTrace(
+        ticks=10,
+        outputs=(0, 123),
+        read_ticks=(0, 5),
+        send_ticks=(2, 7),
     ):
-        raise ValueError(f"unexpected local-id-zero behavior: {id_zero}")
-
-    cycle_ticks = tuple(sorted({trace.ticks for _, _, trace in traces} | {id_zero.ticks}))
-    if max(cycle_ticks) > DECODER_COLUMNS * DECODER_ROWS * 8:
-        raise ValueError("decoder grid does not have enough workers for 8-tick input")
-    return max(cycle_ticks), synchronized_send_tick, cycle_ticks
+        raise ValueError(f"unexpected subtractor trace: {subtract}")
+    return max(cycle_ticks), max(synchronized_ticks), cycle_ticks
 
 
 def verify_decoder_startup() -> tuple[int, ...]:
@@ -916,44 +1062,67 @@ def verify_decoder_startup() -> tuple[int, ...]:
     if len(starts) != 1:
         raise ValueError("decoder room must contain one starting man")
 
-    runners = [(*starts[0], 1, 0)]
-    arrivals: dict[tuple[int, int], int] = {}
+    runners = [StartupRunner(*starts[0])]
+    expected = {
+        (
+            DECODER_PREFIX_WIDTH + tile_column * DECODER_TILE_WIDTH + 3,
+            tile_row * DECODER_TILE_HEIGHT,
+        )
+        for tile_row in range(DECODER_ROWS)
+        for tile_column in range(DECODER_COLUMNS)
+    }
+    arrivals: dict[tuple[int, int], tuple[int, int, tuple[int, int]]] = {}
     for tick in range(200):
-        positions = [(x, y) for x, y, _, _ in runners]
+        positions = [(runner.x, runner.y) for runner in runners]
         if len(positions) != len(set(positions)):
             raise ValueError(f"decoder startup collision at tick {tick}: {positions}")
 
-        next_runners: list[tuple[int, int, int, int]] = []
+        next_runners: list[StartupRunner] = []
         moves: list[tuple[tuple[int, int], tuple[int, int]]] = []
-        for x, y, direction_x, direction_y in runners:
-            instruction = interior[y][x]
-            if instruction == "R":
-                arrivals[(x, y)] = tick
+        for runner in runners:
+            start = (runner.x, runner.y)
+            if start in expected:
+                arrivals[start] = (tick, runner.offhand, runner.direction)
                 continue
+            instruction = interior[runner.y][runner.x]
             if instruction == "H":
                 continue
+            if instruction == "M":
+                runner.offhand = runner.main
+            elif instruction == "*":
+                runner.main *= runner.offhand
+            elif instruction.isdigit():
+                runner.main = int(instruction)
             if instruction == "Y":
+                direction_x, direction_y = runner.direction
                 directions = (
                     (-direction_y, direction_x),
                     (direction_y, -direction_x),
                 )
                 for next_direction_x, next_direction_y in directions:
-                    next_x = x + next_direction_x
-                    next_y = y + next_direction_y
+                    next_x = runner.x + next_direction_x
+                    next_y = runner.y + next_direction_y
                     next_runners.append(
-                        (next_x, next_y, next_direction_x, next_direction_y)
+                        StartupRunner(
+                            runner.x + next_direction_x,
+                            runner.y + next_direction_y,
+                            (next_direction_x, next_direction_y),
+                            runner.main,
+                            runner.offhand,
+                            runner.backpack,
+                        )
                     )
                 continue
             if instruction == ">":
-                direction_x, direction_y = 1, 0
+                runner.direction = (1, 0)
             elif instruction == "<":
-                direction_x, direction_y = -1, 0
+                runner.direction = (-1, 0)
             elif instruction == "^":
-                direction_x, direction_y = 0, -1
-            elif instruction in "vV":
-                direction_x, direction_y = 0, 1
-            next_x = x + direction_x
-            next_y = y + direction_y
+                runner.direction = (0, -1)
+            elif instruction == "v":
+                runner.direction = (0, 1)
+            next_x = runner.x + runner.direction[0]
+            next_y = runner.y + runner.direction[1]
             if not (
                 0 <= next_x < len(interior[0])
                 and 0 <= next_y < len(interior)
@@ -961,10 +1130,12 @@ def verify_decoder_startup() -> tuple[int, ...]:
                 raise ValueError(
                     f"decoder startup left room at {(next_x, next_y)} on tick {tick}"
                 )
-            next_runners.append((next_x, next_y, direction_x, direction_y))
-            moves.append(((x, y), (next_x, next_y)))
+            runner.x = next_x
+            runner.y = next_y
+            next_runners.append(runner)
+            moves.append((start, (next_x, next_y)))
 
-        next_positions = [(x, y) for x, y, _, _ in next_runners]
+        next_positions = [(runner.x, runner.y) for runner in next_runners]
         if len(next_positions) != len(set(next_positions)):
             raise ValueError(
                 f"decoder startup destination collision at tick {tick}: {next_positions}"
@@ -977,18 +1148,21 @@ def verify_decoder_startup() -> tuple[int, ...]:
             raise ValueError(f"decoder startup swap collision at tick {tick}")
         runners = next_runners
         if len(arrivals) == DECODER_COLUMNS * DECODER_ROWS:
-            expected = {
-                (tile_column * DECODER_TILE_WIDTH
-                 + DECODER_ROW_SHIFTS[tile_row]
-                 + DECODER_PREFIX_WIDTH
-                 + 4,
-                 tile_row * DECODER_TILE_HEIGHT + 1)
-                for tile_row in range(DECODER_ROWS)
-                for tile_column in range(DECODER_COLUMNS)
-            }
             if set(arrivals) != expected:
                 raise ValueError(f"decoder workers reached wrong cells: {arrivals}")
-            return tuple(sorted(arrivals.values()))
+            if any(
+                offhand != PACKING_BASE or direction != (1, 0)
+                for _, offhand, direction in arrivals.values()
+            ):
+                raise ValueError(f"decoder workers have wrong offhand: {arrivals}")
+            subtract_startup = startup_read_ticks(
+                build_subtract_reader(), (3, 1), 1
+            )
+            if subtract_startup != (18,):
+                raise ValueError(
+                    f"unexpected subtractor startup: {subtract_startup}"
+                )
+            return tuple(sorted(tick for tick, _, _ in arrivals.values()))
     raise ValueError("decoder startup did not create all workers")
 
 
@@ -1007,7 +1181,9 @@ def main() -> None:
     decoder_ticks, decoder_send_tick, decoder_cycles = verify_decoder()
     decoder_startup = verify_decoder_startup()
     workers = worker_count(config)
-    output = arguments.output or Path(__file__).with_name(f"direct-memory-left-k{config.k}.man")
+    output = arguments.output or Path(__file__).with_name(
+        f"direct-memory-shifted-k{config.k}.man"
+    )
     output.write_text(render_program(config), encoding="ascii")
     print(
         f"wrote {output} (k={config.k}, l={config.l}, target={config.target_ticks}, "
@@ -1016,11 +1192,11 @@ def main() -> None:
         f"dispatcher loop={config.target_ticks}, second worker={second_ticks}, "
         f"reader cycles={reader_cycles}, megablocks={config.l}, "
         f"decoder max loop={decoder_ticks}, decoder sync={decoder_send_tick}, "
-        f"decoder cycles={decoder_cycles}, decoder id0=private-detour, "
+        f"decoder cycles={decoder_cycles}, decoder=persistent-reset, "
         f"decoder startup={decoder_startup[0]}..{decoder_startup[-1]}, "
         f"worker pipes={config.k * config.l}x{PIPE_LENGTH}, "
-        f"multiplier buffers={MULTIPLIER_INPUT_PIPE_LENGTH}/"
-        f"{MULTIPLIER_OUTPUT_PIPE_LENGTH}, fanout pipes={config.l}x3)"
+        f"decrement buffer={DECREMENT_INPUT_PIPE_LENGTH}, "
+        f"fanout pipes={config.l}x3)"
     )
 
 

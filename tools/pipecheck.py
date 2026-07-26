@@ -40,15 +40,29 @@ def load_rows(path):
 
 def analyze(rows):
     script = ("const {boot}=require(process.argv[1]+'/sim/harness.js');"
+              "let src='';process.stdin.setEncoding('utf8');"
+              "process.stdin.on('data',c=>src+=c);process.stdin.on('end',()=>{"
               "(async()=>{const w=await boot();"
-              "console.log(w.analyze(JSON.parse(process.argv[2])));process.exit(0)})()"
-              ".catch(e=>{console.log(JSON.stringify({type:'error',message:String(e)}));process.exit(1)})")
-    r = subprocess.run(["node", "-e", script, REPO, json.dumps(rows)],
-                       capture_output=True, text=True, cwd=REPO)
+              "process.stdout.write(w.analyze(JSON.parse(src)),()=>process.exit(0))})()"
+              ".catch(e=>{console.log(JSON.stringify({type:'error',message:String(e)}));process.exit(1)})"
+              "})")
+    # Large generated controllers exceed macOS's argv limit when their padded
+    # row JSON is passed as process.argv.  Stream it over stdin instead.
+    r = subprocess.run(
+        ["node", "-e", script, REPO],
+        input=json.dumps(rows),
+        capture_output=True,
+        text=True,
+        cwd=REPO,
+    )
     try:
         return json.loads(r.stdout.strip().splitlines()[-1])
     except (ValueError, IndexError):
-        sys.exit(f"analyze failed: {(r.stderr or '')[:200]}")
+        sys.exit(
+            "analyze failed "
+            f"(exit {r.returncode}, stdout {len(r.stdout)} bytes): "
+            f"{(r.stderr or r.stdout or '')[:400]}"
+        )
 
 
 def room_of(rooms, x, y):

@@ -222,37 +222,18 @@ swept the geometry by hand; it is largely wasted on the old, heavily hand-folded
 Ticks measured on public cases are a proxy — pass `--cases stress.json` when a design's
 timing is delicate. Box shrinks (like the sudoku one) are always safe.
 
-## Briefing an agent (the coordinator's job — read this before spawning one)
+## Briefing an agent
 
-Measured over 14 runs on this repo, agents fail in a consistent way and it is caused by the
-brief, not the agent. Total budget was near-constant (250-500k tokens each); what differed was
-**what the brief asked for first**.
+Short briefs, in this order. Measured over 14 runs: what the brief asked for **first** decided
+whether anything shipped.
 
-1. **Never ask for a design phase. Ask for a submitted artifact.** Two briefs here opened with
-   "start with a brainstorm/design phase … then build it"; both agents produced excellent design
-   docs and **zero `.man` files**. The instruction sets the shape of the run. Write instead:
-   *"Get the crudest version that grades and passes SUBMITTED first, then improve it."* Design
-   is a by-product of building the simplest thing, not a deliverable. If a task genuinely needs
-   architecture work, make that its own agent whose output is a *working minimal build*.
-2. **Label every claim MEASURED or ASSUMED, and say what produced it.** Agents cannot tell your
-   guesses from your measurements, so they either follow a wrong premise into a dead end or burn
-   cycles refuting it. Both happened repeatedly (the "5% density → 47x repack" thesis, "server
-   ticks are layout-invariant", a "x4-x10" CFG estimate that measured 1.039x, a `1 {` mask
-   recompute that the register wall forbids). Add: *"Anything marked ASSUMED is mine, not
-   measured — discard it in one cheap check rather than working around it."*
-3. **Scope one agent to one stage that ends in something submittable.** A 6-room machine is a
-   ~100-cycle task; an agent that cannot converge it will silently substitute analysis. Split it:
-   core loop verified → storage added → I/O added, each stage graded.
-4. **State the bar and the currency.** Give the exact score to beat, the local->server ratio, and
-   which of box/ticks you are willing to trade. Agents optimise what you measure them against.
-5. **NEVER pipe a multi-line script into `python3`/`node` inline** (`python3 - <<EOF`, `-c` with a
-   long body). Write it to `scratchpad/<name>.py` and iterate with Edit. Re-running a 60-line
-   heredoc resends the whole body, so one build-measure-fix cycle costs 10k-130k tokens instead
-   of ~1.5k. Runs averaging 1.3-4.4k tokens/call (66-276 calls) **all shipped a submitted
-   improvement**; runs averaging 10k-132k (3-29 calls) mostly shipped nothing.
-6. **A probe worth running is worth keeping as a file.** `bindsolve.py`, `ev.py`, `cliff9.py`,
-   `serp.py`, `manlint.py`, `portsolve.py` each unblocked a *later* agent; every inline probe
-   vanished and was re-derived by someone else.
+1. **Ask for a submitted artifact, never a design.** Two briefs said "design first, then build";
+   both agents delivered a design doc and no `.man`.
+2. **Mark each claim MEASURED or GUESS.** Agents can't tell them apart, so they work around your
+   wrong guesses instead of dropping them.
+3. **One agent, one stage that ends in a submittable build.**
+4. **Scripts go in `scratchpad/*.py`, never inline heredocs** — re-running a heredoc resends it,
+   turning a 1.5k-token cycle into 45k. Keep the useful ones; the next agent will need them.
 
 ## Semantics you will get wrong from the spec alone
 

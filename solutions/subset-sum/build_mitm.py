@@ -1,6 +1,16 @@
 #!/usr/bin/env python3
 """Meet-in-the-middle subset-sum controller on stateflow/flowgrid.
 
+MEASURED VERDICT (2026-07-26): correct (7/7 rust) but NOT competitive —
+240x573, avg 2.77M ticks, local 908B vs the parallel champion's 47.23B/44.62B.
+The controller spends 77% of ticks stalled on scalar-RAM replies: a split_ram
+round trip costs ~200 (block 8) to ~320 (block 32) ticks, mostly fixed
+dispatch, and the hot loops need 5-8 round trips per iteration.  Estimated
+floor after full register-carry/sentinel/unroll optimization is ~100-150B.
+Single-man + belt-RAM cannot beat 256 RAM-free parallel workers here.  If
+someone revisits Semester-worthy MITM, build the comparator-field design in
+STREAMED_MITM.md (workers ARE the memory) — not this.
+
 Semantic mirror: mitm_grid_model.py (fuzzed vs brute force; keep in sync!).
 Scalar map and block structure are copied from that file's docstring.
 

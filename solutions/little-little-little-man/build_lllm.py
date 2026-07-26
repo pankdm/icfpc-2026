@@ -36,6 +36,7 @@ sys.path.insert(0, os.path.join(HERE, "..", "..", "tools"))
 import layout as lay
 import littleman as lm
 import lllm_flow as F
+import lllm_sim as SIM
 
 # ---- tunable integer knobs -------------------------------------------------
 HOLDER_PITCH = 5        # columns between neighbouring holder rooms
@@ -108,7 +109,7 @@ def entry_labels(blocks):
 class Columns(object):
     def __init__(self, blocks, holder_order, pitch=HOLDER_PITCH,
                  port_gap=PORT_GAP, hwy_gap=HWY_GAP, lead_in=LEAD_IN,
-                 lanes=None):
+                 lanes=None, heat=None):
         self.hwy_targets = sorted(entry_labels(blocks))
         # A highway column is only busy between its highest join row and its
         # target row, and men cross an idle one on a BLANK cell, so targets with
@@ -117,9 +118,17 @@ class Columns(object):
             lanes = {t: i for i, t in enumerate(self.hwy_targets)}
         self.lanes = lanes
         nlanes = max(lanes.values()) + 1 if lanes else 0
+        # Every highway traversal costs (x_exit - lane) + (entry_col - lane), so
+        # a lane column is worth 2 cells per traversal of every edge that uses
+        # it: the HOTTEST lane belongs on the column closest to entry_col.  The
+        # colouring only cares which targets share a lane, so re-indexing lanes
+        # by heat is free -- and it was previously left in arbitrary order.
+        order = sorted(range(nlanes),
+                       key=lambda i: sum(heat.get(t, 0) for t, li in lanes.items()
+                                         if li == i)) if heat else range(nlanes)
         x = 1
         lane_col = {}
-        for i in range(nlanes):
+        for i in order:
             lane_col[i] = x
             x += 1 + hwy_gap
         self.hwy = {t: lane_col[lanes[t]] for t in self.hwy_targets}
@@ -488,7 +497,8 @@ def build(holder_order=None, pitch=HOLDER_PITCH, ring_lift=RING_LIFT,
     blocks = split_blocks(flow)
     holder_order = holder_order or [h for h in HOLDER_ORDER if h in F.HOLDERS]
     assert sorted(holder_order) == sorted(F.HOLDERS), "HOLDER_ORDER is stale"
-    kw = dict(pitch=pitch, port_gap=port_gap, lead_in=lead_in)
+    kw = dict(pitch=pitch, port_gap=port_gap, lead_in=lead_in,
+              heat=SIM.block_heat())
     cols = Columns(blocks, holder_order,
                    lanes=plan_lanes(blocks, holder_order, **kw), **kw)
 

@@ -200,6 +200,76 @@ class Sim(object):
 
 
 # ----------------------------------------------------------------------
+# execution profile: which (block, exit) pairs run, and how often
+# ----------------------------------------------------------------------
+class TracingSim(Sim):
+    """Sim that records (label, index of the token that ended the block).
+
+    Geometry-independent, so build_lllm.py and cost_model.py can both use it to
+    weight a layout decision by how hot the code it serves actually is.
+    """
+
+    def run(self, want_frames, limit=40_000_000):
+        self.hits = {}
+        blocks = self.flow.blocks
+        order = self.flow.order
+        label = order[0]
+        while True:
+            toks = blocks[label]
+            jump = None
+            for ti, tok in enumerate(toks):
+                self.steps += 1
+                if self.steps > limit:
+                    raise RuntimeError("step limit in block %s" % label)
+                jump = self.exec_tok(tok, label)
+                if jump is not None:
+                    self.hits[(label, ti)] = self.hits.get((label, ti), 0) + 1
+                    break
+                if len(self.disp.frames) >= want_frames:
+                    self.hits[(label, ti)] = self.hits.get((label, ti), 0) + 1
+                    return self.disp.frames
+            if len(self.disp.frames) >= want_frames:
+                return self.disp.frames
+            if jump is None:
+                raise RuntimeError("fell off the end at %s" % label)
+            label = jump
+
+
+def case_hits(rounds, flow=None):
+    flow = flow or F.build_flow()
+    sim = TracingSim(flow, [int(v) for r in rounds for v in r])
+    sim.run(len(rounds))
+    return sim.hits
+
+
+_ALL_HITS = None
+
+
+def all_hits():
+    """[(case name, {(label, token index): count})] over the ten public cases.
+
+    Cached: it is independent of geometry, so a layout search pays for it once.
+    """
+    global _ALL_HITS
+    if _ALL_HITS is None:
+        spec = json.load(open(os.path.join(
+            HERE, "..", "..", "tests", "little-little-little-man.json")))
+        flow = F.build_flow()
+        _ALL_HITS = [(c.get("name"), case_hits([r["in"] for r in c["rounds"]], flow))
+                     for c in spec["publicTestData"]]
+    return _ALL_HITS
+
+
+def block_heat():
+    """{label: how many times the block is ENTERED across the public cases}."""
+    heat = {}
+    for _name, hits in all_hits():
+        for (label, _ti), n in hits.items():
+            heat[label] = heat.get(label, 0) + n
+    return heat
+
+
+# ----------------------------------------------------------------------
 def run_case(rounds, flow=None, limit=40_000_000):
     """rounds: list of per-round input token lists.  Returns one frame per round."""
     flow = flow or F.build_flow()

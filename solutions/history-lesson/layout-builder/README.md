@@ -71,7 +71,8 @@ This moves DECODER, UNPACK, output, and DISP two rows below their pipe-free
 positions, leaving the dictionary in place. It then adds six intentionally
 spacious, non-optimized routes: the four streaming pipeline links and both
 directions of the dictionary ring. Connected outputs receive a `-connected`
-filename suffix by default.
+filename suffix by default. Routes may extend to the right, but the builder
+asserts that none extends below the dictionary room's bottom boundary.
 
 Verify a connected default build with both interpreters:
 

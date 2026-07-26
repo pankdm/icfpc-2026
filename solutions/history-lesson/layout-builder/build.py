@@ -420,17 +420,17 @@ def add_connection_pipes(
         (feeder_decoder_x, decoder_y - 1),
     ])
 
-    dictionary_bottom_outside = dictionary_y + dictionary_height
-    lower_route_y = dictionary_bottom_outside + 2
+    dictionary_bottom = dictionary_y + dictionary_height - 1
 
     # DECODER -> DISP, retaining the dispatcher attachment used by the
     # original vertical-P1 prototype.
     decoder_send = (decoder_x + 5, decoder_y + decoder_height)
     disp_stream_in = (disp_x - 1, disp_y + 5)
+    decoder_route_y = dictionary_bottom - 3
     program.pipe([
         decoder_send,
-        (decoder_send[0], lower_route_y),
-        (disp_stream_in[0], lower_route_y),
+        (decoder_send[0], decoder_route_y),
+        (disp_stream_in[0], decoder_route_y),
         disp_stream_in,
     ], end_direction="E")
 
@@ -451,7 +451,7 @@ def add_connection_pipes(
     # UNPACK -> output, entering the output room from below.
     unpack_send = (unpack_x + 4, unpack_y + unpack_height)
     output_in = (output_x + 1, output_y + output_height)
-    output_route_y = dictionary_bottom_outside + 1
+    output_route_y = dictionary_bottom - 4
     program.pipe([
         unpack_send,
         (unpack_send[0], output_route_y),
@@ -459,33 +459,41 @@ def add_connection_pipes(
         output_in,
     ], end_direction="N")
 
-    # Dictionary -> DISP and DISP -> dictionary. These intentionally generous
-    # routes also provide far more than the ring's required word capacity.
+    # Dictionary -> DISP and DISP -> dictionary. Attach to the dictionary's
+    # right wall so neither route needs to descend below its bottom boundary.
     dictionary_ring_out = (
-        dictionary_x + 4,
-        dictionary_bottom_outside,
+        dictionary_x + dictionary_width,
+        dictionary_bottom - 2,
     )
-    disp_ring_in = (disp_x + 18, disp_y + disp_height)
-    ring_forward_y = dictionary_bottom_outside + 8
+    disp_ring_in = (
+        disp_x + disp_width,
+        disp_y + disp_height - 3,
+    )
+    ring_forward_y = dictionary_bottom - 2
+    ring_forward_right = disp_x + disp_width + 5
     program.pipe([
         dictionary_ring_out,
-        (dictionary_ring_out[0], ring_forward_y),
-        (disp_ring_in[0], ring_forward_y),
+        (ring_forward_right, ring_forward_y),
+        (ring_forward_right, disp_ring_in[1]),
         disp_ring_in,
-    ], end_direction="N")
+    ], end_direction="W")
 
-    disp_ring_out = (disp_x + 22, disp_y + disp_height)
-    dictionary_ring_in = (
-        dictionary_x + 2,
-        dictionary_bottom_outside,
+    disp_ring_out = (
+        disp_x + disp_width,
+        disp_y + disp_height - 4,
     )
-    ring_return_y = ring_forward_y + 2
+    dictionary_ring_in = (
+        dictionary_x + dictionary_width,
+        dictionary_bottom - 1,
+    )
+    ring_return_y = dictionary_bottom - 1
+    ring_return_right = ring_forward_right + 2
     program.pipe([
         disp_ring_out,
-        (disp_ring_out[0], ring_return_y),
-        (dictionary_ring_in[0], ring_return_y),
+        (ring_return_right, disp_ring_out[1]),
+        (ring_return_right, ring_return_y),
         dictionary_ring_in,
-    ], end_direction="N")
+    ], end_direction="W")
 
     return 6
 
@@ -601,6 +609,13 @@ def build(
             ),
             service_rooms=service_rooms,
         )
+        dictionary_bottom = tail_y + dictionary_height - 1
+        max_layout_y = program.bounds()[3]
+        if max_layout_y > dictionary_bottom:
+            raise AssertionError(
+                "connected routing extends below dictionary boundary: "
+                f"{max_layout_y} > {dictionary_bottom}"
+            )
 
     LOGGER.info("validating vertical literals and layout metadata")
     bad_ticks = vertical.base.audit_vertical_ticks(program)
@@ -618,6 +633,7 @@ def build(
             "words": dictionary_words,
             "left_edge": dictionary_x,
             "right_edge": dictionary_x + dictionary_width - 1,
+            "bottom_edge": tail_y + dictionary_height - 1,
             "bands": len(dictionary_bands),
             "constants_per_band": [
                 band.constant_count for band in dictionary_bands

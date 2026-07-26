@@ -239,6 +239,26 @@ class Model:
         # pairwise non-overlap with clearance.  Required separation is the corridor
         # gap, but never MORE than the champion's own original separation: if two
         # rooms already sit 0 apart legally, holding them to 2 would be UNSAT-by-fiat.
+        # Which walls of which block carry a pipe attachment.  A pipe leaving a wall
+        # needs TWO free cells straight out from it: the loader derives the attachment
+        # from the start cell's backward neighbour, so a route that bends on its very
+        # first cell parses as detached (place.py `_route_one` enforces the stub).  With
+        # --gap 1 there is exactly one free cell in front of the controller's bottom
+        # wall and EVERY proposal died with "pipe 1/3 unroutable" — 16 random net orders
+        # could not fix what no route could satisfy.  The clearance has to be
+        # DIRECTIONAL: snake's satellites sit flush side by side (separation 0) and that
+        # is fine, because their attachments face down, not sideways.
+        # Only the SOURCE end needs it: the router may bend on the last cell (the
+        # arrowhead only has to point at the destination border) but not on the first.
+        # And the side is read off the pipe's own flow direction, never off the offset —
+        # a corner attachment looks like two walls, and calling both of them "in use"
+        # is what made M<=206 UNSAT-by-fiat (snake's block 1 sits flush on top of hub
+        # 19 and exits EAST, so its bottom wall needs no clearance at all).
+        _SIDE = {(0, 1): "B", (0, -1): "T", (1, 0): "R", (-1, 0): "L"}
+        self.att_walls = {i: set() for i in range(n)}
+        for p in plan.pipes:
+            self.att_walls[p.src_b].add(_SIDE[tuple(p.dirs[0])])
+
         self.sep_extra = {}
         for i in range(n):
             for j in range(i + 1, n):
@@ -452,14 +472,25 @@ class Model:
         dy = max(by0 - ay1 - 1, ay0 - by1 - 1)
         return max(dx, dy, 0)
 
+    STUB = 2      # free cells a pipe needs straight out of its attachment wall
+
     def _add_sep(self, i, j, s):
         a, b = self.plan.blocks[i], self.plan.blocks[j]
         self.sep_extra[(i, j)] = s
+        aw = getattr(self, "att_walls", {}).get(i, set())
+        bw = getattr(self, "att_walls", {}).get(j, set())
+
+        def need(mine, theirs):
+            """Clearance on the branch where MY `mine` wall faces THEIR `theirs` wall."""
+            if mine in aw or theirs in bw:
+                return max(s, self.STUB)
+            return s
+
         self.opt.add(z3.Or(
-            self.X[i] + a.w + s <= self.X[j],
-            self.X[j] + b.w + s <= self.X[i],
-            self.Y[i] + a.h + s <= self.Y[j],
-            self.Y[j] + b.h + s <= self.Y[i]))
+            self.X[i] + a.w + need("R", "L") <= self.X[j],
+            self.X[j] + b.w + need("L", "R") <= self.X[i],
+            self.Y[i] + a.h + need("B", "T") <= self.Y[j],
+            self.Y[j] + b.h + need("T", "B") <= self.Y[i]))
 
     def bump_sep(self, i, j):
         """A pipe between i and j keeps failing to route: demand more corridor."""

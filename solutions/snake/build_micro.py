@@ -328,7 +328,7 @@ def _lit(v):
 
 def build(save_to=None, CBOT=100, CW=60, CY0=16,
           BD_OUT=44, BD_IN=50, ST_OUT=22, ST_IN=24, IN_IN=56, DRV_OUT=58,
-          BODY_X0=31, BODY_W=29, BODY_LO=32, BODY_Y=13, RELAY_Y=5,
+          BODY_X0=31, BODY_W=29, BODY_LO=36, BODY_Y=13, RELAY_Y=5,
           DRVX=None, DISX=None, LOOPX=49, LOOPM=48, LOOPR=46,
           DEC1=48, DEC2=53, REPD=52):
     DRVX = CW + 2 if DRVX is None else DRVX
@@ -365,6 +365,11 @@ def build(save_to=None, CBOT=100, CW=60, CY0=16,
     p.pipe(feed)                                                    # ctrl  -> body
     p.pipe(ret)                                                     # body  -> ctrl
     cap = pipelen(feed) + 1 + pipelen(ret)
+    # >= 50 covers the worst case a 100-round case can reach (each growth costs a
+    # spawn round plus a tick round).  A bigger ring is pure safety margin but it
+    # costs ticks: at snake length 1 a pushed cell has to travel cap-1 cells
+    # before it can be popped again.  BODY_LO trades the two off; 65 measured
+    # 90.7M against 89.6M at 55 and 93.7M at 85.
     assert cap >= 55, "body ring capacity %d too small" % cap
     p.pipe([(DRV_OUT, ATT), (DRV_OUT, 12), (DRVX - 1, 12)])            # ctrl -> driver
 

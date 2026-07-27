@@ -11,7 +11,7 @@
   "HW_SPAWN": 47,
   "HW_DIR": 34,
   "D_EAT": 30,
-  "D_NOEAT": 21,
+  "D_NOEAT": 16,
   "DRV_OUT": 49,
   "DRVX": 4,
   "CY0": 8,
@@ -22,8 +22,8 @@
   "D_COLL": 10,
   "CXL": 8
  },
- "score": 28164915.2,
+ "score": 28150988.8,
  "box": 4096,
- "ticks": 6876.2,
+ "ticks": 6872.8,
  "cap": 51
 }

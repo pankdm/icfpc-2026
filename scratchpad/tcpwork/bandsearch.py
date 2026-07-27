@@ -98,7 +98,7 @@ def solve(W, CH, RH, verbose=False):
                             continue
                         if n in seen or n in blocked or n in dw:
                             continue
-                        if len(path) > 14:
+                        if len(path) > 30:
                             continue
                         seen.add(n)
                         q.append((n, path + [n]))

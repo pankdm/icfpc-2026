@@ -34,34 +34,37 @@ enumerates every legal (checker, I room, O room, 4 pipes) packing. At width 22
 it needs a 13-row checker, which is why `H` is dropped here (measured free: the
 overflow man's wall crash happens after the final output).
 
-STATUS: 22x22, box 484, loads clean, all four pipes legal -- but it FAILS the
-read-order race by exactly one tick, and that gap is structural.
+STATUS: 22x22, box 484. The READ RACE IS SOLVED -- measured: the demux clone
+takes the packet value at tick 52, the loop man takes the next seq at 61, and
+the first round outputs 100 correctly. The fix was to stop treating the ring
+length as a bound: rows 3 and 4 have free WESTERN columns (the tree only starts
+at col 3-5 there), so the loop dips (1,2)->(1,3)->(1,4)->(2,4)->(2,3)->(2,2)
+before turning east, buying 4 ticks on the hot path. Loop `r` moves from T+12 to
+T+16 against a clone that needs T+13.
 
-Both the loop man and each demux clone pull the same input pipe; the clone must
-take packet k's value before the loop man comes back round for seq k+1. Measured
-(scratchpad/tcpwork/race22.py): the clone needs 13 ticks from the fork to its
-leaf `r`, the loop man needs 12, so the loop man eats the value.
+It now fails on a SECOND, independent constraint: pipe binding. `s` picks the
+nearest OUTGOING pipe, and every reader cell has a lane pipe directly below it
+at distance (13-y). The seq pipe can only be reached from the reader's EAST
+half -- measured, the seq send must sit at col >=7 (col 6 ties). The dip puts
+the loop man's leg in cols 8..1, so its `s` lands at col 5 and the seq stream
+is written into lane 5 instead of the checker.
 
-Neither number can move:
-  * clone = 6 vertical (rows 3->9) + 7 horizontal (L1 4, L2 2, L3 1, L4 0) = 13,
-    and L1 is pinned to col 9 -- a balanced 16-leaf tree in exactly 16 lane
-    columns admits no other node placement.
-  * loop = 8 (row 1, col 9 -> col 1) + 1 (drop) + 8 (row 2, col 1 -> Y at col 9)
-    = 17, and `r` must sit 5 cells before `Y` because `r b ] ] ]` is a fixed
-    order (`b` loads BP from A, then three shifts). So `r` lands at 17-5 = 12.
+That is a closed chain, and every link is forced:
+  13-row checker (bandsearch: 14 does not fit at width 22)
+    -> 3 init cells in column R (r7,r8,r9; r6 is the ok-return turn)
+    -> B init <= 9, since the last op must be `M` and A <= 9 after two cells
+    -> K <= 9, so the reader must send (16-K)-seq with 16-K >= 7
+    -> that needs 3 ops (`M`, digit, `-`); 2 ops only reach c in {0,1,-1},
+       i.e. K in {15,16,17}, all of which need a 4-cell init
+    -> 3 ops push `s` to col 5, which mis-binds.
+Going the other way (loop returns EAST) binds `s` correctly at col >=13 but
+loses the race by one tick: the east pocket (row 2 cols 15-16, row 3 cols
+14-16, row 4 col 16) admits at most 4 pass-through cells, so loop `r` reaches
+only T+12 against the clone's T+13, and (9,1) is a one-way valve -- the man
+cannot cross back west past `Y`.
 
-Winning needs loop length > 18, but the loop is bounded by 2*(distance from Y to
-the wall)+1 = 17, and Y is pinned to L1's column. Fork priority is already
-correct here: `Y`'s CW copy keeps the splitter's slot, so the parent runs EAST
-into the fork to make the DEMUX copy the older one -- that only decides ties,
-and at 12 vs 13 there is no tie.
-
-The 11-row reader therefore trades one row of box for a race it cannot win. The
-row is real and the packing is real; what is missing is ~2 ticks of loop, which
-would need either a 5-row demux tree or a second input path into the reader
-(a helper room), and at 22x22 the band has no free 3x3 for one.
-
-usage: build_22.py [out.man]
+Breaking it needs a 4th init cell in the checker, which needs a 12-interior
+checker, which does not fit at width 22.
 """
 import sys
 
@@ -72,9 +75,9 @@ RH = 13                              # reader rows 0..12
 # reader interior rows 1..11, cols 1..16.
 READER = [
     "v M1s-8W<      <",             # 1  return leg, runs WEST back to col 1
-    ">  rb]]]Y@r0   ^",             # 2  main loop runs EAST into the fork at col 9
+    " > rb]]]Y@r0   ^",             # 2  main loop runs EAST into the fork at col 9
     "    v]]bxb]]v   ",             # 3  level 1  (the copy is born on the `x`)
-    "  vbxbv   vbxbv ",             # 4  level 2
+    ">^vbxbv   vbxbv ",             # 4  level 2 -- cols 1-2 are the loop's dip
     "  ]   ]   ]   ] ",             # 5  reload shift
     " vxv vxv vxv vxv",             # 6  level 3
     " & & & & & & & &",             # 7  isolate bit 0

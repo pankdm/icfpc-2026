@@ -83,6 +83,46 @@ so the balance condition is `controller_h = controller_w + 14`. The live champio
 from DENSITY, not shape. Compute the analogous relation before optimizing anything; shrinking
 the non-binding dimension moves the score by zero.
 
+## AIM THE SOLVER AT THE BINDING AXIS — smtrows minimises ROWS ONLY
+
+`smtrows` shrinks the ROW count. If WIDTH binds, a perfect row solution changes the score by
+ZERO. Check the axis before spending a solver run (measured 2026-07-27):
+
+| problem | grid | binds | biggest room | aimed right? |
+|---|---|---|---|---|
+| Pathfinder | 180x180 | WIDTH | 89x165 (89 of 180 wide) | NO |
+| LLLM | 142x141 | WIDTH | 142x102 (the room IS the width) | NO |
+| Snake | 67x67 | WIDTH | 47x61 | NO — proven below |
+| **LLM** | 356x793 | **HEIGHT** | 318x742 | **YES** |
+
+Snake is the worked negative. Collapsing its controller to the phase-1 optimum gives height
+8+52 = 60, to the free-ports optimum 56, to the absolute lower bound 45 — and **box stays 4,761
+in all three cases**, because 69 width = a 49-column controller + 20 columns of display block
+(the 16x16 display is an irreducible 18), and smtrows never touches width.
+
+## smtrows CANNOT BEAT A HAND-FOLDED CHAMPION — it forbids row sharing
+
+Measured, with a Z3 optimality certificate (per block: `rows<=k` SAT and `rows<=k-1` UNSAT):
+
+    snake champion : 48 PHYSICAL op rows (54 block-rows, 6 SHARED between blocks)
+    smtrows optimum: 50 rows (41 if `X` is inline)     -> the champion is ALREADY BETTER
+    gradebook      : model 49, champion 46 physical    -> same result
+
+The champion wins by parking several small blocks on ONE row. The encoding lays blocks strictly
+one under another, so it structurally cannot express that fold. **The "70% blank glide" figure is
+therefore misleading**: that air is the boustrophedon's turn-around and drop columns, and Z3
+re-creates the same structure rather than removing it.
+
+If you want to keep pulling this thread, the lever is to EXTEND THE MODEL with an
+interval-packing layer that allows row sharing between independent blocks — not to run the
+existing model harder or longer.
+
+Practical notes: with ports FIXED no constraint couples two blocks, so phase 1 decomposes into
+N tiny problems (0.7s) — a monolithic `Optimize()` over 25 blocks did NOT close in 300s. Phase 2
+(`--free-ports`) did not close either (UNSAT/timeout at 601s); coordinate descent over port
+columns with the exact per-block DP as evaluator reached 46, against a rigorous lower bound of
+35, so phase 2 is BRACKETED [35,46], not solved.
+
 ## Moving ports is NECESSARY but NOT SUFFICIENT
 
 `place.py` already slides attachments — 25% of the annealer's moves, free unless `--pin-attach`.

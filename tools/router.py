@@ -69,7 +69,11 @@ class UnroutableNet:
                f"congested={len(self.congested_region)} cells)"
 
 
-PipeNet = namedtuple("PipeNet", "name src dst nearest_for")
+# A pipe net.  `exact_len` / `min_len` are the LENGTH TARGET (in pipe cells) — a pipe's
+# length is its CAPACITY and its LATENCY, so a re-route may never silently shorten it.
+# See "3c. length-preserving folded routing" below.
+PipeNet = namedtuple("PipeNet", "name src dst nearest_for exact_len min_len")
+PipeNet.__new__.__defaults__ = (None, None)
 Corridor = namedtuple("Corridor", "name a h_in b h_out glyphs")
 
 
@@ -329,6 +333,332 @@ def draw_pipe(grid, cells, dirs):
         else:
             ch = "-" if di[0] != 0 else "|"
         grid.set(cx, cy, PIPE, ch)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 3c. LENGTH-PRESERVING FOLDED ROUTING  (PCB-style length matching)
+# ══════════════════════════════════════════════════════════════════════════════
+# A pipe is a shift register: its LENGTH IS ITS CAPACITY and its LATENCY.  So when a
+# placer moves rooms and we re-route, the new pipe may be SHORTER than the old one —
+# which silently changes behaviour (fewer in-flight values, fewer transit ticks).  The
+# plain A* has no length target, so it just reports the net as routed and the program
+# then mis-behaves, or the caller rejects the whole floorplan ("pipe N unroutable").
+#
+# Fix: route the shortest path with the A* core (unchanged), then absorb the slack in an
+# ACCORDION SERPENTINE ("comb") of teeth hung off the path into nearby FREE cells.  One
+# tooth of depth k at path edge i replaces the single step cells[i]->cells[i+1] with
+#
+#        cells[i] -> +1p -> ... -> +kp -> (over) -> +kp -> ... -> +1p -> cells[i+1]
+#
+# adding exactly 2k cells and occupying exactly 2k cells of area — a comb TILES the
+# rectangle it folds into, so the ceiling is 1.0 cell of slack per free cell.
+#
+# PARITY (a theorem, not a heuristic).  cells[0] is orthogonally adjacent to `src` and
+# cells[-1] is orthogonally adjacent to `dst`, so
+#     len(cells) - 1 == steps(cells[0] -> cells[-1]) == manhattan(cells[0],cells[-1]) (mod 2)
+#                    == manhattan(src,dst) + 1 + 1                                   (mod 2)
+# hence EVERY legal pipe between two FIXED border points has
+#     len(cells) % 2 == (manhattan(src,dst) + 1) % 2 .
+# Length parity is therefore an invariant of the endpoints: slack between two routes of
+# the same net is ALWAYS EVEN, and an ODD length target is genuinely UNREACHABLE — no
+# detour, jog or serpentine can fix it.  The only remedy is to move an endpoint by an
+# odd Manhattan distance (which re-binds nearest-pipe, so the caller must opt in).
+# fold_path reports this as FoldFailure("odd-parity") instead of guessing.
+#
+# FALSE PIPE STARTS.  The oracle finds a pipe start at ANY arrowhead whose BACKWARD
+# neighbour is a room border.  A comb tooth hung against a room wall creates exactly
+# that: a second, bogus pipe traced out of the middle of ours.  Every tooth is checked
+# against this (`_tooth_safe` / `false_start_cells`) before it is accepted.
+
+FOLD_MARGIN = 8          # how far outside the current bbox a fold may reach
+
+
+class FoldFailure:
+    """Falsy result carrying WHY a length-matched route could not be produced.
+
+    reason ∈ {"unroutable", "too-short", "odd-parity", "insufficient-free-area",
+              "false-pipe-start", "invalid"}"""
+    def __init__(self, reason, detail="", cells=None, need=0, got=0):
+        self.reason = reason
+        self.detail = detail
+        self.cells = cells or []
+        self.need = need
+        self.got = got
+
+    def __bool__(self):
+        return False
+
+    def __repr__(self):
+        return (f"FoldFailure({self.reason!r}, {self.detail!r}, "
+                f"need={self.need}, got={self.got})")
+
+
+def pipe_len_parity(src, dst):
+    """The (fixed) parity of len(cells) for ANY legal pipe from border `src` to `dst`."""
+    return (abs(src[0] - dst[0]) + abs(src[1] - dst[1]) + 1) % 2
+
+
+def dirs_for(cells, dst):
+    """Per-cell flow directions for a pipe cell path ending at border `dst`."""
+    n = len(cells)
+    out = []
+    for i in range(n):
+        if i < n - 1:
+            out.append(_unit(cells[i + 1][0] - cells[i][0],
+                             cells[i + 1][1] - cells[i][1]))
+        else:
+            out.append(_unit(dst[0] - cells[i][0], dst[1] - cells[i][1]))
+    return out
+
+
+def _grid_bounds(grid):
+    """bbox of everything that is not blank/FREE (glyphs plus typed non-FREE cells)."""
+    minx, miny, maxx, maxy = grid.prog.bounds()
+    xs, ys = [], []
+    if maxx >= minx:
+        xs += [minx, maxx]
+        ys += [miny, maxy]
+    for (x, y), t in grid.typ.items():
+        if t != FREE:
+            xs.append(x)
+            ys.append(y)
+    if not xs:
+        return (0, 0, -1, -1)
+    return (min(xs), min(ys), max(xs), max(ys))
+
+
+def false_start_cells(grid, cells, dirs, skip_first=True):
+    """Cells of a routed pipe that the ORACLE would mistake for a SECOND pipe start:
+    an arrowhead whose backward neighbour is a room border (a WALL cell).
+
+    An arrowhead is drawn at cells[0], at every bend, and at cells[-1] (draw_pipe).
+    cells[0] is the *real* start, so it is skipped by default."""
+    bad = []
+    n = len(cells)
+    for i in range(n):
+        if i == 0 and skip_first:
+            continue
+        is_arrow = (i == 0 or i == n - 1 or dirs[i - 1] != dirs[i])
+        if not is_arrow:
+            continue
+        back = (cells[i][0] - dirs[i][0], cells[i][1] - dirs[i][1])
+        if grid.t(*back) == WALL:
+            bad.append(cells[i])
+    return bad
+
+
+def _tooth_cells(cur, i, p, k):
+    """The 2k cells a depth-k tooth on path edge i (cur[i] -> cur[i+1]) would add,
+    in path order."""
+    a, b = cur[i], cur[i + 1]
+    up = [(a[0] + j * p[0], a[1] + j * p[1]) for j in range(1, k + 1)]
+    dn = [(b[0] + j * p[0], b[1] + j * p[1]) for j in range(k, 0, -1)]
+    return up + dn
+
+
+def _tooth_safe(grid, cur, i, p, k):
+    """Would this tooth create a FALSE PIPE START?  Three new arrowheads appear:
+    cur[i] (now heading p), cur[i]+k*p (heading d, the turn across) and cur[i+1]+k*p
+    (heading -p, the turn back).  Each is unsafe if its backward neighbour is a WALL."""
+    a, b = cur[i], cur[i + 1]
+    d = _unit(b[0] - a[0], b[1] - a[1])
+    heads = [((a[0], a[1]), p),
+             ((a[0] + k * p[0], a[1] + k * p[1]), d),
+             ((b[0] + k * p[0], b[1] + k * p[1]), (-p[0], -p[1]))]
+    for (cx, cy), dd in heads:
+        if grid.t(cx - dd[0], cy - dd[1]) == WALL:
+            return False
+    return True
+
+
+def _depth_limit(grid, cur, i, p, claimed, forbid, src, dst, bound, grow,
+                 inside_only, start=1, cap=10 ** 9):
+    """How deep a tooth at edge i on side p may go, scanning outward from depth `start`.
+    Stops at the first depth whose two cells are not usable."""
+    a, b = cur[i], cur[i + 1]
+    x0, y0, x1, y1 = bound
+    k = start - 1
+    while k - start + 1 < cap:
+        j = k + 1
+        for c in ((a[0] + j * p[0], a[1] + j * p[1]),
+                  (b[0] + j * p[0], b[1] + j * p[1])):
+            if not (x0 <= c[0] <= x1 and y0 <= c[1] <= y1):
+                return k
+            if c in claimed or c in forbid or c == src or c == dst:
+                return k
+            if not grid.pipe_ok(c):
+                return k
+            if inside_only and grow(c) > 0:
+                return k
+        k = j
+    return k
+
+
+def fold_path(grid, cells, required, src, dst, forbid=(), bound=None,
+              margin=FOLD_MARGIN, passes=6):
+    """Pad the pipe cell path `cells` to EXACTLY `required` cells with an accordion
+    serpentine, keeping the same endpoints and the same geometry everywhere else.
+
+    Returns the new cell list, or a FoldFailure.  Never shortens; never moves cells[0]
+    or cells[-1]; never claims a non-FREE cell; never creates a false pipe start.
+    """
+    cells = [tuple(c) for c in cells]
+    src, dst = tuple(src), tuple(dst)
+    n = len(cells)
+    if required == n:
+        return cells
+    if required < n:
+        return FoldFailure("too-short", "a re-route may never SHORTEN a pipe "
+                           "(length is capacity and latency)", need=required, got=n)
+    if (required - n) % 2:
+        return FoldFailure(
+            "odd-parity",
+            f"len parity is fixed by the endpoints: every pipe {src}->{dst} has "
+            f"len%2=={pipe_len_parity(src, dst)}; {required} is unreachable without "
+            f"moving an endpoint by an odd Manhattan distance",
+            need=required, got=n)
+
+    forbid = set(map(tuple, forbid))
+    grow = _bbox_grower(_grid_bounds(grid))
+    if bound is None:
+        bx0, by0, bx1, by1 = _grid_bounds(grid)
+        if bx1 < bx0:
+            bx0, by0, bx1, by1 = 0, 0, 0, 0
+        for c in cells:
+            bx0, by0 = min(bx0, c[0]), min(by0, c[1])
+            bx1, by1 = max(bx1, c[0]), max(by1, c[1])
+        bound = (bx0 - margin, by0 - margin, bx1 + margin, by1 + margin)
+
+    cur = list(cells)
+    slack = required - len(cur)
+    for _ in range(passes):
+        if slack <= 0:
+            break
+        cur, slack = _comb_pass(grid, cur, slack, src, dst, forbid, bound, grow)
+        if slack == required - n:            # a whole pass made no progress
+            break
+    if slack != 0:
+        return FoldFailure("insufficient-free-area",
+                           f"could not absorb {slack} more cells of slack near the route",
+                           cells=cur, need=required, got=len(cur))
+
+    dirs = dirs_for(cur, dst)
+    bad = false_start_cells(grid, cur, dirs)
+    if bad:
+        return FoldFailure("false-pipe-start",
+                           "fold creates an arrowhead the oracle would read as a "
+                           "second pipe start", cells=bad, need=required, got=len(cur))
+    try:
+        validate_pipe_oracle(cur, dirs, src, dst)
+    except AssertionError as e:
+        return FoldFailure("invalid", str(e), cells=cur, need=required, got=len(cur))
+    return cur
+
+
+def _comb_pass(grid, cur, slack, src, dst, forbid, bound, grow):
+    """One comb pass over `cur`: hang teeth off its edges until `slack` is absorbed.
+
+    Two rounds — first only where the fold stays INSIDE the current bounding box (the
+    box is what the score squares), then anywhere within `bound`.  Round 2 DEEPENS the
+    teeth round 1 already placed before starting new ones.
+    """
+    n = len(cur)
+    claimed = set(cur)
+    teeth = {}                       # edge index -> (p, k)
+    tcells = {}                      # edge index -> [cells]
+
+    def sides(i):
+        d = _unit(cur[i + 1][0] - cur[i][0], cur[i + 1][1] - cur[i][1])
+        return [(-d[1], d[0]), (d[1], -d[0])]
+
+    def take(i, p, k0, k1):
+        """Set the tooth at edge i, side p, from depth k0 to depth k1 (k1 > k0)."""
+        old = tcells.get(i, [])
+        for c in old:
+            claimed.discard(c)
+        new = _tooth_cells(cur, i, p, k1)
+        tcells[i] = new
+        teeth[i] = (p, k1)
+        claimed.update(new)
+        return 2 * (k1 - k0)
+
+    # NOTE: edge 0 is NEVER folded — a tooth there would change cells[0]'s arrowhead
+    # direction and its backward neighbour would stop being the source border.
+    for inside_only in (True, False):
+        if slack <= 0:
+            break
+        # round 2 first deepens what round 1 placed
+        if not inside_only:
+            for i in sorted(teeth):
+                if slack <= 0:
+                    break
+                p, k0 = teeth[i]
+                own = set(tcells[i])
+                claimed -= own
+                kmax = _depth_limit(grid, cur, i, p, claimed, forbid, src, dst, bound,
+                                    grow, False, start=k0 + 1, cap=slack // 2)
+                claimed |= own
+                k1 = k0 + max(0, kmax - k0)
+                k1 = min(k1, k0 + slack // 2)
+                while k1 > k0 and not _tooth_safe(grid, cur, i, p, k1):
+                    k1 -= 1
+                if k1 > k0:
+                    slack -= take(i, p, k0, k1)
+        for i in range(1, n - 1):
+            if slack <= 0:
+                break
+            if i in teeth:
+                continue
+            best = None
+            for p in sides(i):
+                kmax = _depth_limit(grid, cur, i, p, claimed, forbid, src, dst, bound,
+                                    grow, inside_only, cap=slack // 2)
+                k = min(kmax, slack // 2)
+                while k > 0 and not _tooth_safe(grid, cur, i, p, k):
+                    k -= 1
+                if k > 0 and (best is None or k > best[1]):
+                    best = (p, k)
+            if best:
+                slack -= take(i, best[0], 0, best[1])
+
+    if not teeth:
+        return cur, slack
+    out = []
+    for i in range(n):
+        out.append(cur[i])
+        if i in teeth:
+            out.extend(tcells[i])
+    return out, slack
+
+
+def route_pipe_len(grid, net, required, extra_cost=None, margin=6, mode="exact",
+                   fold_margin=FOLD_MARGIN, forbid=()):
+    """Route pipe `net` to a LENGTH TARGET.
+
+    mode="exact" : the routed pipe must have EXACTLY `required` cells (capacity and
+                   latency preserved -> the transform is tools/equiv.py-provable).
+    mode="min"   : `required` is a floor; a naturally longer route is kept as-is.
+
+    Returns (cells, dirs) or a FoldFailure explaining which of the four ways it failed.
+    """
+    base = route_pipe(grid, net, extra_cost=extra_cost, margin=margin)
+    if base is None:
+        return FoldFailure("unroutable", "no FREE pipe route to border")
+    cells, dirs = base
+    if required is None:
+        return cells, dirs
+    n = len(cells)
+    if mode == "min" and n >= required:
+        return cells, dirs
+    if mode == "min":
+        # a floor only needs the parity-nearest reachable length >= required
+        if (required - n) % 2:
+            required += 1
+    res = fold_path(grid, cells, required, net.src, net.dst, forbid=forbid,
+                    margin=fold_margin)
+    if not res:
+        return res
+    return res, dirs_for(res, net.dst)
 
 
 # ══════════════════════════════════════════════════════════════════════════════

@@ -35,6 +35,13 @@ from optimize_feeder import Band, optimize_feeder
 B1 = 92
 B2 = 128
 ESC = 29
+# DISP's classifier threshold: symbols 1..THRESHOLD-1 are ring lookups,
+# THRESHOLD is the reserved value (it must never occur in the stream), and
+# THRESHOLD+1..91 are literal bytes (+31).  SMALL_FREE lists the symbols below
+# it whose byte never occurs, so they are free to carry a dictionary phrase;
+# STOLEN lists ones whose byte *does* occur but whose slot we take anyway,
+# paying an escape pair for its few occurrences.
+THRESHOLD = 17
 STOLEN = (8, 17)
 SMALL_FREE = [2, 4, 5, 6, 7, 8, 11, 12, 16]
 FIRST_YEAR, LAST_YEAR = 2000, 2026
@@ -113,7 +120,7 @@ def choose_phrases(stream):
     dig1 = math.log10(B1)
     forbidden = set(STOLEN) | {0, ESC}
     singles_left = len(SMALL_FREE)
-    pairs_left = 91 - 17 + 1
+    pairs_left = 91 - THRESHOLD + 1
     phrases = []
     for v in STOLEN:
         stream = replace_nonoverlap(stream, (v,), [-len(phrases) - 1])
@@ -208,7 +215,15 @@ def add_best_pair_phrases(stream, phrases, count):
 
 
 def build_encoding(table_budget=None, extra_pair_count=0, tail_constants=False,
-                   west_first=False):
+                   west_first=False, threshold=None, group_b_rows=4):
+    """``threshold`` is DISP's T: symbols 1..T-1 are ring lookups, T is the
+    reserved value, and T+1..91 are literal bytes.  Raising it converts escape
+    pairs (2 stream symbols) into direct references (1) at no P1 cost, since a
+    promoted entry is already in the ring; the price is that every *used* symbol
+    below T needs a cheap packed-byte ring slot.  T must itself be a symbol that
+    never occurs."""
+    T = THRESHOLD if threshold is None else threshold
+    RB = group_b_rows
     stream, phrases = choose_phrases(tokenize(TEXT))
     if extra_pair_count:
         stream, chosen = add_best_pair_phrases(
@@ -226,7 +241,7 @@ def build_encoding(table_budget=None, extra_pair_count=0, tail_constants=False,
         for i in singles + pairs:
             vals.append(pack128(phrase_bytes(phr[i][0])))
         used_small = set(list(sorted(SMALL_FREE))[:len(singles)])
-        for v in range(1, 17):
+        for v in range(1, THRESHOLD):
             if v in used_small:
                 continue
             vals.append(9 if v in SMALL_FREE else pack128(spell(v)))
@@ -263,7 +278,7 @@ def build_encoding(table_budget=None, extra_pair_count=0, tail_constants=False,
     for i, v in zip(singles, sorted(SMALL_FREE)):
         slot_of[i] = ("single", v)
         ring[v] = pack128(phrase_bytes(phrases[i][0]))
-    for v in range(1, 17):
+    for v in range(1, T):
         if v not in ring:
             ring[v] = 9 if v in SMALL_FREE else pack128(spell(v))
 
@@ -285,13 +300,13 @@ def build_encoding(table_budget=None, extra_pair_count=0, tail_constants=False,
     order = sorted(range(len(pair_vals)),
                    key=lambda i: -len(str(pair_vals[i])))
     nB = (
-        -(-len(pair_vals) // 4)
+        -(-len(pair_vals) // RB)
         if tail_constants
-        else -(-(len(pair_vals) + 1) // 4)       # +1 for the zero sentinel
+        else -(-(len(pair_vals) + 1) // RB)      # +1 for the zero sentinel
     )
-    grid = [[None] * nB for _ in range(4)]       # rows 0..3 = P1 rows 3..6
+    grid = [[None] * nB for _ in range(RB)]
     # widest chunk goes to the physically-last slot; sentinel to slot 0
-    chunks_desc = [order[i * 4:(i + 1) * 4] for i in range(nB)]
+    chunks_desc = [order[i * RB:(i + 1) * RB] for i in range(nB)]
     widths = []
     for j, chunk in enumerate(chunks_desc):
         # When the phrase count is a multiple of four, the extra legacy
@@ -305,7 +320,7 @@ def build_encoding(table_budget=None, extra_pair_count=0, tail_constants=False,
     phys = sorted(range(nB), key=lambda j: -widths[j] if west_first
                   else widths[j])
     TB = [widths[j] for j in phys]
-    cellgrid = [[None] * nB for _ in range(4)]
+    cellgrid = [[None] * nB for _ in range(RB)]
     fill = []
     for j, chunk in enumerate(chunks_desc):
         pj = phys.index(j)
@@ -319,8 +334,8 @@ def build_encoding(table_budget=None, extra_pair_count=0, tail_constants=False,
         return range(nB - 1, -1, -1) if westward else range(nB)
 
     def number(ring):
-        posmap, pos = {}, 17
-        for r in range(4):
+        posmap, pos = {}, T
+        for r in range(RB):
             for pj in walk(r):
                 idx = cellgrid[r][pj]
                 if idx is None:
@@ -334,20 +349,20 @@ def build_encoding(table_budget=None, extra_pair_count=0, tail_constants=False,
     # In the legacy layout the sentinel belongs at the very last preload
     # position: the final cell of row 3 in walk order.  The narrow layout
     # fills that slot and emits its sentinel on the extra eastbound row.
-    last_cell = list(walk(3))[-1]
-    if not tail_constants and cellgrid[3][last_cell] is not None:
+    last_cell = list(walk(RB - 1))[-1]
+    if not tail_constants and cellgrid[RB - 1][last_cell] is not None:
         # find a free cell and move the occupant there
-        moved = cellgrid[3][last_cell]
+        moved = cellgrid[RB - 1][last_cell]
         done = False
-        for r in range(4):
+        for r in range(RB):
             for pj in range(nB):
                 if cellgrid[r][pj] is None and not done:
                     assert TB[pj] >= len(str(pack128(phrase_bytes(phrases[moved][0]))))
                     cellgrid[r][pj] = moved
                     done = True
         assert done, "no free cell for sentinel"
-        cellgrid[3][last_cell] = None
-        ring = {k: v for k, v in ring.items() if k <= 16}
+        cellgrid[RB - 1][last_cell] = None
+        ring = {k: v for k, v in ring.items() if k < T}
         posmap, pos = number(ring)
     for i in tail_pairs:
         posmap[i] = pos
@@ -358,7 +373,7 @@ def build_encoding(table_budget=None, extra_pair_count=0, tail_constants=False,
     layout = dict(TB=TB, cellgrid=cellgrid,
                   val_of={i: pack128(phrase_bytes(phrases[i][0]))
                           for i in pairs},
-                  tail_pairs=tail_pairs)
+                  tail_pairs=tail_pairs, n_small=T - 1, group_b_rows=RB)
 
     symbols = []
     for t in stream:
@@ -368,12 +383,12 @@ def build_encoding(table_budget=None, extra_pair_count=0, tail_constants=False,
             kind, v = slot_of[-t - 1]
             symbols.extend([v] if kind == "single" else [ESC, v])
     assert all(0 <= s < B1 for s in symbols)
-    # 17 may appear only as a pair index right after ESC (read by the ESC
-    # lane's r, bypassing the classifier where a bare 17 would be fatal).
+    # The threshold may appear only as a pair index right after ESC (read by
+    # the ESC lane's r, bypassing the classifier where a bare T would be fatal).
     i = 0
     while i < len(symbols):
         s = symbols[i]
-        assert s != 17, f"bare 17 at {i}"
+        assert s != T, f"bare threshold {T} at {i}"
         i += 2 if s == ESC else 1
     return symbols, ring, layout
 
@@ -402,7 +417,7 @@ def pack_chunks(symbols, digit_widths):
     return chunks
 
 
-def verify(chunks, ring):
+def verify(chunks, ring, threshold=None):
     # This is the semantic counterpart of the grid below.  Keeping it here is
     # important: the room program is densely folded, while this follows the
     # five stages in their logical (rather than spatial) order.
@@ -418,7 +433,7 @@ def verify(chunks, ring):
             mid.append(0)
         elif v == ESC:
             mid.append(ring[syms[i]]); i += 1
-        elif v <= 16:
+        elif v < (THRESHOLD if threshold is None else threshold):
             mid.append(ring[v])
         else:
             mid.append(v + 31)
@@ -786,7 +801,7 @@ def p1_room(program, x0, y0, width, ring, layout, west_first=False):
         rows_spec.append((gridA[r], TA, not westward))
     # Group B contains the multi-symbol phrase entries.  In the baseline its
     # last zero is the sentinel observed by DISP after one full rotation.
-    for r in range(4):
+    for r in range(layout.get("group_b_rows", 4)):
         vals = []
         for pj in range(nB):
             idx = cellgrid[r][pj]

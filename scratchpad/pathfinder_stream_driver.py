@@ -35,8 +35,8 @@ CTRL_W = 149
 CTRL_H = 16
 
 
-def put_lane_path(p, lane):
-    base = TILE0 + lane * PITCH
+def put_lane_path(p, lane, pitch=PITCH, tile0=TILE0, d_send_x=None):
+    base = tile0 + lane * pitch
     left = base + 1
     right = base + 6
     exit_col = base + 7
@@ -54,10 +54,11 @@ def put_lane_path(p, lane):
     # Return west, consume frontier, and append it as D to the previous row.
     p.put(right, 6, "<")
     p.put(left + 1, 6, "r")
-    p.put(left, 6, "v")
+    dcol = left if d_send_x is None else d_send_x
+    p.put(dcol, 6, "v")
     if lane:
-        p.put(left, 7, "s")
-    p.put(left, 8, ">")
+        p.put(dcol, 7, "s")
+    p.put(dcol, 8, ">")
 
     # A=frontier, B=previous frontier.  Send U, then 2*frontier as R.
     p.put(left + 1, 8, "W")

@@ -259,6 +259,19 @@ the solver, the updater's completed send should also be broadcast as an ACK;
 NEXT must drain four ACKs before releasing the next row pair so parent updates
 cannot lag into the following layer.
 
+Setup also needs no scalar RAM.  `pathfinder_setup_row_packer.py` keeps the
+remaining cell count in BP and one row accumulator in B.  For every setup bit
+it performs `B = 2*B + (1-wall)`, emits one unsigned word after sixteen cells,
+and immediately starts the next row.  Four adversarial rows pass in one run:
+
+```text
+pathfinder_setup_row_packer.py  35×20  714 ticks/row
+```
+
+Packing all sixteen OPEN words is therefore about 11.4k ticks.  The wall/open
+branch can also send display colors 7/0 before it rejoins the accumulator path,
+so initial painting does not require rereading the board.
+
 The third probe deletes the separate TAKE pipes.  Each stage forwards the
 earlier TAKE prefix, applies its candidate, and appends its own TAKE plus the
 reduced state:

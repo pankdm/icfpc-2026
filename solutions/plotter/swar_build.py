@@ -125,9 +125,9 @@ def build(IW=56):
     g = G()
     # ---------------- top band ----------------
     ECHO_W = 24                                  # interior 22 x 2
-    inp = g.p.input_room(0, 0)
-    rel = g.p.room(5, 0, 9, 4)                   # interior 7 x 2: four r/s pairs
-    ech = g.p.room(0, 6, ECHO_W, 4)
+    ech = g.p.room(0, 0, ECHO_W, 4)
+    rel = g.p.room(ECHO_W + 2, 0, 9, 4)          # interior 7 x 2: four r/s pairs
+    inp = g.p.input_room(ECHO_W + 13, 0)
 
     ex, ey = ech.ix0, ech.iy0
     cells = ring_cells(ex, ey, ECHO_W - 2, 2)
@@ -155,7 +155,7 @@ def build(IW=56):
              [">", "@", ".", "r", "s", "r", "v", "<", "s", "r", "s", "r", "s", "^"])
 
     # ---------------- CTRL ----------------
-    CT = 12
+    CT = 6                                       # ECHO band is 4 rows + 2 for the pipes
     ctrl = g.p.room(0, CT, IW + 2, IH + 2)
     X0, Y0 = ctrl.ix0, ctrl.iy0
 
@@ -235,11 +235,15 @@ def build(IW=56):
     # ---------------- pipes ----------------
     P = g.p.pipe
     CX = X0 + 4                                  # shared column of CTRL's two outs
-    P([(inp.x1 + 1, inp.y0 + 1), (rel.x0 - 1, inp.y0 + 1)])          # IN -> RELAY
-    P([(rx + 3, rel.y1 + 1), (rx + 3, ech.y0 - 1)])                  # RELAY -> ECHO
-    P([(CX, ctrl.y0 - 1), (CX, ech.y1 + 1), (18, ech.y1 + 1)],
+    P([(inp.x0 - 1, inp.y0 + 1), (rel.x1 + 1, inp.y0 + 1)])          # IN -> RELAY
+    P([(rel.x0 - 1, ry + 1), (ech.x1 + 1, ry + 1)])                  # RELAY -> ECHO
+    # The scratch loop's LATENCY equals its CAPACITY: a value CTRL pushes only
+    # comes back after traversing every pipe cell.  CTRL's fifo is at most 10
+    # deep and it pushes about every 2.5 ops, so a loop longer than ~25 cells
+    # stalls almost every fetch.  Keep it just above the fifo depth: 5 + 1 + 6.
+    P([(CX, ctrl.y0 - 1), (CX, ech.y1 + 1), (CX + 3, ech.y1 + 1)],
       end_direction="N")                                             # CTRL -> ECHO
-    P([(20, ech.y1 + 1), (20, ech.y1 + 2), (30, ech.y1 + 2)],
+    P([(CX + 6, ech.y1 + 1), (CX + 6, ech.y1 + 2), (CX + 10, ech.y1 + 2)],
       end_direction="S")                                             # ECHO -> CTRL
     P([(CX, DY - 4), (CX, DY - 3), (3, DY - 3), (3, DY - 1)])         # CTRL -> MOD
     P([(mx + 2, mod.y1 + 1), (mx + 2, adr.y0 - 1)])                   # MOD -> ADDRM

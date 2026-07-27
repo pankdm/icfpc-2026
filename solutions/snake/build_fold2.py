@@ -27,20 +27,33 @@ ARCHITECTURE
                capacity is what forces the band's depth and the band's depth is
                a row of the box (see GEOMETRY).
 
-GEOMETRY -- what the box is made of.
-       height = CY0 + <controller rows> + 2      width = CW + 31
-The controller is 76 rows for every CW in 54..74 and 77+ below that, so the
-only two levers are CY0 (the top band) and CW.  CW=55 makes width 86 and
-CY0=8 makes height 86: the grid is square and both dimensions sit on a floor.
-  * The band cannot go below 8 rows: rows 0..3 are the three rooms (a relay
-    needs two interior rows) and the pipe terminal geometry needs ATT >= 5, so
-    rows 4..ATT-1 are all the body ring gets.  At CY0=7 that is two rows and
-    the longest ring they can hold is 49 cells -- below the 55 the worst-case
-    snake needs.  Every attempt to borrow space east of the band is blocked by
-    the input and driver pipes, which have to cross it to reach the strip.
-  * CW cannot go below 54: at 53 the emitter needs a 77th row.
-A 30,000-sample random sweep of the thirteen highway columns found no 75-row
-fold at any CW <= 55, so 7396 is this architecture's box floor.
+GEOMETRY -- what the box is made of.  (fold7 = 74x75, box 5625, was 86x86/7396)
+       height = CY0 + <controller rows> + 2      width = CW + 21
+The +21 east of the controller is irreducible for this topology: the display is
+18 columns and its DATA pipe must enter the LEFT wall heading east, so it needs a
+terminal column plus a descent column, and SWAP needs a third to get past the
+display to its bottom wall.  Two columns cannot do it -- the last path SEGMENT,
+not the arrowhead, is what picks a display's side, so a leg that descends the
+display's own left column and turns east on its final cell is read as arriving
+from BELOW ("display pipe bad side").  The DRIVER is stacked ABOVE the display
+inside those same columns rather than beside it, which is what took the strip
+from 31 columns to 21 and deleted the two 16-cell dead vertical runs that were
+the #1 and #4 glide corridors in the profile.
+
+Row count, at CW=53, is 65 (was 76).  What bought them:
+  * the three death blocks are ONE row (see below), and REPAINT falls through on
+    it instead of owning a highway and an entry row: -7;
+  * DEC1/DEC2 moved WEST of the DIR branch's drop column so the branch group is
+    `tight` (up-arm on the block's own op row): -1;
+  * the DIR dispatch half shares the REPAINT loop's rows -- REPAINT is nine rows
+    that touch only LOOPR..REPD+3, DIR's entry/branch/decode only columns < 38 --
+    with the emitter's east edge capped so a wrap cannot cross: -6.
+CW cannot go below 53: the body ring is a boustrophedon of the band's free rows
+between FEED_W and BD_IN-1, and BD_IN slides with CW, so CW=52 leaves capacity 55
+and CW<=51 will not build at all.  CW=53 gives capacity 57, enough for K<=56 while
+the spec's "at most 100 rounds per test case" caps a legal game at K~48 (measured:
+grow-48 takes 99 rounds).  CW=55 keeps the champion's capacity 61 (K<=60) at
+box 5776 -- that is solutions/snake/fold6.man, the conservative build.
 
   DRIVER       owns the display's ADDR/DATA/SWAP pipes.  Protocol on its single
                incoming pipe:   addr (>=0) then colour     -> write one pixel
@@ -63,7 +76,7 @@ fold at any CW <= 55, so 7396 is this architecture's box floor.
 
 BINDING -- why the state ring is the only ring.
 `s`/`r` pick the nearest attached pipe (Manhattan to the pipe's first/last
-cell, ties in reading order).  Every controller pipe attaches to the TOP wall,
+cell, ties in reading order).  Every CONTROLLER pipe attaches to the TOP wall,
 so the y term is identical for all of them and the binding is decided by the
 column alone: the interior splits into vertical LANES and a pipe op may only be
 emitted inside its lane's window.
@@ -175,12 +188,15 @@ class Emit:
         self.wraps += 1
         bad = self.forbidden - self.wrapcols
         if self.d == "E":
-            x = min(self.x, self.g["IXHI"])
-            while x <= self.g["IXHI"] and (x in bad
-                                           or self.L.get(x, self.y) != " "
-                                           or self.L.get(x, self.y + 1) != " "):
+            # self.xhi, not g["IXHI"]: a block may be given a narrower east edge so
+            # it can share rows with a gadget further east, and a wrap that ignored
+            # that cap would drop the man straight into the other block.
+            x = min(self.x, self.xhi)
+            while x <= self.xhi and (x in bad
+                                     or self.L.get(x, self.y) != " "
+                                     or self.L.get(x, self.y + 1) != " "):
                 x += 1
-            assert x <= self.g["IXHI"], "no room to wrap east at row %d" % self.y
+            assert x <= self.xhi, "no room to wrap east at row %d" % self.y
         else:
             x = max(self.x, self.g["IXLO"])
             while x >= self.g["IXLO"] and (x in bad
@@ -764,8 +780,17 @@ def build(save_to=None, CY0=8, CBOT=85, CW=55,
     vjump(E, LOOPX + 2, yn, "W")
     E.seq(["1", "N", "s:D", "H"])
     endblock()
+    y_after_repaint = R.y
 
     # ═══ DIR ═════════════════════════════════════════════════════════════
+    # The repaint loop above is a tall, NARROW gadget: nine rows that touch only
+    # columns LOOPR..REPD+3.  DIR's dispatch half is the mirror image -- an entry,
+    # a branch and two 3-cell decode groups, all west of column 38 -- so the two
+    # occupy the SAME rows and never share a column.  Rewind the row cursor and
+    # cap the emitter's east edge at LOOPR-1 so a wrap cannot walk a DIR man into
+    # the repaint gadget; the four dense DIR arms below get the full width back.
+    R.y = yr
+    dir_xhi, E.xhi = E.xhi, LOOPR - 1
     block(HW_DIR)
     E.seq(["b"])                                     # BP = op-1 (1..4)
     yb1, bx1 = branch("x", "W", up_to=DEC1)
@@ -779,6 +804,8 @@ def build(save_to=None, CY0=8, CBOT=85, CW=55,
         L.put(col + 2, yq, "x")
         arm_entry[(bit0, 1)] = (col + 2, yq + 1)     # heading E: bit set -> S
         arm_entry[(bit0, 0)] = (col + 2, yq - 1)     # heading E: bit clear -> N
+    E.xhi = dir_xhi
+    R.y = max(R.y, y_after_repaint)
     # (low bit of op-1, low bit of (op-1)>>1) -> round op code
     OPKEY = {(1, 0): 2, (0, 1): 3, (1, 1): 4, (0, 0): 5}
     for key, op in OPKEY.items():
@@ -864,7 +891,7 @@ def fit(save_to=None, **kw):
 
 
 if __name__ == "__main__":
-    path = sys.argv[1] if len(sys.argv) > 1 else os.path.join(HERE, "fold3.man")
-    prog, cap, nrows = fit(save_to=path)
+    path = sys.argv[1] if len(sys.argv) > 1 else os.path.join(HERE, "fold7.man")
+    prog, cap, nrows = fit(save_to=path, CW=53)
     print("saved", path)
     print("footprint", prog.footprint(), "body-ring capacity", cap, "ctrl rows", nrows)

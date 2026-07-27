@@ -1,0 +1,141 @@
++--------------------------------------------------------------------------------------------------------------------------------------------+
+|   @0                                          s0s0s0s0s0s0s0s0s0s0s0s0s0s0s0s0s0s0s0sv                                                     |
+|   vr                                                                                 <                                                     |
+|   >M                                 rW       sv                                                                                           |
+|   vr                                           <                                                                                           |
+|   >M                                 r        srsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrs*MrWs4M3W{M1+M3W{M2+M3W{M2+M3W{M6+M3W{M5+M3W{M5+M3W{Mv|
+|   v3M+4M{W3M+1M{W3M+4M{W3M+5M{W3M+2M{W3M+5M{     +{W3M{W3M+1M{W3M4sWrsrM{W3M+2M{W3M+2M{W3M{W3M+7M{W3M+4M{W3M+1M{W3M+4M{     +{W3M+7M{W3M+4<|
+|   >W{M6+M3W{M3+M3W{M1+M3W{M4+M3W{M6+M3W{Mr    srsrsrsrsrsrsrsrsrsrWs4M3W{M4+M3W{M1+M9W{M        3W{M3W{M3W{M3W{M3W{M3W{M3W{M4+M3W{M4+M3W{Mv|
+|v                                                                        bsrsrsrsWrsrsrsrsrsrsrsrsrsrM1sWrsrsrsrsrsrsrsrsrsrsrM0sWrM1sWrM+1<|
+|>   r3M9{        M2+s                 r        srsrsrsrsrsrsrsrsrsrsrsrsrsrsrsv                                                             |
+|                                        vrM+1Ms                               <                                                             |
+|                                        >      srsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrWs4v                                                   |
+|                                            vrs                                         <                                                   |
+|                                            >  srsrsrsmv                                                                                    |
+|^                                                      d                                                                                    |
+|                                             vrsrsrsrsr<                                                                                    |
+|                                             > srsrsrsrsrsrsrsrsrsrsrsrsrsrsrsM9-M7+Mrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrs+Mrsrsrsrsrsrsrsrsrsrsv|
+|v                                                                                         sWrsrsrsrsrMN-2M/srMsrsrsrsrsWrsrsrsrsrsrsrsrsrsr<|
+|>   r3M9{        M2+s                 r        srsrsrsrsrsrsrsrsrsv                                                                         |
+|                                        vrM+1Ms                   <                                                                         |
+|                                        >      srsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrWs4v                                                   |
+|                                            vrs                                         <                                                   |
+|                                            >  srsrsrsM2-Nbv                                                                                |
+| v                                                         <                                                                                |
+| >  rM                                r        srWs4M*M  rsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrs/8W{M              rsrsrsrsrsrsrsrsrsrWsrsv|
+|                                          vr  M*4/srsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsr  M*M4sWrsrsrM}W5M*7M*7M}W4M*5Msrsrsrsrsrsrsrsrsr<|
+|                                          >    srsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrs}MrWs4M*M  rsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrs/WMrWsv|
+|                                           vrMW/srsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsr  M*M4sWrsrsrsrsrsrsrsrsrsrM}srsrsrsrsrsrsrsrsrM*4M<|
+|                                           >   srsrsrsrsrsrsrsrsrsrsrsrsrWsM8*M   +Mrsrsrsrsrsrsrsrsrsrsrsrsrsrs+Mrsrsrsrsrsrsrsrsrsrsrsrsrv|
+|                      vs                                                                                                 sWrsrsrsrsrsrsrM+s<|
+|                      >               r        srsrsrsv                                                                                     |
+|                                        vrM+1Ms       <                                                                                     |
+|                                        >      srsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrWsrsrsv                                                |
+|                                            vrs                                            <                                                |
+|                                            >  srsrsrsM9-M9+M9+M9+M9+M9+M9+M1+M*M1+M1/Mrsrsrsrsrsrsrsrsrsrsrsrsrsrsrs-Mrsrsrsrsrsrsrsrsrsrsv|
+|                                              vrsrsrsrsWrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrM+srsrsrsrsrsrsrsrsrsrMsWrsrsrsrsrsrsrsrsrsr<|
+|                                              >srsrsrsrsrsrsrsrsrsmv                                                                        |
+| ^                                                                 d                                                                        |
+|   vr                                                              <                                                                        |
+|   >3M9{        M2+s                  r        srsrsrsrsrsrsrsrsrsrsrsrsrsrsrsv                                                             |
+|                                        vrM+1Ms                               <                                                             |
+|                                        >      srsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrWs4v                                                   |
+|                                            vrs                                         <                                                   |
+|                                            >  srsrsrsM9-M7+Mrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrs+MrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrWsrsrv|
+|                                                                           vsWrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrMN-1Msrsrsrsrsrsrsrsrs<|
+|^                                                                          X                                                                |
+|v                                             bsrsrsrsrsrsrsrsrsrsrsrsrsrsr<                                                                |
+|>   r3M9{        M2+s                 r        srsrsrsrsrsrsrsrsrsrsrsrsrsrsrsv                                                             |
+|                                        vrM+1Ms                               <                                                             |
+|                                        >      srsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrWs4v                                                   |
+|                                            vrs                                         <                                                   |
+|                                            >  srsrsrsmv                                                                                    |
+|^                                                      d                                                                                    |
+|                                             vrsrsrsrsr<                                                                                    |
+|                                             > srsrsrsrsrsrsrsrsrsrsrsrsrsrsrsM9-M7+Mrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrs+Mrsrsrsrsrsrsrsrsrsrsv|
+|                                             vrsrsrsrM*srsrsrsrsrsrsrsrsrsrMsWrsrsrsrsrM/srsrsrsrsrMsWrsrMN-2MsrsrsrsrsWrsrsrsrsrsrsrsrsrsr<|
+|                                             > srs-MrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrWsrsrsrsrsrsrsrsM1+Mrsrsrsrsrsrsrsrs*Mrsrsrsrsrs+M1+v|
+|                                              vrsrsrsrsrM1sWrsrsrsrM0sWrsrsrMsWrM+2M+srsrsrsrsrsrsrsrsrsrsrsrsrM+   M*8M+1MsrsrsrsrsrsWrsrM<|
+|                                              >srsrsrsrsrsrsrsrsrsrsrsrWs0MrWs0MrsrsrsrsrsrsrsrWsrsrsrsrsrsrsrsrsM1+bv                      |
+|v                                                                                                                    <                      |
+|>    rsmv                                                                                                                                   |
+|^       d                                                                                                                                   |
+|      vM<                                                                                                                                   |
+|      >                               rW       sv                                                                                           |
+|v                                               <                                                                                           |
+|>4M*M                                 r        srsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrs/MrsrsrsrWs4M*M  rsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsv|
+|                                            vrs          srsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsWrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrMW/srsr<|
+|                                            >  srsrsrsv                                                                                     |
+|                                            vrs       <                                                                                     |
+|                                            >  srsrsrsrsrsrsrsrsrsrsrsrsv                                                                   |
+|                                       vrsN1s9s                         <                                                                   |
+|                                       >       srsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsMrsrsrWsrsrsrsMrWsv                                   |
+|   vr                                                                                                   <                                   |
+|   >M                                 r        srsrWsv                                                                                      |
+| v                                                   <                                                                                      |
+| >4M*M                                r        srsrsrsrsrsrsrsrsrsrsrs/WMrsrsrsrWsM7-M*M1+M1/MrsrsrsrsrsrsrsrsrsrsrsrsrWsrsrsrsrsrsrsrsM8-Mv|
+|                                             vrsrsrsrsrsrsrsrMsWrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrM-srsrsrsrsrsrsrsrsrsrsrsrsrM/1M+1M*<|
+|                                             > srsrsrsrsrsrs*MrsrsrsrsrsrWsrsrsrsrsrsrsrsM9-M2+M*M1+M1/MrsrsrsrsrsrsrsrsrsrsrsrWs3M4{    {Mv|
+|                                             vWrsrsrsrsrsrsrsrsrsrsrsrsrsrM+srsrsrsrsrsrM+srM*srsrsrsrsrsrsrsrsrsrsrsrsrMN-srsrsrM/srsrsrsr<|
+|                                             > srsrsrsrsrsrsrsM6-M*M1+M1/MrsrsrsrsrsrsrsrsrsrsrsrWsrsrsrsrsrsrsrsMrsrsrsrsrsrsrsrs-NMrsrsrsv|
+|                                             vrMsrsrsrsrsrsrsWrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrM+srsrsrsrsrsrsrsrsrsrsrsrsrsrsrM*srsr<|
+|                                             > srsrsrsrsrWsrsM1-NMrsrsrsrsrsrsrsrsrsrsrsrsrWsM4W/M*M   1+M1/Mrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsv|
+|                                              vrsrsrsrsrM}srsrsrsrsrsrsrsrsrsrsrsrsrM*9M7sWrsrsrsrsrsrM/1M+1M*M-5MsrsrsrsrsrsrsrsrsWrsrsrsr<|
+|                                              >srWs7M9*MrsrsrsrsrsrsrsrsrsrsrsrsrsrsN}Mrsrsrsrsrsrs-Mrs*Mrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsv|
+|                                              vrsrsrsrsrsrsrM+srsrsrsrsrsrM*srsrsrsrsrsrsrsrsrsrsrsrsrsrMN-srsrsrsrsrMsrsrsrsrsrsrsrsWrsrsr<|
+|                                              >srs+MrsrsrsrsrsrsrWs4Mrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrs/WMrsrsrsrsrWsrsrsM9-M*M1+M1/Mv|
+|                                              vrsrsrM-1M+srsrsrsrsrsrsrsrsrsrsrsrsrM/1M+1M*M+1M-9MsrsrsrsrsrsrsrsWrsrsrsrsrsrsrsrsrsrsrsrsr<|
+|                                              >srsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrWsrsrsrsrsrsM4*Mrsrsrsrsrs}MrsrWs4M*M  rsrsrsrsrsrsrsrsrsrv|
+|                                              vrsrsrsr  M*M4sWrsrM}srsrsrsrsrM*4M+8MsrsrsrsrsrsrsWrsrsrsrsrsrsrM  N-1/srsrsrsrsrsrsrsrsrsrs<|
+|                                              >srsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrs/1-N  MrWsMrsrs*Mrsrsrsrs+Mrs*Mrsrsrsrsrsrsrsrsrsrsrsrsrsrsv|
+|                                             vrM+   M*8MsrsrsrsrsrsrsrsrsrsrsrsWrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrM+srsrsrsrsrMsWrsrsr<|
+|                                             > srsrsrsrsrs+Mrs*Mrs+MrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrWsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsv|
+|  v                                                               b+1/srsrsrsrsrsrsrsrsrsrsrMsrsrsrsrsrsrsrsrsrsWrsrsrsrsrsrsrsrsrsrMN-1Msr<|
+|  >  rsmv                                                                                                                                   |
+|  ^     d                                                                                                                                   |
+|      vM<                                                                                                                                   |
+|      >                               r        srsrsrsrsrsrsrsrsrsrsrsrsrsrsrWsrsrsrsrsrsrsrsrsM1-NMrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrv|
+|                                                                                                                                        vsW<|
+| ^                                                                                                                                      X   |
+|^                                                                                                               srsrsrsrsrsrsrsrsrsrsrsr<   |
+|                                                                                                                                            |
++--------------------------------------------------------------------------------------------------------------------------------------------+
+  ^     ^         v            v                                v    ^
+  ^     | v-< v-< | >-v >-v    |            >---------------v   |    |
+ +-+    | | | | | | | | | |    |            |               |   |    |
+ |I|    | | | | | | | | | |    |            ^               |   |    |
+ +-+    | | | | | | | | | |    |  +--------------+          |   |    |
+        | | | | | | | | | |    |  | v           <|          |   |    |
+        | | | | | | | | | |    |  |              |          |   |    |
+        | | | | | | | | | |    |  |        >s   ^|          |   |    |
+        | | | | | | | | | |    |  |        1     |          |   |    |
+        | | | | | | | | | |    >->|@>     rX     |          |   |    |
+        | | | | | | | | | |       |        M     |          |   |    |
+        | | | | | | | | | |       |        1     |          |   |    |
+        | | | | | | | | | |       |        -     |          |   v    ^
+        | | | | | | | | | |       |        N     |          | +--------------------------------------+
+        | | | | | | | | | |       | ^s   rs<     |          | |@>rsrsrsrsrsrsrsrsrsrsrsrsrsrsrsrs v  |
+        | | | | | | | | | |       +--------------+          | | ^ srsrsrsrsrsrsrsrsrsrsrsrsrsrsrsr<  |
+        | | | | | | | | | |          v    v                 | +--------------------------------------+
+        | | | | | | | | | |          |    v                 |
+        | | | | | | | | | |          |  +================+  |
+        | | | | | | | | | |          |  :                :  |
+        | | | | | | | | | |          |  :                :  |
+        | | | | | | | | | |          |  :                :  |
+        | | | | | | | | | |          |  :                :  |
+        | | | | | | | | | |          >->:                :  |
+        | | | | | | | | | |             :                :  |
+        | | | | | | | | | |             :                :  |
+        ^-< ^-< | >-^ >-^ |             :                :  |
+                |         |             :                :  |
+                ^         v             :                :  |
+     +----------------------+           :                :  |
+     |@>rsrsrsrsrsrsrsrs v  |           :                :  |
+     | ^ srsrsrsrsrsrsrsr<  |           :                :  |
+     +----------------------+           :                :  |
+                                        :                :  |
+                                        :                :  |
+                                        +================+  |
+                                                 ^          |
+                                                 |          |
+                                                 ^----------<

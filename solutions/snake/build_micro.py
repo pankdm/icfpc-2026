@@ -296,16 +296,22 @@ class Rows:
 # body-ring and display ops -- with those two lanes at opposite ends of the room
 # that alternation walked ~20 blank cells four times per frame, which was the
 # single largest tick item in the profile.
-HW_RET, HW_TICK, HW_SPAWN, HW_DIR = 57, 47, 45, 42
-D_EAT, D_NOEAT = 39, 40
+# Every column right of RIGID slides with the room's right wall, so the whole
+# right half of the controller can be squeezed by lowering CW: the box is
+# max(w,h)^2 and w = CW + 31, so five columns off CW is five off the box side.
+RIGID = 30                           # columns <= RIGID never move
+MIN_CAP = 55                         # >= 50 + slack: the worst snake a case can reach
+_RIGHT = dict(HW_RET=57, HW_TICK=47, HW_SPAWN=45, HW_DIR=42,
+              D_EAT=39, D_NOEAT=40, WRAP_E=58,
+              LOOPX=49, LOOPM=48, LOOPR=46, DEC1=48, DEC2=53, REPD=52,
+              BD_OUT=44, BD_IN=50, IN_IN=56, DRV_OUT=58)
 D_REP, D_COLL, D_HX, D_HY = 8, 6, 4, 2
-WRAP_W, WRAP_E = 1, 58               # reserved: wrap() must always find a landing
-# One drop column per direction arm.  They REUSE the death highways: every death
-# column's traffic terminates in a block that is emitted above DIR, so the two
-# uses never share a row range.  That keeps the state lane (12..26) unbroken.
-ARMCOL = {2: D_HY, 3: D_HX, 4: D_COLL, 5: D_REP}
-FORBID = {HW_RET, HW_TICK, HW_SPAWN, HW_DIR, D_EAT, D_NOEAT,
-          D_REP, D_COLL, D_HX, D_HY, WRAP_W, WRAP_E}
+WRAP_W = 1                           # reserved: wrap() must always find a landing
+
+
+def right_cols(CW):
+    """The right-half column assignment for a controller CW wide (60 = the original)."""
+    return {k: v + (CW - 60) for k, v in _RIGHT.items()}
 
 
 def _lit(v):
@@ -327,11 +333,23 @@ def _lit(v):
 
 
 def build(save_to=None, CY0=8, CBOT=None, CW=60,
-          BD_OUT=44, BD_IN=50, ST_OUT=22, ST_IN=24, IN_IN=56, DRV_OUT=58,
-          ST_X0=24, ST_W=7, BD_X0=33, BD_W=16,
-          FEED_E=49, FEED_W=31, RET_E=54,
-          DRVX=None, DISX=None, LOOPX=49, LOOPM=48, LOOPR=46,
-          DEC1=48, DEC2=53, REPD=52):
+          ST_OUT=22, ST_IN=24, ST_X0=24, ST_W=7, BD_X0=33, BD_W=None,
+          FEED_E=None, FEED_W=31, FEED_W2=None, RET_E=None,
+          DRVX=None, DISX=None, **over):
+    R_ = right_cols(CW)
+    R_.update(over)
+    HW_RET, HW_TICK, HW_SPAWN = R_["HW_RET"], R_["HW_TICK"], R_["HW_SPAWN"]
+    HW_DIR, D_EAT, D_NOEAT, WRAP_E = R_["HW_DIR"], R_["D_EAT"], R_["D_NOEAT"], R_["WRAP_E"]
+    LOOPX, LOOPM, LOOPR = R_["LOOPX"], R_["LOOPM"], R_["LOOPR"]
+    DEC1, DEC2, REPD = R_["DEC1"], R_["DEC2"], R_["REPD"]
+    BD_OUT, BD_IN, IN_IN, DRV_OUT = R_["BD_OUT"], R_["BD_IN"], R_["IN_IN"], R_["DRV_OUT"]
+    ARMCOL = {2: D_HY, 3: D_HX, 4: D_COLL, 5: D_REP}
+    FORBID = {HW_RET, HW_TICK, HW_SPAWN, HW_DIR, D_EAT, D_NOEAT,
+              D_REP, D_COLL, D_HX, D_HY, WRAP_W, WRAP_E}
+    FEED_E = BD_IN - 1 if FEED_E is None else FEED_E
+    FEED_W2 = FEED_W if FEED_W2 is None else FEED_W2
+    RET_E = IN_IN - 2 if RET_E is None else RET_E
+    BD_W = BD_IN - 1 - BD_X0 if BD_W is None else BD_W   # room right wall = BD_IN-1
     # The TOP BAND is rows 0..ATT.  Rows 0..3 hold the two relay rooms and the
     # input room; rows 4..ATT-1 are the horizontal pipe highways and row ATT
     # carries every controller-side pipe terminal (that is what makes the s/r
@@ -370,13 +388,24 @@ def build(save_to=None, CY0=8, CBOT=None, CW=60,
            end_direction="N")
     p.pipe([(ST_X0 + ST_W - 2, 4), (ST_X0 + ST_W - 2, 5),           # state -> ctrl
             (ST_IN, 5), (ST_IN, ATT)])
-    # The body ring: one lap of the band's three free rows.  It has to dodge the
-    # state pipes (columns ST_OUT..ST_X0+ST_W-2 on rows 4/5) and the input pipe
-    # (column IN_IN, rows 3..ATT), so the feed runs east on row 6, west on row 5
-    # and east again on row 4, and the return leaves the body room's RIGHT wall
-    # and comes back down column BD_IN through rows 3..ATT.
-    feed = [(BD_OUT, ATT), (BD_OUT, 6), (FEED_E, 6), (FEED_E, 5),
-            (FEED_W, 5), (FEED_W, 4), (BD_X0 + BD_W - 5, 4)]
+    # The body ring: one BOUSTROPHEDON lap of the band's free rows 4..ATT-1.  It
+    # has to dodge the state pipes (which chop rows 4/5 between ST_OUT and
+    # ST_X0+ST_W-2) and the input pipe (column IN_IN, rows 3..ATT), so the pocket
+    # it snakes through is rows 4..ATT-1 x FEED_W..FEED_E, and the return leaves
+    # the body room's RIGHT wall and comes back down column BD_IN.
+    #
+    # CAPACITY, not shape, is what this pipe is for: the ring has to hold the
+    # whole snake, so every row the band loses has to be paid back in width.
+    # Rows ATT-1 and ATT-2 clear the state pipes entirely and may run all the way
+    # to FEED_W2; rows 5 and 4 must stop at FEED_W.
+    lanes = [(r, FEED_E if (r - 6) % 2 == 0 else FEED_W2)
+             for r in range(ATT - 1, 5, -1)]
+    lanes += [(5, FEED_W), (4, BD_X0 + BD_W - 5)]
+    feed = [(BD_OUT, ATT), (BD_OUT, lanes[0][0])]
+    for i, (row, xe) in enumerate(lanes):
+        feed.append((xe, row))
+        if i + 1 < len(lanes):
+            feed.append((xe, lanes[i + 1][0]))
     ret = [(BD_X0 + BD_W, 1), (RET_E, 1), (RET_E, 3), (BD_IN, 3), (BD_IN, ATT)]
     p.pipe(feed, end_direction="N")                                 # ctrl  -> body
     p.pipe(ret)                                                     # body  -> ctrl
@@ -385,7 +414,7 @@ def build(save_to=None, CY0=8, CBOT=None, CW=60,
     # spawn round plus a tick round).  A bigger ring is pure safety margin but it
     # costs ticks: at snake length 1 a pushed cell has to travel cap-1 cells
     # before it can be popped again.  65 measured 90.7M against 89.6M at 55.
-    assert cap >= 55, "body ring capacity %d too small" % cap
+    assert cap >= MIN_CAP, "body ring capacity %d too small" % cap
     p.pipe([(DRV_OUT, ATT), (DRV_OUT, 4), (DRVX - 1, 4), (DRVX - 1, 12)],
            end_direction="E")                                       # ctrl -> driver
 
@@ -496,7 +525,15 @@ def build(save_to=None, CY0=8, CBOT=None, CW=60,
         bx = col + off
         y_ops = E.y
         lo, hi = (min(bx, up_to), max(bx, up_to)) if up_to is not None else (0, -1)
-        tight = (up_to is not None and R.y <= y_ops + 1
+        # The tight group draws the UP arm on the block's own op row, which the
+        # man WALKS.  That is only safe when the arm runs off the far side of the
+        # drop column: he turns down at `col` before he can reach the arm's turn
+        # glyph.  If the arm would lie between where he entered the row and
+        # `col` -- which happens whenever the branch had to wrap first -- he
+        # walks straight into it and the branch never executes.  This silently
+        # sent every tick round down the hx-death highway at CW=53.
+        beyond = up_to is not None and ((up_to > col) if E.d == "E" else (up_to < col))
+        tight = (beyond and R.y <= y_ops + 1
                  and all(_blank(L, x, y_ops) for x in range(lo, hi + 1)))
         if tight:
             yb = y_ops + 1

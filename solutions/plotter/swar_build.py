@@ -109,6 +109,8 @@ def lay_ring(g, x, y, w, h, glyphs):
 # the build
 # ─────────────────────────────────────────────────────────────────────────────
 
+LOOP = 2              # scratch-loop horizontal legs; capacity must exceed the fifo
+SWCOL = 1             # SWAP entry column, offset into the display's bottom wall
 ZIG = 7               # ADDRM->DATAM zigzag width; pipe is 2*ZIG+2 cells
 BASE_TICKS = 505      # measured: fixed overhead + 8 ticks x 18 pixels a round
 
@@ -120,8 +122,12 @@ BASE_TICKS = 505      # measured: fixed overhead + 8 ticks x 18 pixels a round
 # SWAP_ROWS  rows below the display for the SWAP return.  DATAM's bottom wall is
 #        flush with the display's, so a single row reaches the bottom wall if the
 #        loader tolerates pipe cells running under it.
-GAP = 3
-SWAP_ROWS = 2
+GAP = 3               # FLOOR: at 2 the ADDR riser's bend sits directly under
+                      # CTRL's wall, and an arrow whose backward cell is a wall is
+                      # read as a pipe SOURCE.  (Both floors measured by sweep.)
+SWAP_ROWS = 2         # FLOOR: the display's side test reads the entry
+                      # direction off the last TWO path cells, so a bottom-wall
+                      # attach needs a vertical approach, i.e. two rows.
 # Blank rows between CTRL's tail row and the top of the 4x4 ramp ring.  Pure
 # walking cells: the man leaves the tail row heading south and the ring's `>`
 # turns him east whether he lands on it after 1 nop or 0.
@@ -363,10 +369,10 @@ def build(geom=None):
     # comes back after traversing every pipe cell.  CTRL's fifo is at most 10
     # deep and it pushes about every 2.5 ops, so a loop longer than ~25 cells
     # stalls almost every fetch.  Keep it just above the fifo depth: 5 + 1 + 6.
-    P([(CX, ctrl.y0 - 1), (CX, ech.y1 + 1), (CX + 3, ech.y1 + 1)],
+    P([(CX, ctrl.y0 - 1), (CX, ech.y1 + 1), (CX + LOOP, ech.y1 + 1)],
       end_direction="N")                                             # CTRL -> ECHO
-    P([(CX + 6, ech.y1 + 1), (CX + 6, ech.y1 + 2), (CX + 10, ech.y1 + 2)],
-      end_direction="S")                                             # ECHO -> CTRL
+    P([(CX + LOOP + 3, ech.y1 + 1), (CX + LOOP + 3, ech.y1 + 2),
+       (CX + 2 * LOOP + 4, ech.y1 + 2)], end_direction="S")          # ECHO -> CTRL
     # CTRL -> MOD.  Head west on the FIRST gap row (cols 3..5), then drop col 3
     # into MOD's top wall.  The ADDR riser turns on its own row at col 9+, so the
     # two never share a cell however thin the gap gets.
@@ -408,9 +414,10 @@ def build(geom=None):
     # pipe worth shortening: every cell of it is a tick of per-round drain.
     if SWAP_ROWS > 1:
         P([(dx + 5, dat.y1 + 1), (dx + 5, disp.y1 + SWAP_ROWS),
-           (disp.x0 + 3, disp.y1 + SWAP_ROWS), (disp.x0 + 3, disp.y1 + 1)])
+           (disp.x0 + SWCOL, disp.y1 + SWAP_ROWS),
+           (disp.x0 + SWCOL, disp.y1 + 1)])
     else:                       # single row: run east under the display's floor
-        P([(dx + 5, dat.y1 + 1), (disp.x0 + 3, disp.y1 + 1)],
+        P([(dx + 5, dat.y1 + 1), (disp.x0 + SWCOL, disp.y1 + 1)],
           end_direction="N")                                          # SWAP
     return g.p, dict(L=L, k=k, W=W, IH=IH,
                      ops=len(pre) + len(px) + len(tail_body) + len(tail_fin),

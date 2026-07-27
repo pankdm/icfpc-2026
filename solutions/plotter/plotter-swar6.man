@@ -6,14 +6,13 @@
      ^     >---v
 +--------------------------------------------------+
 |>@rsMrssr-srsrsrMrsrsr-s5Mrsr{Mrsrsr+s5Mrs}Msrsrsv|
-|.                   vrsrM1s-~rsrsrsrsM}srsrM5s-~r<|
-|.vsrsWsrsrMrsrsr<   >srsr{|srsr{|s5Mrsrsrsrsr{srsv|
-|..              X........|{rsrsrsrsrsrM1s-srsrMsr<|
+|.                vsrsrsrM1s-~rsrsrsrsM}srsrM5s-~r<|
+|.vsrsWsrsrMrsrsr<>r{|srsr{|s5Mrsrsrsrsr{srsrsMrsrv|
+|..              X..............|{rsrsrsrsrsrM1s-s<|
 |.vsWsrMrsrsWsrMr<                                 |
 |.>1Mrsrsrs-s5Mrsrsrsrsrsr}s1Mrsrsrsrsrs+brMrsrsrsv|
 |.v.s+rsrsrsrM{{rsrsrsrsrsrM5s+N{rsrsrsrsrM1ss-rsr<|
 |.>rs6Mr{{s6Mr{{Mr+Mrv                             |
-|.                   .                             |
 |.                   >smdv                         |
 |.                   .  +.                         |
 |.                   +  ..                         |

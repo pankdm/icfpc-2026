@@ -39,11 +39,11 @@ def bcst(g, ox, oy):
     g.put(ox + 1, oy + 7, '>')
     g.text(ox + 2, oy + 7, ">rsv")
     g.text(ox + 2, oy + 8, "^..<")
-    r.attach('IN', 'T', ox + 1, 'in')
-    r.attach('OA', 'B', ox + 4, 'out')      # -> ADMX (A stream)
-    r.attach('OB', 'L', oy + 7, 'out')      # -> BDUP (B stream)
-    r.attach('OH1', 'R', oy + 3, 'out')     # -> FE1 header
-    r.attach('OH2', 'R', oy + 7, 'out')     # -> FE2 header
+    r.attach('IN', 'T', ox + 8, 'in')
+    r.attach('OA', 'T', ox + 1, 'out')      # -> ADMX (A stream)
+    r.attach('OB', 'B', ox + 1, 'out')      # -> BDUP (B stream)
+    r.attach('OH1', 'R', oy + 1, 'out')     # -> FE1 header
+    r.attach('OH2', 'R', oy + 3, 'out')     # -> FE2 header
     r.check({(ox + 4, oy + 3): ('OA', 'out'), (ox + 4, oy + 7): ('OB', 'out'),
              (ox + 3, oy + 1): ('IN', 'in')})
     return r
@@ -59,15 +59,17 @@ def bdup2(g, ox, oy):
     g.put(ox + 6, oy + 2, '<')
     g.text(ox + 2, oy + 3, ">rSv")
     g.text(ox + 2, oy + 4, "^..<")
-    r.attach('BI', 'L', oy + 1, 'in')
-    r.attach('BO1', 'T', ox + 3, 'out')
+    r.attach('BI', 'T', ox + 3, 'in')
+    r.attach('BO1', 'L', oy + 1, 'out')
     r.attach('BO2', 'B', ox + 3, 'out')
     return r
 
 
-def mctl3(g, ox, oy, pick, term):
+def mctl3(g, ox, oy, pick, term, side_in=None, side_out=None):
     """Emit +V,-V,... exactly N times (V = M for pick='M', K for pick='K').
     With term=True a final 0 token follows (ADMX's switch to the phantom row)."""
+    side_in = side_in or ('L', oy + 1)
+    side_out = side_out or ('R', oy + 3)
     r = g.room(ox, oy, 11, 7)
     pro = "@>rbrr" if pick == 'K' else "@>rbrMrW"
     g.text(ox + 1, oy + 1, pro)
@@ -84,8 +86,8 @@ def mctl3(g, ox, oy, pick, term):
         g.text(ox + 1, oy + 5, ">0sH")
     else:
         g.put(ox + 1, oy + 4, 'H')
-    r.attach('MI', 'L', oy + 1, 'in')
-    r.attach('MO', 'R', oy + 3, 'out')
+    r.attach('MI', side_in[0], side_in[1], 'in')
+    r.attach('MO', side_out[0], side_out[1], 'out')
     r.check({(ox + 3, oy + 1): ('MI', 'in'), (ox + 3, oy + 3): ('MO', 'out')})
     return r
 
@@ -173,7 +175,7 @@ FE_OPS = {
 }
 
 
-def fe(g, ox, oy, which):
+def fe(g, ox, oy, which, fo=None):
     """FE: emits the per-engine header (Ni, M, K), then relays exactly M*Ni A
     values from ADMX, then relays B forever from BDUP.  w=22 h=21."""
     r = g.room(ox, oy, 22, 21)
@@ -199,7 +201,7 @@ def fe(g, ox, oy, which):
     r.attach('HI', 'L', oy + 1, 'in')
     r.attach('DA', 'L', oy + 9, 'in')
     r.attach('DB', 'L', oy + 17, 'in')
-    r.attach('FO', 'R', oy + 10, 'out')
+    r.attach('FO', *(fo or ('L', oy + 5)), 'out')
     r.check({
         (ox + 3, oy + 1): ('HI', 'in'), (ox + 13, oy + 1): ('HI', 'in'),
         (ox + 17, oy + 1): ('HI', 'in'),

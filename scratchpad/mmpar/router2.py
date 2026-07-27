@@ -319,6 +319,8 @@ def pathfinder(g, rects, nets, bound, prewired=(), iters=80, verbose=False):
                 raise ValueError(f"pathfinder: net {i} {sa}->{da} has no path at all")
             routes[i] = [sa] + p
             cv.add(i, routes[i])
+        if verbose and it == 0:
+            print('   lens', [len(routes[i]) for i in range(len(nets))], flush=True)
         bad = [c for c, o in cv.occ.items() if len(o) > 1]
         if verbose:
             print(f"  iter {it}: {len(bad)} contended cells, pres={pres:.2f}",

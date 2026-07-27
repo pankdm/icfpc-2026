@@ -55,3 +55,6 @@ scored = sorted(((n * L, L, n, a, b) for (a, b, L), n in runs.items()), reverse=
 print("ticks", len(seq))
 for cost, L, n, a, b in scored[:topn]:
     print("cost %5d  run %3d cells x%-4d  %s -> %s" % (cost, L, n, a, b))
+print("--- BYLEN")
+for cost, L, n, a, b in sorted(scored, key=lambda t: -t[1])[:topn]:
+    print("cost %5d  run %3d cells x%-4d  %s -> %s" % (cost, L, n, a, b))

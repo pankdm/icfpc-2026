@@ -595,15 +595,11 @@ def repack_physical_dictionary(
         position: count
         for position, _, count in dictionary_usage(symbols, ring)
     }
-    exact_order = (
-        _exact_paired_order(
-            ring,
-            room_width,
-            preload_bp2=preload_bp2,
-            references=references,
-        )
-        if preload_bp2
-        else None
+    exact_order = _exact_paired_order(
+        ring,
+        room_width,
+        preload_bp2=preload_bp2,
+        references=references,
     )
     if exact_order is not None:
         exact_order = _prioritize_promoted_positions(
@@ -1184,7 +1180,7 @@ def build(
             ring,
             dictionary_width,
             search_order=search_dictionary_order,
-            preload_bp2=fold_tail,
+            preload_bp2=False,
         )
     )
     usage = dictionary_usage(symbols, ring)
@@ -1262,7 +1258,7 @@ def build(
         dictionary_values,
         dictionary_bands,
         bottom_padding=dictionary_bottom_padding,
-        preload_bp2=fold_tail,
+        preload_bp2=False,
     )
     LOGGER.info(
         "placed dictionary: %d bands, %d rows",

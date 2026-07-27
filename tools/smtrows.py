@@ -43,7 +43,8 @@ def load_flow(source, man_index=None, trace=None):
     import os
     if source.endswith(".man"):
         import liftflow
-        return liftflow.lift_flow(source, man_index=man_index, trace_slug=trace)
+        return normalize_ports(liftflow.lift_flow(source, man_index=man_index,
+                                                  trace_slug=trace))
     spec = importlib.util.spec_from_file_location("_builder", source)
     mod = importlib.util.module_from_spec(spec)
     sys.path.insert(0, os.path.dirname(source))
@@ -51,6 +52,29 @@ def load_flow(source, man_index=None, trace=None):
     flow = mod.build_flow()
     if not getattr(flow, "ports", None):
         flow.ports = stateflow.COMPACT_PORTS
+    return flow
+
+
+def normalize_ports(flow):
+    """Shift lifted port columns/bands into ROOM-RELATIVE coordinates.
+
+    `liftflow` reports a port's column and Voronoi band in ABSOLUTE grid columns (they come
+    straight off the pipe's attach cell), but every placement model here puts ops at columns
+    `1..wmax` where `wmax` is the interior WIDTH. The two agree only when the room's interior
+    starts at x=1 — true for snake/LLLM/LLM, and NOT true for pathfinder, whose interior
+    starts at x=59. Un-normalized, its bands (up to 145) sit entirely outside the 1..87
+    column range and every block reports INFEASIBLE — a silent wrong answer, not an error.
+
+    Idempotent, and a no-op for x0 == 1, so previously-correct results are unchanged."""
+    interior = getattr(flow, "meta", {}).get("room_interior")
+    if not interior or flow.meta.get("_ports_normalized"):
+        return flow
+    shift = interior[0] - 1
+    if shift:
+        flow.ports = {n: (c - shift, g, lo - shift, hi - shift)
+                      for n, (c, g, lo, hi) in flow.ports.items()}
+    flow.meta["_ports_normalized"] = True
+    flow.meta["_col_shift"] = shift
     return flow
 
 
@@ -224,6 +248,168 @@ def _bands(flow, ops, wmax):
         else:
             out.append((1, wmax))
     return out
+
+
+INF = float("inf")
+
+
+def dp_block_rows_fast(bands, wcap):
+    """Same automaton as `dp_block_rows`, but O(n*W) instead of O(n*W^2).
+
+    The quadratic version enumerates (from-column, to-column) pairs. Every transition is
+    monotone in the from-column, so running prefix/suffix minima collapse the inner loop:
+
+        A[c] = best cost heading EAST at column c      B[c] = best heading WEST
+        A'[c2] = min( min_{c<c2} A[c],  min_{c<=c2} B[c] + 1,  min_c A[c] + 2 )
+        B'[c2] = min( min_{c>c2} B[c],  min_{c>=c2} A[c] + 1,  min_c B[c] + 2 )
+
+    (0-cost same-heading monotone step; 1-row turn; 2-row wrap that keeps the heading and
+    frees the column.) This is what makes the WIDTH SWEEP affordable — the quadratic DP on
+    LLLM's 4499-op room takes minutes per width value, this takes ~0.5s."""
+    n = len(bands)
+    lo0, hi0 = bands[0]
+    hi0 = min(hi0, wcap)
+    if lo0 > hi0:
+        return None
+    W = wcap
+    A = [INF] * (W + 2)
+    B = [INF] * (W + 2)
+    for c in range(lo0, hi0 + 1):
+        A[c] = 0
+    for i in range(1, n):
+        lo, hi = bands[i]
+        hi = min(hi, W)
+        if lo > hi:
+            return None
+        nA = [INF] * (W + 2)
+        nB = [INF] * (W + 2)
+        gA = min(A)
+        gB = min(B)
+        wrapA = gA + 2 if gA < INF else INF   # keep EAST, free column
+        wrapB = gB + 2 if gB < INF else INF   # keep WEST, free column
+        # forward: pA = min A[c'] for c' < c (exclusive); pB = min B[c'] for c' <= c
+        pA = INF
+        pB = INF
+        for c in range(1, W + 1):
+            if B[c] < pB:
+                pB = B[c]                     # inclusive: fold in B[c] BEFORE use
+            if lo <= c <= hi:
+                v = pA                        # same heading EAST, strictly increasing col
+                if pB + 1 < v:
+                    v = pB + 1                # turn: was WEST at c' <= c, costs 1 row
+                if wrapA < v:
+                    v = wrapA
+                nA[c] = v
+            if A[c] < pA:
+                pA = A[c]                     # exclusive: fold in A[c] AFTER use
+        # backward: sB = min B[c'] for c' > c (exclusive); sA = min A[c'] for c' >= c
+        sA = INF
+        sB = INF
+        for c in range(W, 0, -1):
+            if A[c] < sA:
+                sA = A[c]                     # inclusive
+            if lo <= c <= hi:
+                v = sB                        # same heading WEST, strictly decreasing col
+                if sA + 1 < v:
+                    v = sA + 1                # turn: was EAST at c' >= c, costs 1 row
+                if wrapB < v:
+                    v = wrapB
+                nB[c] = v
+            if B[c] < sB:
+                sB = B[c]                     # exclusive
+        A, B = nA, nB
+        if min(min(A), min(B)) == INF:
+            return None
+    best = min(min(A), min(B))
+    return None if best == INF else best + 1
+
+
+def block_bands(flow, wcap):
+    """Per-block (label, bands, br_surcharge) with bands clipped to `wcap`."""
+    out = []
+    for label, ops, extra in _block_ops(flow):
+        if not ops:
+            out.append((label, None, extra))
+            continue
+        out.append((label, _bands(flow, ops, wcap), extra))
+    return out
+
+
+def rows_at_width(flow, wcap, cache=None):
+    """Total model rows when every op is confined to columns 1..wcap.
+
+    Monotone NON-INCREASING in wcap (a wider cap is a strict superset of feasible
+    columns), which is what licenses binary search over width."""
+    if cache is not None and wcap in cache:
+        return cache[wcap]
+    total = 0
+    for label, bands, extra in block_bands(flow, wcap):
+        if bands is None:
+            total += 1 + extra
+            continue
+        r = dp_block_rows_fast(bands, wcap)
+        if r is None:
+            total = None
+            break
+        total += r + extra
+    if cache is not None:
+        cache[wcap] = total
+    return total
+
+
+def width_floor(flow):
+    """Smallest wcap for which EVERY block is still placeable = max port band `lo`.
+
+    With ports FIXED this is a hard floor on width: an op bound to a port whose Voronoi
+    cell starts at column L cannot be placed left of L without rebinding it to a different
+    pipe (silent cliff #1)."""
+    lo = 1
+    for label, ops, extra in _block_ops(flow):
+        for kind, rest in ops:
+            if kind == "port":
+                lo = max(lo, flow.ports[rest[0]][2])
+    return lo
+
+
+def min_width_at_rows(flow, max_rows, wlo, whi, cache=None):
+    """OBJECTIVE (a): minimise WIDTH subject to total rows <= max_rows.
+
+    The dual of what this tool has always done. Binary search on the monotone curve."""
+    if rows_at_width(flow, whi, cache) is None or rows_at_width(flow, whi, cache) > max_rows:
+        return None
+    a, b = wlo, whi
+    while a < b:
+        mid = (a + b) // 2
+        r = rows_at_width(flow, mid, cache)
+        if r is not None and r <= max_rows:
+            b = mid
+        else:
+            a = mid + 1
+    return a
+
+
+def min_box(flow, chrome_w, chrome_h, wlo, whi, row_off=0, col_off=0, cache=None):
+    """OBJECTIVE (b): minimise the REAL objective, max(rows + chrome_h, width + chrome_w).
+
+    `chrome_*` are the per-problem constants outside the controller room (walls + every
+    other room), derived from the grid, not hardcoded. `row_off`/`col_off` convert model
+    units into room-interior units.
+
+    `w + chrome_w` is strictly increasing and `rows(w) + chrome_h` is non-increasing, so the
+    max is unimodal (V-shaped) and the optimum is at the crossing. Swept exhaustively here
+    because the curve is cheap once `rows_at_width` is memoised, and a flat bottom means
+    several widths tie — we want the WIDEST tie (most row slack, easiest to emit)."""
+    best = None
+    for w in range(wlo, whi + 1):
+        r = rows_at_width(flow, w, cache)
+        if r is None:
+            continue
+        side = max(r + row_off + chrome_h, w + col_off + chrome_w)
+        # `<=` so the WIDEST tie wins: a flat bottom means several widths give the same box,
+        # and the widest one demands the least re-placement (often none at all).
+        if best is None or side <= best[0]:
+            best = (side, w, r)
+    return best
 
 
 def dp_block_rows(flow, ops, wmax):
@@ -414,6 +600,120 @@ def as_built_rows(flow):
     return total, len(phys)
 
 
+def grid_chrome(man_path, flow):
+    """The per-problem constants OUTSIDE the controller room, derived from the grid.
+
+    grid_w = room_outer_w + chrome_w ; grid_h = room_outer_h + chrome_h. Also returns the
+    calibration offsets that convert MODEL units into room-interior units, measured on the
+    as-built grid itself:
+
+        row_off = interior_h - as_built_block_rows   (rows the model never sees: merge
+                  bands, X arms, literal rows, pure-routing rows)
+        col_off = interior_w - as_built_max_op_col   (turn/drop columns east of the last op)
+
+    Both are added back to a model answer, so what is reported is a DELTA applied to the
+    real grid rather than an absolute the model is not entitled to claim.
+
+    CAVEAT the caller must not forget: additivity assumes the chrome SLIDES when the room
+    shrinks (a left-packed floorplan). That is measured true for snake; for a problem whose
+    chrome is 91 columns of other rooms it is an assumption, not a fact."""
+    rows = open(man_path, encoding="utf-8").read().replace("\r", "").split("\n")
+    xs = [x for y, l in enumerate(rows) for x, c in enumerate(l) if c != " "]
+    ys = [y for y, l in enumerate(rows) for x, c in enumerate(l) if c != " "]
+    gw, gh = max(xs) - min(xs) + 1, max(ys) - min(ys) + 1
+    x0, y0, x1, y1 = flow.meta["room_interior"]
+    iw, ih = x1 - x0 + 1, y1 - y0 + 1
+    oc = [(x, y) for (x, y) in flow.meta["op_cells"] if x0 <= x <= x1 and y0 <= y <= y1]
+    maxcol = max(x - x0 + 1 for x, y in oc) if oc else 1
+    ab, phys = as_built_rows(flow)
+    # RIGID FLOOR: the bbox of everything that is NOT this room. Additivity says the chrome
+    # slides when the room shrinks; if it does NOT (nothing else moves), the grid can never
+    # go below this. The two bracket the truth, and the gap is exactly the work a placer
+    # would have to do. On LLLM the room owns the WIDTH (non-room content stops at x=101)
+    # but the HEIGHT is 39 rows of pipe forest BELOW the room — so narrowing is free and
+    # shortening is not.
+    rx0, ry0, rx1, ry1 = x0 - 1, y0 - 1, x1 + 1, y1 + 1
+    ox = [x for y, l in enumerate(rows) for x, c in enumerate(l)
+          if c != " " and not (rx0 <= x <= rx1 and ry0 <= y <= ry1)]
+    oy = [y for y, l in enumerate(rows) for x, c in enumerate(l)
+          if c != " " and not (rx0 <= x <= rx1 and ry0 <= y <= ry1)]
+    return {
+        "grid_w": gw, "grid_h": gh, "box": max(gw, gh) ** 2,
+        "interior_w": iw, "interior_h": ih,
+        "chrome_w": gw - (iw + 2), "chrome_h": gh - (ih + 2),
+        "as_built_rows": ab, "phys_rows": phys, "max_op_col": maxcol,
+        "row_off": ih - ab, "col_off": iw - maxcol,
+        "rigid_w": (max(ox) + 1) if ox else 0,
+        "rigid_h": (max(oy) + 1) if oy else 0,
+    }
+
+
+def report_axis(flow, chrome, cw, ch, wmax, ab, objective="box", max_rows=None, curve=False):
+    """Report the optimum under objective (a) / (b) and the BOX and SCORE it implies."""
+    cache = {}
+    wfloor = width_floor(flow)
+    row_off, col_off = chrome["row_off"], chrome["col_off"]
+
+    def side_of(w, r):
+        """Model (width w, rows r) -> the grid side it implies, in real grid units."""
+        return max(r + row_off + 2 + ch, w + col_off + 2 + cw)
+
+    print(f"grid {chrome['grid_w']}x{chrome['grid_h']}  box {chrome['box']:,}   "
+          f"room-outer {chrome['interior_w'] + 2}x{chrome['interior_h'] + 2}   "
+          f"chrome_w {cw} chrome_h {ch}")
+    print(f"calibration: row_off {row_off:+d} (interior_h - as-built block-rows), "
+          f"col_off {col_off:+d} (interior_w - max op col)")
+    print(f"width floor (fixed ports) = {wfloor}  "
+          f"— max port band `lo`; below this an op rebinds to a different pipe")
+
+    base_rows = rows_at_width(flow, wmax, cache)
+    print(f"model at as-built width {wmax}: rows {base_rows}  (as-built block-rows {ab})")
+
+    if curve:
+        print("  width -> rows:")
+        for w in range(wfloor, wmax + 1):
+            r = rows_at_width(flow, w, cache)
+            if r is not None:
+                print(f"    w={w:>4}  rows={r:>5}  side={side_of(w, r):>5}")
+
+    if objective == "width":
+        budget = max_rows if max_rows is not None else ab
+        w = min_width_at_rows(flow, budget, wfloor, wmax, cache)
+        if w is None:
+            print(f"OBJECTIVE (a) min-width s.t. rows<={budget}: INFEASIBLE at any width")
+            return
+        r = rows_at_width(flow, w, cache)
+        print(f"OBJECTIVE (a) min WIDTH s.t. rows <= {budget}: width {w} (rows {r})")
+        print(f"   implied interior {w + col_off}x{r + row_off} -> grid side {side_of(w, r)}"
+              f"  box {side_of(w, r) ** 2:,}")
+        _verdict(chrome, side_of(w, r))
+        return
+
+    best = min_box(flow, cw, ch, wfloor, wmax, row_off=row_off + 2, col_off=col_off + 2,
+                   cache=cache)
+    if best is None:
+        print("OBJECTIVE (b): INFEASIBLE")
+        return
+    side, w, r = best
+    print(f"OBJECTIVE (b) min max(rows+chrome_h, width+chrome_w): side {side} "
+          f"at width {w}, rows {r}")
+    print(f"   implied interior {w + col_off}x{r + row_off}  "
+          f"-> grid {max(w + col_off + 2 + cw, 0)}w x {r + row_off + 2 + ch}h")
+    print(f"   BOX {side ** 2:,}  (was {chrome['box']:,})")
+    _verdict(chrome, side)
+
+
+def _verdict(chrome, side):
+    old = int(chrome["box"] ** 0.5 + 0.5)
+    if side >= old:
+        print(f"   VERDICT: NEGATIVE — box does not fall ({side} >= {old}). "
+              f"A width win here is worth ZERO.")
+    else:
+        gain = 1 - (side ** 2) / chrome["box"]
+        print(f"   VERDICT: box {chrome['box']:,} -> {side ** 2:,} "
+              f"({gain * 100:.1f}% of score, ticks unchanged)")
+
+
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("source", help="build*.py exposing build_flow(), or any .man grid")
@@ -427,6 +727,16 @@ if __name__ == "__main__":
     ap.add_argument("--min-sep", type=int, default=4)
     ap.add_argument("--verbose", action="store_true")
     ap.add_argument("--no-certify", action="store_true")
+    ap.add_argument("--objective", choices=["rows", "width", "box"], default="rows",
+                    help="rows: legacy min-rows. width: min width s.t. rows <= --max-rows. "
+                         "box: min max(rows+chrome_h, width+chrome_w) — the REAL objective.")
+    ap.add_argument("--max-rows", type=int, default=None,
+                    help="--objective width: row budget (default = as-built block-rows)")
+    ap.add_argument("--chrome-w", type=int, default=None,
+                    help="--objective box: columns outside the room (default: from the grid)")
+    ap.add_argument("--chrome-h", type=int, default=None)
+    ap.add_argument("--curve", action="store_true",
+                    help="print the whole rows-vs-width Pareto curve")
     args = ap.parse_args()
     flow = load_flow(args.source, man_index=args.man_index, trace=args.trace)
     wmax = args.wmax
@@ -437,6 +747,15 @@ if __name__ == "__main__":
     if ab is not None:
         print(f"as-built: {ab} block-rows, {phys} PHYSICAL op rows "
               f"({ab - phys} shared between blocks — a fold the model cannot express)")
+
+    if args.objective in ("width", "box"):
+        chrome = grid_chrome(args.source, flow)
+        cw = args.chrome_w if args.chrome_w is not None else chrome["chrome_w"]
+        ch = args.chrome_h if args.chrome_h is not None else chrome["chrome_h"]
+        report_axis(flow, chrome, cw, ch, wmax, ab,
+                    objective=args.objective, max_rows=args.max_rows, curve=args.curve)
+        sys.exit(0)
+
     print(f"greedy op rows (current ports): {greedy_rows(flow)}")
     nbr = sum(1 for toks in flow.blocks.values()
               if toks and isinstance(toks[-1], tuple) and toks[-1][0] == "br")

@@ -83,22 +83,75 @@ so the balance condition is `controller_h = controller_w + 14`. The live champio
 from DENSITY, not shape. Compute the analogous relation before optimizing anything; shrinking
 the non-binding dimension moves the score by zero.
 
-## AIM THE SOLVER AT THE BINDING AXIS — smtrows minimises ROWS ONLY
+## AIM THE SOLVER AT THE BINDING AXIS — and min-ROWS IS THE WRONG OBJECTIVE
 
-`smtrows` shrinks the ROW count. If WIDTH binds, a perfect row solution changes the score by
-ZERO. Check the axis before spending a solver run (measured 2026-07-27):
+`smtrows` used to shrink the ROW count only. It now takes `--objective`:
 
-| problem | grid | binds | biggest room | aimed right? |
-|---|---|---|---|---|
-| Pathfinder | 180x180 | WIDTH | 89x165 (89 of 180 wide) | NO |
-| LLLM | 142x141 | WIDTH | 142x102 (the room IS the width) | NO |
-| Snake | 67x67 | WIDTH | 47x61 | NO — proven below |
-| **LLM** | 356x793 | **HEIGHT** | 318x742 | **YES** |
+    --objective rows    legacy: minimise rows, width only a constraint
+    --objective width   (a) minimise WIDTH subject to rows <= --max-rows
+    --objective box     (b) minimise max(rows + chrome_h, width + chrome_w)  <- the REAL one
 
-Snake is the worked negative. Collapsing its controller to the phase-1 optimum gives height
-8+52 = 60, to the free-ports optimum 56, to the absolute lower bound 45 — and **box stays 4,761
-in all three cases**, because 69 width = a 49-column controller + 20 columns of display block
-(the 16x16 display is an irreducible 18), and smtrows never touches width.
+`chrome_*` are derived from the grid (`grid_w - room_outer_w`, likewise h), not hardcoded.
+The rows-vs-width curve is computed by an O(n*W) DP (`dp_block_rows_fast`, prefix/suffix
+minima over the same automaton; cross-checked against the quadratic DP on 1,511 (block,width)
+pairs, 0 mismatches), so the whole Pareto curve is seconds, not minutes. `--curve` prints it.
+
+**MEASURED 2026-07-27 — the legacy objective makes the score WORSE on 3 of the 4 targets:**
+
+| problem | current | min-ROWS | min-WIDTH (a) | joint (b) optimistic | joint GUARANTEED |
+|---|---|---|---|---|---|
+| Snake | 67²=4,489 | 70²=**4,900** | 67²=4,489 | 67²=4,489 | 67²=4,489 |
+| LLLM | 142²=20,164 | 143²=**20,449** | 141²=19,881 | 138²=19,044 | **141²=19,881** |
+| Pathfinder | 180²=32,400 | 187²=**34,969** | infeasible | 182²=33,124 | 182²=33,124 |
+| LLM | 793²=628,849 | 786²=617,796 | 786²=617,796 | 786²=617,796 | 793²=628,849 |
+
+Read the min-ROWS column: cashing it in costs 9% on snake, 8% on pathfinder, 1.4% on LLLM.
+It buys rows with width, and only the squared axis is ever paid for. **LLM is the only
+problem where min-rows is even pointed the right way**, and that is exactly the one problem
+whose binding axis is HEIGHT.
+
+### GUARANTEED vs OPTIMISTIC — the chrome does not slide for free
+
+Additivity (`grid_w = room_w + chrome_w`) assumes the chrome MOVES when the room shrinks.
+The tool now also computes the **rigid floor**: the bbox of every non-room cell, i.e. what
+the grid cannot go below if nothing outside the room moves. The two bracket the truth, and
+the gap is precisely the work a placer would have to do.
+
+* **LLLM** — non-room content stops at x=101 but reaches y=140. So the room owns the WIDTH
+  (narrowing is free and needs no placement) while the HEIGHT is 39 rows of pipe forest
+  *below* the room. Guaranteed 141²=19,881 (1.4%); the further drop to 138² needs that
+  forest to slide up, which re-lengths every pipe crossing the room's bottom wall.
+* **LLM** — the rigid floor is 356x793, i.e. the current grid EXACTLY. The 7 rows min-rows
+  finds inside the controller are worth **zero** unless the chrome slides.
+* **Pathfinder** — the rigid floor is already 180x180, so the controller room cannot change
+  the box at all, whatever the model says.
+
+### Per-target verdicts
+
+* **Snake — NEGATIVE, certified.** The joint objective's V-bottom lands on side 67 at
+  width 42 / 59 rows: *exactly the champion*. The curve either side (w=41 → side 71,
+  w=43 → 68, w=45 → 70) is strictly worse. Snake is optimally proportioned under this model
+  and there is nothing left to take.
+* **Pathfinder — NEGATIVE twice over.** The model needs 118 rows where the champion spends
+  116, so it loses at every width; and the rigid floor pins the grid at 180x180 anyway.
+* **LLM — CONDITIONAL.** 7 rows are available inside the controller, worth 1.8% *if and only
+  if* the 51 rows of chrome below it can be moved up. That is a `place.py` + folded-routing
+  job, not an `smtrows` job.
+* **LLLM — the only guaranteed win, and it is small.** 1.4%. It needs a genuine re-placement:
+  no interior column is blank (the boustrophedon turns at x=140), the champion was imported
+  rather than generated, so no builder knob exists, and the model's row answer (97) is below
+  the champion's block-rows (102) but ABOVE its 95 physical rows — so an emit that fails to
+  reproduce the row SHARING comes out ~2 rows taller and makes the box worse.
+
+### Coordinate bug fixed: port bands were absolute, op columns were relative
+
+`liftflow` reports a port's column and Voronoi band in **absolute grid columns** (they come
+off the pipe's attach cell), but every placement model here puts ops at columns `1..wmax`
+where `wmax` is the interior WIDTH. Those agree only when the room's interior starts at x=1.
+Snake, LLLM and LLM all do — **pathfinder does not** (its interior starts at x=59), so its
+bands (up to 145) sat entirely outside the 1..87 column range and every block reported
+INFEASIBLE. A silent wrong answer, not an error. `smtrows.normalize_ports()` now shifts the
+bands at load time; it is idempotent and a no-op for x0 == 1, so earlier results stand.
 
 ## smtrows CANNOT BEAT A HAND-FOLDED CHAMPION — it forbids row sharing
 
@@ -203,6 +256,9 @@ PRIVATE cases (15/17) after a clean 5/5 public oracle pass; `push4` shrank `16->
 
 ## Recommended order
 
+0. **Run `--objective box` FIRST** (`python3 scratchpad/axis_table.py` does all four at once,
+   ~2 min). It reports the rigid floor and the joint optimum together, so a negative is
+   established before any solver time is spent — and three of the four targets are negatives.
 1. Measure density and `box/area`; check whether one room owns the binding dimension.
 2. If it does — `liftflow` + `smtrows` (inside). Phase 1 first: it may certify you are already
    optimal, which is a complete answer.

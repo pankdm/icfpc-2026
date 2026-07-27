@@ -57,21 +57,25 @@ in 10 minutes). Use it as a **pre-filter, not the judge**: fast reject ⇒ disca
 `lm` also has `--profile` and `--inspect=N` (single-tick JSON snapshot) which the wasm
 harness cannot give you.
 
-**A Rust pass is good enough to SUBMIT, but a Rust FAIL is NOT good enough to discard.**
-`node sim/difftest.js` compares the two engines step-by-step (runner states, pipe contents,
-output, end reason, parsed topology). It is **NOT green**: measured 2026-07-27 it reports
-**57 passed, 4 failed** — `lit-cross-h-digit`, `lit-cross-v-digit`, `lit-two-rooms-same-row`,
-`lit-junk-in-col`, i.e. every remaining failure is LITERAL semantics. (An earlier note here
-claimed 61/0; that was wrong or has regressed — re-run it, do not trust this paragraph either.)
+**A Rust pass on the public cases is good enough to SUBMIT.** `node sim/difftest.js` compares
+the two engines step-by-step (runner states, pipe contents, output, end reason, parsed topology)
+and reports **61 passed, 0 failed** (re-verified 2026-07-27 after the `U` fix below).
 
-**Worked example of the false reject, and it is not hypothetical.** The LIVE brackets champion
-(`solutions/brackets/live-351bec3e.man`, 15×15, server 97,719 at 26/26) scores **0/9 in the Rust
-engine** — eight cases `crash: wall` at tick 10, one `timeout` — while the **oracle passes 9/9**
-in 144 ticks with `inputRead` never advancing past 0 in the Rust trace. An agent following
-"fast reject ⇒ discard" would have thrown away a champion. So: a Rust reject means
-**re-check with `node tools/grade.js` before believing it**, especially on grids with literals
-or several small rooms. Since submitting never lowers a score, the cost of a
-rare false pass is one submission slot (max 5 pending), not points. Prefer the oracle as a final
+**REBUILD BEFORE YOU TRUST IT — a stale `lm` is the most expensive trap here.** Measured
+2026-07-27: `interp/target/release/lm` was 3.5 hours older than `interp/src/lib.rs`, so every
+`grade_fast` run that day executed an engine predating the literal fix. It presented as four
+difftest failures (`lit-cross-h-digit`, `lit-cross-v-digit`, `lit-two-rooms-same-row`,
+`lit-junk-in-col`) and led to a wrong entry in this very file claiming difftest was 57/61.
+`cargo build --release --manifest-path interp/Cargo.toml` first, every session.
+
+**`U`'s turn is the pipe's END ARROWHEAD, not its last in-path step** (fixed; `pipe_flow_dir`).
+They differ whenever a pipe TURNS on its final cell -- a 2-cell L dropping from a bottom wall
+and then pointing east has last-step *south* but arrowhead *east*. With the old rule the LIVE
+brackets champion (server 97,719 at 26/26) scored **0/9 in Rust**, crashing `wall` at tick 10,
+while the oracle passed 9/9; it now scores 9/9 at 230.22 avgTicks, matching the oracle exactly.
+So when Rust rejects a program the oracle accepts, suspect the ENGINE, not the program --
+re-check with `node tools/grade.js` before discarding a candidate. Since submitting never
+lowers a score, the cost of a rare false pass is one submission slot (max 5 pending), not points. Prefer the oracle as a final
 check when it is cheap, but do NOT block on it: it OOMs outright on LLLM (`Go program has already
 exited`) and `sim/xray.js` on a single 2M-tick pathfinder case does not finish in 10 minutes.
 The risk the Rust engine does NOT cover is the same one the oracle misses — PRIVATE cases.

@@ -518,9 +518,27 @@ impl World {
                 let src_room = self.border_room(back.0, back.1);
                 if src_room.is_none() { continue; }
                 if used.contains(&(x, y)) { continue; }
+                // A pipe may never attach at a room CORNER. An arrow wedged between one
+                // room's wall and another room's corner is therefore NOT a pipe start --
+                // the oracle does not count it as a pipe at all. Without this, such a cell
+                // traced to a length-1 path and the whole program was rejected with
+                // "pipe too short": the live 38x40 matmul champion has exactly this shape
+                // at (32,16), between room 4's right wall and room 5's corner, and the
+                // oracle runs it 7/7.
+                let fwd = (x + d.0, y + d.1);
+                if let Some(fr) = self.border_room(fwd.0, fwd.1) {
+                    let (mn, mx) = (self.rooms[fr].min, self.rooms[fr].max);
+                    let corner = (fwd.0 == mn.0 || fwd.0 == mx.0) && (fwd.1 == mn.1 || fwd.1 == mx.1);
+                    if corner { continue; }
+                }
                 // trace
                 let (path, dst_room) = self.trace_pipe(x, y, d, &mut is_pipe_glyph)?;
-                if path.len() < 2 { return Err("pipe too short".into()); }
+                if path.len() < 2 {
+                    return Err(format!(
+                        "pipe too short at ({},{}) glyph {:?} dir {:?}; back ({},{}) is border of room {:?}",
+                        x, y, c, d, back.0, back.1, src_room
+                    ));
+                }
                 let dst_room = dst_room.ok_or_else(|| "pipe does not end at a room".to_string())?;
                 let sr = src_room.unwrap();
                 if sr == dst_room {

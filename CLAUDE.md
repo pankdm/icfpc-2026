@@ -234,6 +234,10 @@ whether anything shipped.
 3. **One agent, one stage that ends in a submittable build.**
 4. **Scripts go in `scratchpad/*.py`, never inline heredocs** — re-running a heredoc resends it,
    turning a 1.5k-token cycle into 45k. Keep the useful ones; the next agent will need them.
+5. **Cap the agent's own output.** Three runs died on the 64k response limit, losing everything
+   they had. Tell them: never echo a `.man`, a trace, or a file back; pipe long command output
+   through `head`/`wc`; and keep the final report under ~400 words — numbers and what changed,
+   not narrative.
 
 ## Semantics you will get wrong from the spec alone
 

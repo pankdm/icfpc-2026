@@ -5,6 +5,16 @@ ICFPC 2026
 - [Littleman interpreter](interpreter/README.md)
 - [`Y` split semantics](https://icfpcontest2026.com/split) — supported by both interpreters in this repository
 
+## Solution recordings
+
+Screen recordings of solutions running, captured on the final day (2026-07-27).
+
+| recording | what it shows |
+|---|---|
+| [Reverse a List — champion](docs/videos/reverse-a-list-champion.mov) | our top **Reverse a List** solution ([`sweep-live-a0ee52e1.man`](solutions/reverse-a-list/sweep-live-a0ee52e1.man)), server score 13,764 |
+| [Memory — champion](docs/videos/memory-champion.mov) | our top **Memory** solution ([`mem-sweep1.man`](solutions/memory/mem-sweep1.man)), server score 5,753,682 |
+| [Memory — alternative](docs/videos/memory-alternative.mov) | an alternative **Memory** construction, kept for comparison |
+
 ## Best Brackets solution
 
 The strongest Brackets candidate in this repository is

@@ -150,9 +150,11 @@ fn main() {
         let mut out = String::new();
         for _ in 0..args.cap {
             if w.end != EndReason::Running || w.output_settled() { break; }
-            if let Some(r) = w.runners.first() {
-                out.push_str(&format!("{} {} {}\n", w.step_count, r.pos.0, r.pos.1));
+            out.push_str(&format!("{}", w.step_count));
+            for r in w.runners.iter() {
+                out.push_str(&format!(" | {} {} {} {} {}", r.pos.0, r.pos.1, r.a, r.b, r.bp));
             }
+            out.push('\n');
             w.step();
         }
         print!("{}", out);

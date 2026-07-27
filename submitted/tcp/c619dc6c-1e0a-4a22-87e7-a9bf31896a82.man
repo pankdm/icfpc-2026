@@ -1,0 +1,29 @@
++-------------------+  +-+
+|                   |<<|I|
+|                   |  +-+
+|                 v<|
+|                 8 |     +-+
+|                 & |     |O|
+|         v       X |     +-+
+|         4       4 |      ^
+|         &       & |      ^
+|     v   X   v   X |  +-------+
+|     2   2   2   2 |  |>v     |
+|     &   &   &   &s|>>|M      |
+|   v X v X v X v XM|  |+      |
+|   1 1 1 1 1 1 1 1r|  |1      |
+|   & & & & & & & & |  |s      |
+|  vXvXvXvXvXvXvXvX |  |U-b]]]v|
+|  rrrrrrrrrrrrrrrr |  |^<    ]|
+|  ssssssssssssssss |  |  HsN1d|
+|@r>>>>>>>>>>>>>>>>^|  |^     <|
++-------------------+  |@^     |
+   vvvvvvvvvvvvvvvv    +-------+
+   vvvvvvvvvvvvvvvv           ^
+ +------------------+         |
+ |v<v<v<v<v<v<v<v<v<|>--------^
+ | srsrsrsrsrsrsrsr |
+ | rsrsrsrsrsrsrsrs |
+ | ^<^<^<^<^<^<^<^< |
+ |>@               ^|
+ +------------------+

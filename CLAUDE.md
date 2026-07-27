@@ -199,6 +199,20 @@ So a teammate submitted it from another machine. Two consequences:
 To beat 6.28e9 on the server a build needs local box x avgTicks < ~5.9e9 — at the lane
 build's 292k ticks that is a box under 20,200, i.e. **142x142**.
 
+**LLLM generality is already covered — 321 adversarial cases, all green** (2026-07-26 ~21:40Z).
+`python3 scratchpad/lllm_adv.py` regenerates `tests/lllm-{adv,fuzz,oos}.json` (115 structured +
+200 seeded-random + 6 deliberately out-of-spec) from `lllm_model.py`, cross-checked against the
+independent `scratchpad/lllm_ref.py`. Grade them like any slug:
+`python3 tools/grade_fast.py lllm-adv <f.man> --cap 20000000 --jobs 8`. **The WASM oracle does
+NOT OOM on these** (all under 801k ticks) — `node tools/grade_json.js lllm-adv <f.man>
+--case-index N` is a real oracle check, and it agreed on every case. Coverage: every op class,
+every W,H in 4..16, every k in 1..64, 30 rounds, all halt modes, 64-bit A wrap observed through
+X, and 71 pairs of consecutive IDENTICAL frames (empty delta). `scratchpad/lllm_adv_power.py`
+proves the suite has teeth by injecting 18 classic bugs; wrap32 / no-wrap / M-is-a-swap are
+caught by **zero** public cases. `lane3-178x220.man`, the CW=144 rebuild, `polish-203x200` and
+`champion-a33a42bd` all pass — a private LLLM failure is now very unlikely, so spend the
+remaining time on BOX.
+
 ### Measured dead ends (2026-07-26) — do not repeat these
 
 - **Boustrophedon band widening / replica ports (LLM, Snake, Pathfinder).** 870 of LLM's 994

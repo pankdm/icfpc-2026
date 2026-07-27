@@ -22,7 +22,8 @@ from build_banked_boustro import alias_empty_gotos
 
 
 def build(code_x=45, op_slack=0, verify=True, hw_layout="tight", hw_gap=2,
-          port_cols=None, nrail=10, extra_echoes=0):
+          port_cols=None, nrail=10, extra_echoes=0,
+          ram_kind="belt", ram_belts=8):
     flow = alias_empty_gotos(dedup.build_flow())
     if extra_echoes:
         if not port_cols:
@@ -59,6 +60,8 @@ def build(code_x=45, op_slack=0, verify=True, hw_layout="tight", hw_gap=2,
         hw_gap=hw_gap,
         port_cols=port_cols,
         extra_echoes=extra_echoes,
+        ram_kind=ram_kind,
+        ram_belts=ram_belts,
     )
     if verify:
         railflow.verify_bindings(program, layout)
@@ -75,6 +78,8 @@ if __name__ == "__main__":
     parser.add_argument("--hw-gap", type=int, default=2)
     parser.add_argument("--nrail", type=int, default=10)
     parser.add_argument("--extra-echoes", type=int, default=0)
+    parser.add_argument("--ram", choices=("belt", "split"), default="belt")
+    parser.add_argument("--ram-belts", type=int, default=8)
     parser.add_argument("--port-cols", help="JSON dict of absolute port columns")
     parser.add_argument("--tag", default="")
     args = parser.parse_args()
@@ -90,6 +95,8 @@ if __name__ == "__main__":
         port_cols=port_cols,
         nrail=args.nrail,
         extra_echoes=args.extra_echoes,
+        ram_kind=args.ram,
+        ram_belts=args.ram_belts,
     )
     if program.overwrites:
         print("OVERWRITES", program.overwrites[:5])

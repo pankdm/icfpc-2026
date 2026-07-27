@@ -24,7 +24,27 @@ BASE = {'ri': 52, 'sp': 55, 'rp': 78, 'sc': 157, 'rr': 206, 'sd': 207,
 NRAIL = 48
 
 
+def repair_split(c):
+    """Column clearances for the 8-belt split RAM (48x48, reply = cmd + 4)."""
+    c = dict(c)
+    c['ri'] = max(OPMIN, c['ri'])
+    c['sp'] = max(c['sp'], c['ri'] + 3)
+    c['rp'] = max(c['rp'], c['sp'] + 6)
+    c['sc'] = max(c['sc'], c['sp'] + 11, c['rp'] + 6)
+    c['rr'] = c['sc'] + 4
+    c['sp1'] = max(c['sp1'], c['sc'] + 48)
+    c['rp1'] = max(c['rp1'], c['sp1'] + 6)
+    c['sd'] = max(c['sd'], c['rp1'] + 3)
+    c['sa'] = max(c['sa'], c['sd'] + 10, c['sc'] + 54)
+    c['ss'] = max(c['ss'], c['sa'] + 10)
+    c['cc'] = max(c['cc'], c['ss'] + 6, c['sa'] + 14)
+    c['cr'] = c['cc'] + 4
+    return c
+
+
 def repair(c, slot):
+    if slot == 'split':
+        return repair_split(c)
     c = dict(c)
     c['ri'] = max(OPMIN, c['ri'])
     c['sp'] = max(c['sp'], c['ri'] + 3)
@@ -53,8 +73,10 @@ def total(c, flow):
     r = evaluate_rail(c, nrail=NRAIL, flow=new, GLYPH=glyphs)
     if 'error' in r:
         return None, r
-    height = r['height'] + 45
-    width = max(c['cr'] + 2, c['cc'] + 76, max(c.values()) + 8)
+    split = c['cr'] == c['cc'] + 4
+    height = r['height'] + (51 if split else 45)
+    width = (c['cc'] + 46 if split
+             else max(c['cr'] + 2, c['cc'] + 76, max(c.values()) + 8))
     return max(width, height) ** 2, dict(r, box_w=width, box_h=height)
 
 

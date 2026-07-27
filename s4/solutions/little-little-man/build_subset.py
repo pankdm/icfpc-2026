@@ -13,6 +13,7 @@ sys.path.insert(0, os.path.join(HERE, "..", "..", "tools"))
 import littleman as lm
 import flowgrid
 import belt_ram
+import split_ram
 
 
 # Scalar addresses fit in one digit, allowing store() to preserve its payload in B.
@@ -362,8 +363,24 @@ def _echo_room(p, cy, sy, send_col, reply_col):
     p.pipe([(sx + 4, sy - 1), (sx + 4, sy - 3), (reply_col, sy - 3), (reply_col, cy)])
 
 
+def _split_ram(p, cy, top, cmd_col, reply_col, size, belts):
+    """Multi-belt RAM under `cmd_col`, same [0,a]/[1,a,v] protocol as belt_ram.
+
+    A single recirculating belt costs ~`size` ticks of rotation per access, and
+    MEASURED on this program that stall is 68% of the controller's run.  Eight
+    belts cut the rotation by 8x.  Its command enters the top of the input proxy
+    (2-cell pipe) and its reply leaves westward and turns north 4 columns away,
+    so `reply_col` must be exactly `cmd_col + 4`.
+    """
+    ox, oy = cmd_col - 3, top + 1
+    ram = split_ram.build(p, ox, oy, size, belt_count=belts)
+    assert reply_col == ox + 7, (reply_col, ox + 7)
+    p.pipe([(cmd_col, cy), ram["command"]])
+    p.pipe([ram["reply"], ram["reply_turn"], (reply_col, cy)])
+
+
 def _attach_tight(p, ports, cy, ram_size, cell_ram_size, display_addr, gap,
-                  extra_echoes=0):
+                  extra_echoes=0, ram_kind="belt", ram_belts=8):
     """Hardware packed into one shallow band right under the controller wall.
 
     The wide layout staggered every service 45-100 rows below the controller and
@@ -397,10 +414,13 @@ def _attach_tight(p, ports, cy, ram_size, cell_ram_size, display_addr, gap,
 
     # Scalar RAM directly under its command port; the command pipe hugs the
     # room's left wall instead of descending 80 rows first (122 cells -> 36).
-    ram = belt_ram.build(p, sc - 2, top, ram_size)
-    p.pipe(_cmd_route(sc, cy, ram["command"]))
-    reply = ram["reply"]
-    p.pipe([reply, (rr, reply[1]), (rr, cy)])
+    if ram_kind == "split":
+        _split_ram(p, cy, top, sc, rr, ram_size, ram_belts)
+    else:
+        ram = belt_ram.build(p, sc - 2, top, ram_size)
+        p.pipe(_cmd_route(sc, cy, ram["command"]))
+        reply = ram["reply"]
+        p.pipe([reply, (rr, reply[1]), (rr, cy)])
 
     # 16x16 display: ADDR on top (aligned to its port), DATA left, SWAP bottom.
     addr_col = ports["sa"][0] if display_addr else sd + 38
@@ -413,10 +433,13 @@ def _attach_tight(p, ports, cy, ram_size, cell_ram_size, display_addr, gap,
 
     if cell_ram_size is not None:
         cc, cr = ports["cc"][0], ports["cr"][0]
-        cell = belt_ram.build(p, cc - 2, top, cell_ram_size)
-        p.pipe(_cmd_route(cc, cy, cell["command"]))
-        creply = cell["reply"]
-        p.pipe([creply, (cr, creply[1]), (cr, cy)])
+        if ram_kind == "split":
+            _split_ram(p, cy, top, cc, cr, cell_ram_size, ram_belts)
+        else:
+            cell = belt_ram.build(p, cc - 2, top, cell_ram_size)
+            p.pipe(_cmd_route(cc, cy, cell["command"]))
+            creply = cell["reply"]
+            p.pipe([creply, (cr, creply[1]), (cr, cy)])
     return p
 
 
@@ -437,6 +460,8 @@ def build_program(
     hw_gap=2,
     port_cols=None,
     extra_echoes=0,
+    ram_kind="belt",
+    ram_belts=8,
 ):
     """Attach a compiled Flow to the shared input/RAM/scratch/display hardware."""
     p = lm.Program()
@@ -464,7 +489,7 @@ def build_program(
     if hw_layout == "tight":
         return _attach_tight(
             p, ports, cy, ram_size, cell_ram_size, display_addr, hw_gap,
-            extra_echoes,
+            extra_echoes, ram_kind, ram_belts,
         )
     # Place RAM and display below the controller, then route outside its bbox.
     rox, roy = controller_code + 48, cy + 80

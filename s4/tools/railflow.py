@@ -303,7 +303,7 @@ def _allocate(items, entry, x0, nrail, padded, split_entry=(), north_cap=None):
 
 
 def solve(flow, labels, cols, glyphs, bands, x0, y0, nrail, opmax,
-          lit_forbid=(), max_rail=64):
+          lit_forbid=(), max_rail=64, pick_split=None, pick_pad=None):
     """Fixpoint over rail width, south-U-turn padding and north-U-turn caps."""
     padded = set()
     split_entry = set()
@@ -322,10 +322,13 @@ def solve(flow, labels, cols, glyphs, bands, x0, y0, nrail, opmax,
             # shifts every later block's entry row, which retires some of the
             # other offenders for free -- committing the whole `resplit` set at
             # once permanently over-pays for them (measured: 700 rows vs 690).
-            split_entry.add(sorted(set(resplit) - split_entry)[0])
+            fresh = sorted(set(resplit) - split_entry)
+            split_entry |= set(fresh[:1] if pick_split is None
+                                else pick_split(fresh))
             continue
         if blocked - padded:
-            padded |= blocked
+            fresh = sorted(blocked - padded)
+            padded |= set(fresh if pick_pad is None else pick_pad(fresh))
             continue
         nrail += 2
         if nrail > max_rail:
@@ -358,7 +361,10 @@ def lay_cfg_rail(program, flow, port_spec, code_x=30, x0=0, y0=0, op_slack=6,
 
     max_y = max(y for _, y in cursor.cells)
     wall_y = max_y + 1
-    width = max(opmax, max(cols.values())) + 2 - x0
+    # +3, not +2: a `newline` turn glyph lands one column EAST of the last op,
+    # and an op can legitimately sit at opmax when a port's band ends there.
+    # With +2 that turn column IS the east wall (crash: '|' vs 'v').
+    width = max(opmax, max(cols.values())) + 3 - x0
     height = wall_y - y0 + 1
     program.room(x0, y0, width, height)
     for (x, y), ch in cursor.cells.items():

@@ -533,14 +533,15 @@ def pack_chunks(symbols, digit_widths):
     return chunks
 
 
-def verify(chunks, ring, threshold=None):
+def verify(chunks, ring, threshold=None, base=None):
     # This is the semantic counterpart of the grid below.  Keeping it here is
     # important: the room program is densely folded, while this follows the
     # five stages in their logical (rather than spatial) order.
+    radix = B1 if base is None else base
     syms = []
     for c in chunks:
         while c:
-            c, r = divmod(c, B1)
+            c, r = divmod(c, radix)
             syms.append(r)
     mid, i = [], 0
     while i < len(syms):
@@ -654,11 +655,31 @@ def disp_compact_rows(threshold=17, esc=29):
 
 DISP_COMPACT_ROWS = disp_compact_rows()
 
-# Repeated /92 emits one least-significant stream symbol per feeder chunk.
-DECODER_ROWS = [
-    ">W/WsWX@v",
-    "^`29`M<r<",
-]
+
+def disp_stream_rows(threshold=23, esc=29):
+    """21x5 dispatcher for a regenerating one-way dictionary stream."""
+    assert 10 <= threshold <= 99 and 10 <= esc <= 99, (threshold, esc)
+    thr, e = str(threshold), str(esc)[::-1]
+    return _grid(21, 5,
+        (0, 0, "v@<<s"), (7, 0, "<"), (10, 0, "<"), (20, 0, "<"),
+        (0, 1, f">`{thr}`Mr"), (8, 1, "bX^"),
+        (1, 2, ">`31`+^"), (9, 2, "-"),
+        (0, 3, f"vX~`{e}`M+X>rX>rmd   ^"),
+        # ESC's next position must come from DECODER, while the scanner uses
+        # the nearer dictionary stream.  `R` selects DECODER first in reading
+        # order when both are ready; the encoded position is adjacent to ESC.
+        (0, 4, ">Rb"), (10, 4, "^ <^  <"),
+    )
+
+
+def decoder_rows(radix=B1):
+    """Repeated division emits one least-significant stream symbol per chunk."""
+    spelling = str(radix)[::-1]
+    assert len(spelling) == 2
+    return [">W/WsWX@v", f"^`{spelling}`M<r<"]
+
+
+DECODER_ROWS = decoder_rows()
 
 # Repeated /128 turns a packed raw-ASCII dictionary/year value into bytes.
 UNPACK_ROWS = [
@@ -912,7 +933,8 @@ def group_a_grid(smalls, west_first, inner):
     return best
 
 
-def p1_room(program, x0, y0, width, ring, layout, west_first=False):
+def p1_room(program, x0, y0, width, ring, layout, west_first=False,
+            cyclic_stream=False):
     """Template preload room: 2 group-A rows (smalls 1..16, 8 slots) and
     4 group-B rows, all slot-aligned so every column's backtick count is
     even.  The baseline puts its zero sentinel in group B and its pump at the
@@ -925,6 +947,7 @@ def p1_room(program, x0, y0, width, ring, layout, west_first=False):
     its own -- an 8-row room instead of 10.  It is incompatible with
     ``tail_constants``, which needs those rows to carry extra entries."""
     assert not (west_first and layout["tail_pairs"])
+    assert not cyclic_stream or west_first
     n_small = layout.get("n_small", 16)
     bottom_up = layout.get("bottom_up", False)
     smalls = [ring[v] for v in range(1, n_small + 1)]
@@ -1053,13 +1076,18 @@ def p1_room(program, x0, y0, width, ring, layout, west_first=False):
                 program.put(x0 + 1, y, ">")
             if last:
                 assert west_first
-                # Walk on past the turn column into the pump loop: '^' r '>'
-                # up the first spare column, 'v' s '<' down the second, so the
-                # first instruction executed on entry is the 'r'.
                 program.put(right, y, ">")
-                put_row(program, right + 1, y - 2, [">", "v"])
-                put_row(program, right + 1, y - 1, ["r", "s"])
-                put_row(program, right + 1, y, ["^", "<"])
+                if cyclic_stream:
+                    # Rise in one spare column and traverse every literal
+                    # again.  The dispatcher resynchronizes on the sentinel.
+                    program.put(right + 1, y, "^")
+                    program.put(right + 1, y0 + 1, "<")
+                else:
+                    # Walk on past the turn column into the pump loop: '^' r
+                    # '>' up the first spare column, 'v' s '<' down the second.
+                    put_row(program, right + 1, y - 2, [">", "v"])
+                    put_row(program, right + 1, y - 1, ["r", "s"])
+                    put_row(program, right + 1, y, ["^", "<"])
             else:
                 program.put(right, y, "v")
         else:
@@ -1334,6 +1362,67 @@ def build_79x81():
     return program
 
 
+def build_streaming_79x81():
+    """End-to-end checkpoint for the regenerating dictionary stream.
+
+    This deliberately keeps the proven eight-row service placement.  Its
+    purpose is to validate the new one-way dictionary protocol on the real
+    History Lesson program before reflowing those rooms into seven rows.
+    """
+    global THRESHOLD, ESC, SMALL_FREE, STOLEN
+    old = (THRESHOLD, ESC, SMALL_FREE, STOLEN)
+    THRESHOLD = 23
+    ESC = 29
+    SMALL_FREE = [2, 4, 5, 6, 7, 8, 11, 12, 16, 17, 18, 19, 20, 21, 22]
+    STOLEN = (8, 18, 23)
+    selector = lambda stream: choose_phrases_weighted(
+        stream, table_weight=1.25
+    )
+    try:
+        symbols, ring, layout = build_encoding(
+            west_first=True,
+            phrase_selector=selector,
+            group_b_rows=3,
+            group_a_cap=72,
+        )
+        bands = optimize_feeder(symbols, 79)
+        chunks = [chunk.value for band in bands for chunk in band.chunks]
+        assert verify(chunks, ring)
+        program = build_streaming_once(79, ring, layout, bands)
+    finally:
+        THRESHOLD, ESC, SMALL_FREE, STOLEN = old
+    assert program.footprint() == (79, 81, 6561)
+    return program
+
+
+def build_streaming_79x80():
+    """Pack the cyclic dictionary protocol into a seven-row service band."""
+    global THRESHOLD, ESC, SMALL_FREE, STOLEN
+    old = (THRESHOLD, ESC, SMALL_FREE, STOLEN)
+    THRESHOLD = 23
+    ESC = 29
+    SMALL_FREE = [2, 4, 5, 6, 7, 8, 11, 12, 16, 17, 18, 19, 20, 21, 22]
+    STOLEN = (8, 18, 23)
+    selector = lambda stream: choose_phrases_weighted(
+        stream, table_weight=1.25
+    )
+    try:
+        symbols, ring, layout = build_encoding(
+            west_first=True,
+            phrase_selector=selector,
+            group_b_rows=3,
+            group_a_cap=72,
+        )
+        bands = optimize_feeder(symbols, 79)
+        chunks = [chunk.value for band in bands for chunk in band.chunks]
+        assert verify(chunks, ring)
+        program = build_streaming_seven_once(79, ring, layout, bands)
+    finally:
+        THRESHOLD, ESC, SMALL_FREE, STOLEN = old
+    assert program.footprint() == (79, 80, 6400)
+    return program
+
+
 def build_champion():
     """Build the checked-in 81x81 champion."""
     program = build(81, variable=True, compact_tail=True, west_first=True)
@@ -1530,6 +1619,111 @@ def build_compact_once(W, chunks, ring, layout, bands, narrow=False,
     return program
 
 
+def build_streaming_once(W, ring, layout, bands):
+    """Place the cyclic dictionary checkpoint in the proven service layout."""
+    program = Program()
+    feeder_rows = variable_feeder(program, bands, W)
+    tail_top = feeder_rows + 2
+    xu, xo, xy, xd, xp = 1, 16, 19, 3, 50
+
+    paste_room(program, xu, tail_top, UNPACK_ROWS)
+    program.output_room(xo, tail_top)
+    paste_room(program, xy, tail_top, year_rows())
+    paste_room(program, xp, tail_top, disp_stream_rows(THRESHOLD, ESC))
+    paste_room(program, xd, tail_top + 4, DECODER_ROWS)
+    p1_room(
+        program, 0, tail_top + 8, W, ring, layout,
+        west_first=True, cyclic_stream=True,
+    )
+
+    # The four non-dictionary channels retain their proven routes.
+    program.pipe([(xd - 3, tail_top), (xd - 3, tail_top + 5),
+                  (xd - 1, tail_top + 5)])
+    program.pipe([(xu + 12, tail_top + 1), (xo - 1, tail_top + 1)])
+    program.pipe([(xp - 1, tail_top + 1), (xy + 29, tail_top + 1)])
+    program.pipe([
+        (xy - 1, tail_top + 3),
+        (xu + 13, tail_top + 3),
+        (xu + 13, tail_top + 2),
+        (xu + 12, tail_top + 2),
+    ])
+    program.pipe(
+        [
+            (xd + 11, tail_top + 5),
+            (xd + 12, tail_top + 5),
+            (xd + 12, tail_top + 7),
+            (xp - 1, tail_top + 7),
+            (xp - 1, tail_top + 3),
+        ],
+        end_direction="E",
+    )
+
+    # P1 now regenerates entries, so only a short one-way stream is needed.
+    # Leave its top wall immediately to avoid accidental parallel attachments.
+    program.pipe(
+        [
+            (W - 4, tail_top + 7),
+            (W - 4, tail_top + 2),
+            (73, tail_top + 2),
+            (73, tail_top + 5),
+        ],
+        end_direction="W",
+    )
+    return program
+
+
+def build_streaming_seven_once(W, ring, layout, bands, radix=B1):
+    """Seven-row service reflow made possible by the capacity-free dictionary."""
+    program = Program()
+    feeder_rows = variable_feeder(program, bands, W)
+    y = feeder_rows + 2
+
+    # Width accounting is exact: 12 + 1 + 29 + 11 + 3 + 23 = 79.
+    xu, xy, xd, xp = 0, 13, 42, 56
+    paste_room(program, xu, y, UNPACK_ROWS)
+    paste_room(program, xy, y, year_rows())
+    paste_room(program, xd, y, decoder_rows(radix))
+    paste_room(program, xp, y, disp_stream_rows(THRESHOLD, ESC))
+    program.output_room(4, y + 4)
+    p1_room(
+        program, 0, y + 7, W, ring, layout,
+        west_first=True, cyclic_stream=True,
+    )
+
+    # feeder -> DECODER: leave the feeder wall southward, then approach the
+    # decoder's right wall from the middle column of the three-column gap.
+    program.pipe(
+        [(54, y), (54, y + 1), (53, y + 1)],
+        end_direction="W",
+    )
+    # DECODER -> DISP crosses the same gap one row lower.
+    program.pipe([(53, y + 2), (55, y + 2)], end_direction="E")
+    # DISP -> YEAR leaves west, drops below the short decoder, and enters the
+    # year's right wall without crossing either decoder channel.
+    program.pipe(
+        [
+            (55, y + 3), (53, y + 3),
+            (53, y + 4), (42, y + 4),
+        ],
+        end_direction="W",
+    )
+    # YEAR -> UNPACK uses the one-column room gap and the unpacker's lower
+    # right corner; x=11 is below the corner, so only x=10 attaches.
+    program.pipe([(12, y + 4), (10, y + 4)], end_direction="N")
+    # UNPACK -> O drops away from the bottom wall before turning west.
+    program.pipe(
+        [(8, y + 4), (8, y + 5), (7, y + 5)],
+        end_direction="W",
+    )
+    # Cyclic P1 -> DISP.  The first step is north, directly away from P1's
+    # top wall; the endpoint is closest to the scanner receives, not the head.
+    program.pipe(
+        [(54, y + 6), (54, y + 4), (55, y + 4)],
+        end_direction="E",
+    )
+    return program
+
+
 def build_once(W, chunks, dw, ring, layout, bands=None):
     program = Program()
     R1 = (
@@ -1597,6 +1791,7 @@ def main():
     feeder79_v2 = "--feeder79-v2" in sys.argv
     width79_v2 = "--79wide-v2" in sys.argv
     best79 = "--79x81" in sys.argv
+    stream79 = "--79x80-stream" in sys.argv
     positional = [
         arg for arg in sys.argv[1:]
         if arg not in (
@@ -1604,9 +1799,20 @@ def main():
             "--feeder79", "--feeder79-v2",
             "--79wide-v2",
             "--79x81",
+            "--79x80-stream",
         )
     ]
-    if best79:
+    if stream79:
+        if (
+            legacy or variable or narrow or w80 or best80 or best79
+            or feeder79 or feeder79_v2 or width79_v2 or positional
+        ):
+            raise SystemExit(
+                "--79x80-stream does not accept other modes or a width"
+            )
+        program = build_streaming_79x80()
+        name = os.path.join("candidates", "79x80-stream.man")
+    elif best79:
         if (
             legacy or variable or narrow or w80 or best80
             or feeder79 or feeder79_v2 or width79_v2 or positional
@@ -1665,6 +1871,7 @@ def main():
                 "--feeder79-v2 for the fixed-dictionary search winner, "
                 "--79wide-v2 for the width-79 layout workbench, "
                 "--79x81 for the six-row dictionary layout, "
+                "--79x80-stream for the cyclic-dictionary service reflow, "
                 "--narrow for the constant-tail candidate, "
                 "or --legacy [W] [--variable] for an older layout"
             )

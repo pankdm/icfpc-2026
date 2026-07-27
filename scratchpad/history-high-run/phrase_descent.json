@@ -1,0 +1,234 @@
+{
+  "rows": 62,
+  "chunks": 276,
+  "proxy": [
+    [
+      73,
+      217,
+      3829
+    ],
+    1953
+  ],
+  "symbols": 1953,
+  "phrases": [
+    {
+      "phrase": "or",
+      "emitted": [
+        2
+      ],
+      "digits": 5
+    },
+    {
+      "phrase": "t ",
+      "emitted": [
+        4
+      ],
+      "digits": 4
+    },
+    {
+      "phrase": "and ",
+      "emitted": [
+        5
+      ],
+      "digits": 8
+    },
+    {
+      "phrase": "ar",
+      "emitted": [
+        6
+      ],
+      "digits": 5
+    },
+    {
+      "phrase": "e ",
+      "emitted": [
+        7
+      ],
+      "digits": 4
+    },
+    {
+      "phrase": "\" (",
+      "emitted": [
+        8
+      ],
+      "digits": 6
+    },
+    {
+      "phrase": "er",
+      "emitted": [
+        11
+      ],
+      "digits": 5
+    },
+    {
+      "phrase": " Peyt",
+      "emitted": [
+        12
+      ],
+      "digits": 11
+    },
+    {
+      "phrase": "ti",
+      "emitted": [
+        16
+      ],
+      "digits": 5
+    },
+    {
+      "phrase": "es",
+      "emitted": [
+        17
+      ],
+      "digits": 5
+    },
+    {
+      "phrase": "an",
+      "emitted": [
+        18
+      ],
+      "digits": 5
+    },
+    {
+      "phrase": "Sim",
+      "emitted": [
+        19
+      ],
+      "digits": 7
+    },
+    {
+      "phrase": " \"",
+      "emitted": [
+        20
+      ],
+      "digits": 4
+    },
+    {
+      "phrase": ", USA",
+      "emitted": [
+        21
+      ],
+      "digits": 11
+    },
+    {
+      "phrase": "st",
+      "emitted": [
+        22
+      ],
+      "digits": 5
+    },
+    {
+      "phrase": "in",
+      "emitted": [
+        60
+      ],
+      "digits": 5
+    },
+    {
+      "phrase": "en",
+      "emitted": [
+        61
+      ],
+      "digits": 5
+    },
+    {
+      "phrase": "Haskell",
+      "emitted": [
+        62
+      ],
+      "digits": 15
+    },
+    {
+      "phrase": "al",
+      "emitted": [
+        63
+      ],
+      "digits": 5
+    },
+    {
+      "phrase": "el",
+      "emitted": [
+        64
+      ],
+      "digits": 5
+    },
+    {
+      "phrase": "on",
+      "emitted": [
+        65
+      ],
+      "digits": 5
+    },
+    {
+      "phrase": "1",
+      "emitted": [
+        29,
+        29
+      ],
+      "digits": 2
+    },
+    {
+      "phrase": "ic ",
+      "emitted": [
+        29,
+        30
+      ],
+      "digits": 6
+    },
+    {
+      "phrase": "'",
+      "emitted": [
+        29,
+        31
+      ],
+      "digits": 2
+    },
+    {
+      "phrase": " program",
+      "emitted": [
+        29,
+        32
+      ],
+      "digits": 17
+    },
+    {
+      "phrase": "burg",
+      "emitted": [
+        29,
+        33
+      ],
+      "digits": 9
+    },
+    {
+      "phrase": " of ",
+      "emitted": [
+        29,
+        34
+      ],
+      "digits": 8
+    },
+    {
+      "phrase": "6",
+      "emitted": [
+        29,
+        35
+      ],
+      "digits": 2
+    },
+    {
+      "phrase": "David ",
+      "emitted": [
+        29,
+        36
+      ],
+      "digits": 13
+    },
+    {
+      "phrase": "trios Vy",
+      "emitted": [
+        29,
+        37
+      ],
+      "digits": 17
+    }
+  ]
+}

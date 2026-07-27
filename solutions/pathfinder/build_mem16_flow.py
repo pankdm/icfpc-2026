@@ -557,7 +557,10 @@ def build(
 
         p.input_room(ports["Ir"][0] - 1, bottom + 4)
         p.pipe([(ports["Ir"][0], bottom + 3), ports["Ir"]])
-        driver_x, driver_y = 88, 20
+        # Keep the driver's left-side trunk strictly beyond the controller's
+        # right wall. Wider four-lane layouts otherwise overwrite the bottom
+        # wall where that trunk used to cross at x=86.
+        driver_x, driver_y = max(88, layout["width"] + 4), 20
         _add_driver(
             p,
             ports["Ds"],

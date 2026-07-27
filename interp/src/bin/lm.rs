@@ -145,6 +145,20 @@ fn main() {
         return;
     }
 
+    if std::env::args().any(|a| a == "--trace") {
+        let mut w = World::load(&rows, &args.input, &args.expected, &args.frames, args.cap);
+        let mut out = String::new();
+        for _ in 0..args.cap {
+            if w.end != EndReason::Running || w.output_settled() { break; }
+            if let Some(r) = w.runners.first() {
+                out.push_str(&format!("{} {} {}\n", w.step_count, r.pos.0, r.pos.1));
+            }
+            w.step();
+        }
+        print!("{}", out);
+        return;
+    }
+
     if args.grade {
         run_grade(&args, &rows);
         return;

@@ -251,6 +251,32 @@ remaining time on BOX.
 
 ## What actually moves the score
 
+**Two independent confirmations, 2026-07-27: DELETING A PIPE PAIR is the highest-leverage
+single move in this repo — WHEN the lanes are narrow.** Snake `847787f` deleted the scratch
+ring: box 24,964 -> 13,689 AND ticks 18,482 -> 12,733, **2.6x from one deletion**. Pathfinder's
+`one-ring` deleted the NB pair the same day: local **47.5B -> 34.1B, 1.39x**. The mechanism is
+`LANE WIDTH = ROOM WIDTH / PIPES IN THAT DIRECTION, AND LANE WIDTH SETS HEIGHT` — every
+controller pipe attaching to one wall row throws the Manhattan y-term away, so binding is by
+column, and a token that cannot reach its lane on the current row forces a WRAP = a whole row.
+
+**But CHECK THE LANE WIDTH FIRST — it does not always apply.** Measured the same day: LLM's
+controller has 5 incoming + 7 outgoing pipes (our most), yet its lanes are already **85 and 61
+columns** wide. Deleting a pair there buys 1.26x of lane and *nothing* of height, because LLM's
+width is inert (282 -> 882 left height at EXACTLY 1137 — wraps are a function of token ORDER,
+not spacing). Snake's lanes were 5 columns; that is why it paid 2.6x. Rule: count the pipes,
+then divide. Narrow lanes (single digits) => delete a pair. Wide lanes (tens of columns) =>
+the height is coming from somewhere else, and for a compiled CFG that is BRANCH-LANDING
+GEOMETRY (LLM: 98 `br` x 3 rows = 294 rows, more than the leader's entire 193-row grid).
+
+**Pathfinder's 2026-07-27 ladder, 240B -> 28.1B local (8.5x), is the model to copy — and NOT
+ONE STEP IS AN ALGORITHM CHANGE**: compact ports 240B->74.3B (3.2x), fold apron ->55.4B,
+widen frontier sideways ->50.4B, retune compact ports ->47.5B, delete NB pipe pair ->34.1B
+(1.39x), square + retune four lanes ->28.1B. All six are port/lane/pipe geometry. This is
+exactly what `tools/leaderbox.py` predicts from the leaders' scores: every tick gap on the
+board is 1.5-2.6x and every box gap is larger. **Nobody is out-computing us; they out-pack us.**
+
+
+
 Score is `max(w,h)² × avg ticks`. In this repo's history the wins came, in order:
 
 1. **Fold the layout** — biggest, safest lever (pure geometry, no logic risk). Make the box

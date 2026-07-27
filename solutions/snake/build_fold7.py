@@ -973,7 +973,7 @@ if __name__ == "__main__":
     # the box, then a full 5/5 grade_fast gate -- an ungraded geometry search is
     # useless here, `branch()`'s tight-arm heuristic makes plenty of smaller boxes
     # that build, bind and are silently WRONG).
-    path = sys.argv[1] if len(sys.argv) > 1 else os.path.join(HERE, "fold14.man")
+    path = sys.argv[1] if len(sys.argv) > 1 else os.path.join(HERE, "fold19.man")
     # fold14: 73x73, box 5,329, avgTicks 7,266, local 38,720,514 (fold11 was
     # 41,550,213).  Found by scratchpad/snake2/search4.py -- coordinate descent
     # plus random multi-knob jumps over every column knob, gated on the 5 public
@@ -982,9 +982,22 @@ if __name__ == "__main__":
     # ungated sweep reached 35.9M and failed 78 of 386 fuzz cases, because
     # spacing D_COLL/D_HY/D_HX too tightly makes the shared death row wrap and
     # silently mis-pop the ring, and "game over at the wall" only covers one arm.
-    prog, cap, nrows = fit(save_to=path, CW=52, ST_OUT=23, FEED_W=28, LOOPR=39,
-                           ST_X0=19, D_REP=12, HW_RET=48, HW_TICK=37,
-                           HW_SPAWN=31, HW_DIR=36, D_EAT=32, D_NOEAT=23,
-                           DRV_OUT=51, DRVX=4)
+    # fold19 (CHAMPION): 69x68, box 4,761, avgTicks 6,929.2, local 32,989,921
+    # -- fold17 was 71x69 / 5,041 / 6,965.6 / 35,113,590.  The win is BOX, and it
+    # came from a search move fold17's sweep did not have: CW is the width knob
+    # (width = CW + 21) and every column knob east of the controller must move
+    # WITH it, so it can never be a single-knob coordinate step.  Sweeping the
+    # rigid translation, with CY0 raised to buy back the body-ring capacity a
+    # narrower band loses, trades controller ROWS (height had 5 rows of slack at
+    # CW=50) for box WIDTH (which is what the box actually is).
+    # THE FLOOR IS HERE: CW=47 builds at 68 wide but needs CY0>=11 for capacity,
+    # which costs 2 rows -> 68x70, box 4,900.  69x68 is the knob space's optimum.
+    # Body ring capacity is 51 either way (fold17 pipes 34+1+16, fold19 36+1+14),
+    # so the ring is NOT resized -- see the push2 regression in CLAUDE.md.
+    prog, cap, nrows = fit(save_to=path, CW=48, ST_OUT=22, FEED_W=33, LOOPR=35,
+                           ST_X0=17, D_REP=13, HW_RET=44, HW_TICK=30,
+                           HW_SPAWN=45, HW_DIR=33, D_EAT=29, D_NOEAT=13,
+                           DRV_OUT=47, DRVX=8, CY0=12, D_HY=6, ST_IN=23,
+                           D_HX=2, IN_IN=41)
     print("saved", path)
     print("footprint", prog.footprint(), "body-ring capacity", cap, "ctrl rows", nrows)

@@ -1,8 +1,23 @@
 # matmul "mm2" — 9-room pipelined MAC engine (replaces opt5's 1-man 4-ring machine)
 
-STATUS 2026-07-26: **the engine is BUILT AS CODE and every nearest-pipe binding is
-machine-checked; nothing is submitted yet.** The open problem is *routing the 12
-pipes into a small box*, not the logic. Read "What is left" at the bottom first.
+STATUS 2026-07-26: **the engine is BUILT AS CODE, every nearest-pipe binding is
+machine-checked, and ALL SEVEN ROOMS ARE UNIT-TESTED AND PASS** (`scratchpad/mm2/
+unit.py`). Nothing is submitted: the open problem is *routing the 12 pipes*, not the
+logic. Read "What is left" at the bottom first.
+
+    PCNT  '3 4 5'      -> 5 5 5 5 5 -5 5 5 5 5 -5 5   control stream exact
+    AREL  '2 3 4 7 8'  -> 7 7 7 7 8 8 8 8             each A value repeated K times
+    SPL   2 2 2 + A,B  -> 2 2 2 1 2 3 4               broadcast + N*M split exact
+    BREL  '2 2 3' + B  -> 11 12 13 14 15 16           seeds exactly M*K then stops
+    CREL  '5 6 7'      -> 5 6 7
+    MUL   gens 3 and 7 -> 0 21 21 21                  the ONE garbage lap, then 3*7
+    ACC   PCNT + gen 5 -> 10 10 10 10                 seed, MAC ring, X on -K,
+                                                      output ring, re-arm
+
+A room test is cheap: drive it from I with a literal-generator room (`@>5v/ ^s<`,
+emits 5 forever, needs no input) for any pipe the test does not drive, and an `@H`
+room as a sink.  That found PCNT's return corridor being one cell too long -- a bug
+no amount of reading would have caught.
 
 ## Why opt5 is 63 ticks/MAC
 `matmul-opt5.man` runs ONE man through MAIN-read → classify → MAC → return, so every

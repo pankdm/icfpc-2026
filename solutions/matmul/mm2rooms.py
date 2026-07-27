@@ -74,7 +74,7 @@ def brel(g, ox, oy):
     g.text(ox + 8, oy + 8, "^s<")
     r.attach('SD', 'L', oy + 4, 'in')
     r.attach('BF', 'B', ox + 10, 'in')
-    r.attach('BR', 'B', ox + 3, 'out')
+    r.attach('BR', 'R', oy + 4, 'out')
     r.check({
         (ox + 2, oy + 1): ('SD', 'in'), (ox + 3, oy + 1): ('SD', 'in'),
         (ox + 5, oy + 1): ('SD', 'in'), (ox + 4, oy + 4): ('SD', 'in'),

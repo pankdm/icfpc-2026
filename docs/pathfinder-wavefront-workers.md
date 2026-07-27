@@ -210,8 +210,31 @@ L: [U, R, D, L, state]
 ```
 
 One pipe pair per row now carries both UNVIS and all four priority results.
-With eight-wide rooms on a nine-column pitch, the four bands occupy 143×53.
-The unused ninth column is a continuous L→U return channel, so adding cyclic
-state does not widen the 144-cell target.  This is direct physical evidence
-for the large-factor interpretation of the competitor scores, rather than
-proof that the competitors use the same design.
+The first version used eight-wide rooms on a nine-column pitch and occupied
+143×53.  Closing the state loop exposed a constraint the open band did not:
+one blank column between rooms cannot contain a legal horizontal pipe, because
+a pipe must have at least two cells.  Narrowing every room to seven columns
+and adding one perimeter row where necessary preserves the nine-column pitch
+while leaving two routing columns.  The persistent Rust probe
+`pathfinder_cyclic_bands.py` now runs all sixteen lanes indefinitely at
+143×82; first-layer parent bits persist after many later zero layers.
+
+The canonical stream also admits a stronger next step.  Candidate values do
+not need separate vertical pipes.  A packet can enter the priority stack as
+`[state,U,R,D,L]`; each stage consumes its adjacent state/candidate pair and
+emits `[earlier TAKEs, reduced state, later candidates]`.  L therefore still
+finishes with `[U,R,D,L,state]`.  A single top or bottom driver can construct
+the next packet from the sixteen returned frontier/state pairs.
+
+There is a register-cheap streaming construction for that driver.  Process
+rows left-to-right with each return pipe ordered `[state,frontier]`.  At row
+`i`, emit state and the U/R/L prefix for packet `i`; when row `i+1` is read,
+append its frontier as D to packet `i`.  Put packet `i`'s port at the boundary
+between the two row columns, so both send sites bind the same pipe.  This
+avoids a 16-word frontier RAM and turns the global barrier into the driver's
+natural sweep.  The remaining build risk is physical placement of the
+two-sided send sites, not the BFS algorithm.
+
+This is direct physical evidence for the large-factor interpretation of the
+competitor scores, rather than proof that the competitors use the same
+design.

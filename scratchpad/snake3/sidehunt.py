@@ -95,7 +95,7 @@ def main():
           % (len(hits), DRAWS, LIMIT, time.time() - t0), flush=True)
     print("side histogram:", sorted(hist.items())[:12], flush=True)
     json.dump([{"side": h[0], "w": h[1], "h": h[2], "cap": h[3], "params": h[4]}
-               for h in sorted(hits)], open(OUT + "/side%d.json" % LIMIT, "w"),
+               for h in sorted(hits, key=lambda h: h[:4])], open(OUT + "/side%d.json" % LIMIT, "w"),
               indent=1)
 
 

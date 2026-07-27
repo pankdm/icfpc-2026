@@ -6,7 +6,7 @@ Programming language of choice:
 * Claude Code
 * mad skillz
 
-A lot of problem were solved with AI using "human-in-the-loop" approach. AI generates baseline solution, 
+Most of problems were solved with AI using "human-in-the-loop" approach. AI generates baseline solution, 
 then humans looks and either prompts with fresh ideas or hand optimizes into oblivion.
 
 ## Best submissions

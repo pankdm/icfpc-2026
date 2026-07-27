@@ -323,3 +323,60 @@ input on the LEFT wall, output on the RIGHT
 ```
 so the eastward walk meets `r b, s b, ..., r a, s a` in order and the westward return
 meets `r c, ..., s c` in order.
+
+---
+
+# Session ledger 2026-07-26/27 (carousel BUILT and working — read before touching it)
+
+`solutions/matmul/build_carousel_full.py` -> `matmul-carousel.man`: the composed
+P=1 machine. **7/7 on the wasm oracle, tick-exact with the Rust engine**
+(16^3 = 87,633 both). 52x62, box 3,844 x avg 17,637 = **67.8M** (not submitted:
+a teammate's independent build is live at 45.0M, 63x63 x 11.3k).
+
+Profile (lm --profile): the 16-cell lap is EXACTLY stall-free — every lap cell
+fires once per MAC, rb = 4096-256. 16^3 = 65.5k lap + 14.4k prologue walks
+(~56/k-step: TOP row + real path + riser round trip) + 7.7k seed/emit.
+
+## Hazards burned into this build (violating any of these deadlocks or corrupts)
+
+1. Backticks pair per COLUMN too: two horizontal literals must not share
+   backtick columns (`100` row 4 vs `150` row 9 originally did -> loaderror).
+2. The marker path must not consume BP before the emit loop runs (BP=K is
+   loaded at TOP and spent exactly once).
+3. c-ring standing inventory (=K) must fit on the PUSH side (cf+relay+cr).
+   The pop side can't help: sc blocks -> relay blocks -> circular wait.
+   cf and cr are straight parallel columns (4/5) into the far-south relay.
+4. Multi-feed relays serve values in READING ORDER of the pipe END cells:
+   cf2's end must read before cf's, or the first products overtake the last
+   seed zeros for K>=7 (double-added slots + trailing zeros symptom).
+5. Never run a pipe body alongside a room wall (1-cell gap minimum except the
+   attach cell itself) — spurious attachment silently breaks delivery.
+6. bf2 (marker re-push) must be LONGER than bf minus ~62 ticks (the lap-exit ->
+   marker-s path length), else the ROWMARK overtakes the current row's last
+   re-pushes at the relay. Currently ~100 vs threshold ~64.
+
+## Dead ends measured/analyzed this session (do not redo without a new idea)
+
+- **Accumulator-men (lap 6-10)**: an acc-man holds c_j in B; there is NO
+  register left to detect a flush token (X is 3-way on signed products), and
+  push-every-MAC makes the emitter pop N*M*K values (~30k ticks). Needs a new
+  flush mechanism (e.g. a second tap pipe + geometry) before it is viable.
+- **P=2 worker split**: at row boundaries workers park on dry rings and the
+  trailing worker WALKS INTO the parked one (silent death). Staggered parks at
+  ra/rc survive only if the b-ring is also metered, which makes the controller
+  the bottleneck (2 ops/MAC > workers' rate). Needs a real barrier design.
+- **P=2 on the unified man**: impossible — two men on one prologue+lap track
+  serialize k-steps (the holder swap mid-laps corrupts a).
+- b-relay shuttle forwards 1 value/8 ticks -> P>=2 runs the b-ring at/over
+  its throughput limit; any hiccup collapses worker spacing (death).
+- Tiered small b-ring (latency 440 -> ~40 for M*K<=~35) is worth only ~1.3k
+  avg (-2M-ish) for +2-3 box rows and a seeder branch. Marginal.
+
+## Where the remaining juice is (in order)
+
+1. Prologue trim 56 -> ~40/k-step (~-4.5k on 16^3, ~-0.7k avg): column jenga
+   on TOP/real rows; the K-reload (r Kr, s Kf, b) and the `100` literal set
+   the width. Safe but only ~-5M.
+2. The flush mechanism for acc-men (see above) — THE structural win:
+   lap 10 at P=1 = ~11.5k avg, and it removes the holder ring entirely.
+3. A real P=2 barrier (gate ring with pre-loaded GO tokens?) on top of 2.

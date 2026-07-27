@@ -357,7 +357,7 @@ def build():
     b.relay(24, BOT + 3)
     # hot feed bf@3: up col 2, across row -38 (above the A serp), down col 34,
     # under the room into the relay top (28,20).
-    b.pipeC([(BF, -1), (BF, -2), (2, -2), (2, -22), (46, -22), (46, 18),
+    b.pipeC([(BF, -1), (BF, -2), (2, -2), (2, -21), (46, -21), (46, 18),
              (28, 18), (28, 19)], "S")
     # bf2 (seed/marker feed, bottom@19): padded west zigzag (rows 19..33,
     # cols 15..18) so the ROWMARK cannot overtake the hot feed

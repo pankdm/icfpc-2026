@@ -98,8 +98,8 @@ def build(frontiers=None, states=None):
 
     merge_y = 20
     stage_y = (34, 46, 58, 70)
-    parent_y = 82
-    next_y = 96
+    parent_y = (82, 93, 104, 115)
+    next_y = 126
     if frontiers is None:
         frontiers = [(lane % 8) + 1 for lane in range(LANES)]
     if states is None:
@@ -145,17 +145,29 @@ def build(frontiers=None, states=None):
                 (lane_x + 5, dest_y - 1),
             ])
 
-        # Persistent parent summary for the closure probe. It forwards all
-        # five words, accumulating only the four TAKE values in B.
-        parent_ops = ["@"]
-        for _ in range(4):
+        # Four serial parent accumulators. Band i forwards earlier TAKEs,
+        # updates only its own persistent word in B, then forwards the rest of
+        # [U,R,L,D,state] unchanged.
+        for direction, y in enumerate(parent_y):
+            parent_ops = ["@"] + ["r", "s"] * direction
             parent_ops += ["r", "s", "|", "M"]
-        parent_ops += ["r", "s"]
-        lane_loop_room(p, lane_x, parent_y, 11, parent_ops)
+            parent_ops += ["r", "s"] * (4 - direction)
+            lane_loop_room(p, lane_x, y, 8, parent_ops)
+
+        # D stage -> U parent accumulator.
         p.pipe([
             (lane_x + 2, stage_y[3] + 9),
-            (lane_x + 2, parent_y - 1),
+            (lane_x + 2, parent_y[0] - 1),
         ])
+        for direction in range(3):
+            y = parent_y[direction]
+            dest_y = parent_y[direction + 1]
+            p.pipe([
+                (lane_x + 2, y + 8),
+                (lane_x + 2, y + 9),
+                (lane_x + 5, y + 9),
+                (lane_x + 5, dest_y - 1),
+            ])
 
         # NEXT consumes U/R/L/D, then returns [state, frontier].
         next_ops = ["@", "0", "M"]
@@ -164,7 +176,7 @@ def build(frontiers=None, states=None):
         next_ops += ["r", "s", "W", "s"]
         lane_loop_room(p, lane_x, next_y, 12, next_ops)
         p.pipe([
-            (lane_x + 2, parent_y + 11),
+            (lane_x + 2, parent_y[3] + 8),
             (lane_x + 2, next_y - 1),
         ])
 
@@ -180,7 +192,7 @@ def build(frontiers=None, states=None):
 
 
 def reference(frontiers, states, limit=100):
-    parents = [0] * LANES
+    parents = [[0] * LANES for _ in range(4)]
     for _ in range(limit):
         next_frontiers = []
         next_states = []
@@ -193,10 +205,10 @@ def reference(frontiers, states, limit=100):
             ]
             remaining = states[lane]
             nxt = 0
-            for candidate in candidates:
+            for direction, candidate in enumerate(candidates):
                 take = remaining & candidate
                 remaining ^= take
-                parents[lane] |= take
+                parents[direction][lane] |= take
                 nxt |= take
             next_states.append(remaining)
             next_frontiers.append(nxt)
@@ -259,24 +271,29 @@ def main():
             frontiers[:],
             states[:],
         )
-        parent_runners = sorted(
-            (
-                runner
-                for runner in snapshot["runners"]
-                if runner["pos"][1] in range(parent_y + 1, parent_y + 10)
-            ),
-            key=lambda runner: runner["pos"][0],
-        )
-        assert len(parent_runners) == LANES, len(parent_runners)
-        for lane, runner in enumerate(parent_runners):
-            assert runner["b"] == expected_parents[lane], (
-                case_index,
-                lane,
-                runner,
-                expected_parents,
-                expected_states,
-                snapshot,
+        for direction, y in enumerate(parent_y):
+            parent_runners = sorted(
+                (
+                    runner
+                    for runner in snapshot["runners"]
+                    if runner["pos"][1] in range(y + 1, y + 7)
+                ),
+                key=lambda runner: runner["pos"][0],
             )
+            assert len(parent_runners) == LANES, (
+                direction,
+                len(parent_runners),
+            )
+            for lane, runner in enumerate(parent_runners):
+                assert runner["b"] == expected_parents[direction][lane], (
+                    case_index,
+                    direction,
+                    lane,
+                    runner,
+                    expected_parents,
+                    expected_states,
+                    snapshot,
+                )
 
     print(f"PASS persistent closed 16-row wavefront ({len(cases)} seeds)")
     print("footprint:", last_program.footprint())

@@ -281,9 +281,22 @@ single packet.
 The architectural unknowns are now outside the BFS core:
 
 1. construct the sixteen OPEN words and goal frontier from the input raster;
-2. replace each probe parent summary with the proven canonical four-word ring;
+2. expose the stored parent words to reconstruction;
 3. stop on target discovery and run parent-guided reconstruction;
 4. connect the existing display/output protocol.
+
+The parent-summary placeholder has been removed.  Four serial 7×8 accumulator
+bands per row now store the complete U/R/L/D parent planes.  Each band forwards
+the five-word stream unchanged and ORs only its own TAKE into persistent B.
+This expands the closed core from 149×110 to 149×140, which is still the same
+149² scoring box.  All four direction planes match the reference across the
+four asymmetric multi-layer seeds.
+
+This is an important layout rule in its own right: when width already drives
+the square, spend unused height on the simplest correct state representation.
+The four accumulator bands use 64 men instead of sixteen elegant four-word
+rings, but they currently cost zero score and make reconstruction state
+explicit.  Compress them only after setup/display pushes height beyond 149.
 
 This is direct physical evidence for the large-factor interpretation of the
 competitor scores, rather than proof that the competitors use the same

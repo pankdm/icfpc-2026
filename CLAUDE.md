@@ -257,7 +257,26 @@ Everything together is 736 -> ~667 rows, box 444,889, **1.21x**. Not worth a rew
 that matters is the WRAP row (289 of 688), and op rows average 20 ops over a 101-column span
 inside a 387-column room.
 
+### Brackets is at BOTH fixpoints — stop optimising it (2026-07-27)
+
+15x15, box 225, 86.2% density, server 97,719 at 26/26, 1.8x off the leader. Two independent
+exhaustion proofs, so its remaining gap is an ALGORITHM difference, not something our tooling
+can find:
+
+- **Geometry:** `tools/shrink.py` runs every pass (dce, stairfold, reroute, fold, polish,
+  roomfit) to a fixpoint and accepts nothing.
+- **Ops:** `tools/peep.py` (superoptimizer, depth-4 table of 61,988 behaviours over a 917-state
+  verification set) reports `NOTHING TO DO — every register-op run is already as short as the
+  superoptimizer can prove`. Of 64 instruction cells only **9** are even rewritable: 4 are
+  refused as multi-heading, 4 as branching, 22 as non-register.
+
+That last line is the general lesson about `peep.py`: on a hand-folded champion almost every
+cell is a turn, a branch or a pipe op, so the superoptimizer has nearly nothing to chew on.
+It is worth a 3-minute run on any problem where the box is finished and the gap is pure ticks,
+but do not expect it to rescue a dense grid.
+
 ### Measured dead ends (2026-07-26) — do not repeat these
+
 
 
 - **Boustrophedon band widening / replica ports (LLM, Snake, Pathfinder).** 870 of LLM's 994

@@ -3,13 +3,14 @@
 
 ARCHITECTURE
 
-  STATE RING   a FIFO ring holding 8 scalars in a fixed canonical order
+  STATE RING   a FIFO ring holding 7 scalars in a fixed canonical order
 
-                   [dy, hy, dx, hx, da, ha, fa, K]
+                   [dP, P, MASK, da, ha, fa, K]
 
-               dy,dx  direction step in board coords      (-1/0/1)
+               P      head GUARD-BIT address = 32*hy + hx  (see WALL TEST)
+               dP     direction step in guard-bit space   (-32/-1/+1/+32)
                da     direction step in DISPLAY ADDRESS   (-16/-1/+1/+16)
-               hy,hx  head row/column                     (0..15)
+               MASK   the constant 528, built once by INIT
                ha     head display address = 16*hy + hx   (0..255)
                fa     fruit display address, or -1        (-1..255)
                K      snake length
@@ -48,21 +49,27 @@ Row count, at CW=53, is 65 (was 76).  What bought them:
   * the DIR dispatch half shares the REPAINT loop's rows -- REPAINT is nine rows
     that touch only LOOPR..REPD+3, DIR's entry/branch/decode only columns < 38 --
     with the emitter's east edge capped so a wrap cannot cross: -6.
-CW cannot go below 53: the body ring is a boustrophedon of the band's free rows
-between FEED_W and BD_IN-1, and BD_IN slides with CW, so CW=52 leaves capacity 55
-and CW<=51 will not build at all.  CW=53 gives capacity 57, enough for K<=56 while
-the spec's "at most 100 rounds per test case" caps a legal game at K~48 (measured:
-grow-48 takes 99 rounds).  CW=55 keeps the champion's capacity 61 (K<=60) at
-box 5776 -- that is solutions/snake/fold6.man, the conservative build.
+WIDTH IS THE BINDER, and CW=48 is this generator's floor -- 40,000 gated samples
+at CW=47 produce no build at all.  Below that the body ring (a boustrophedon of
+the band's free rows between FEED_W and BD_IN-1, with BD_IN sliding with CW)
+cannot reach the 51 cells the worst legal snake needs.  Height has five rows of
+slack at CW=48, which is why every ROW saved here (the merged wall test, the
+one-crossing NO EAT tail, DIR's two arms instead of four) cashed out as WIDTH.
 
   DRIVER       owns the display's ADDR/DATA/SWAP pipes.  Protocol on its single
                incoming pipe:   addr (>=0) then colour     -> write one pixel
                                 -1                         -> commit the frame
                So the controller never has to disambiguate three display pipes.
 
-  WALL TEST    hx' and hy' are each tested with   b ] ] ] ] x  :  BP = v>>4 is
-               0 for 0..15, 1 for 16 and -1 for -1, so `x` (turn on BP's low
-               bit) is an exact in-range/out-of-range branch and needs no B.
+  WALL TEST    ONE test, not two.  The head is carried a second time as
+               P = 32*hy + hx.  A legal P has bit 4 clear (hx <= 15), bits 5..8
+               = hy and nothing above, and every illegal move sets bit 4 or bit
+               9 (hx=16 -> bit 4; hx=-1 -> the low five bits fill; hy=16 -> bit
+               9; hy=-1 -> P goes negative, and every negative P in range has
+               bit 9 set).  So `P' & 528` is zero exactly for a legal move:
+               12 tokens and one `X`, where two `b ] ] ] ] x` range tests on
+               hy'/hx' cost 24 tokens and two branch groups.  `&` leaves B, so
+               P' survives the test for free.
 
   EAT TEST     ha' ^ fa computed as  M(B=ha') r(A=fa) W ~   so B keeps fa; the
                no-eat arm recovers ha' with a second `~` and the eat arm finds
@@ -973,18 +980,16 @@ if __name__ == "__main__":
     # the box, then a full 5/5 grade_fast gate -- an ungraded geometry search is
     # useless here, `branch()`'s tight-arm heuristic makes plenty of smaller boxes
     # that build, bind and are silently WRONG).
-    path = sys.argv[1] if len(sys.argv) > 1 else os.path.join(HERE, "fold14.man")
-    # fold14: 73x73, box 5,329, avgTicks 7,266, local 38,720,514 (fold11 was
-    # 41,550,213).  Found by scratchpad/snake2/search4.py -- coordinate descent
-    # plus random multi-knob jumps over every column knob, gated on the 5 public
-    # cases AND a 53-case stress subset (all four wall deaths, both corners,
-    # grow-50, self-hit).  THE PUBLIC CASES ALONE ARE NOT A GATE: the first
-    # ungated sweep reached 35.9M and failed 78 of 386 fuzz cases, because
-    # spacing D_COLL/D_HY/D_HX too tightly makes the shared death row wrap and
-    # silently mis-pop the ring, and "game over at the wall" only covers one arm.
-    prog, cap, nrows = fit(save_to=path, CW=52, ST_OUT=23, FEED_W=28, LOOPR=39,
-                           ST_X0=19, D_REP=12, HW_RET=48, HW_TICK=37,
-                           HW_SPAWN=31, HW_DIR=36, D_EAT=32, D_NOEAT=23,
-                           DRV_OUT=51, DRVX=4)
+    path = sys.argv[1] if len(sys.argv) > 1 else os.path.join(HERE, "fold18.man")
+    # fold18: 69x64, box 4,761, avgTicks 6,929, local 32,990,873.
+    # CW=48 is this generator's width FLOOR: 40,000 gated samples at CW=47 produce
+    # no build at all.  Height has five rows of slack (64 vs 69), so what binds is
+    # the WIDTH = CW + 21, and CW is bounded below by the body ring's capacity
+    # (>= 51 cells of boustrophedon in the top band) and by the emitter's ability
+    # to fold the controller at all.
+    prog, cap, nrows = fit(save_to=path, CW=48, CY0=8, DRVX=4, DRV_OUT=47,
+                           D_EAT=28, D_HX=10, D_HY=9, D_NOEAT=10, D_REP=3,
+                           FEED_W=24, HW_DIR=32, HW_RET=44, HW_SPAWN=45,
+                           HW_TICK=33, LOOPR=35, ST_IN=21, ST_OUT=20, ST_X0=17)
     print("saved", path)
     print("footprint", prog.footprint(), "body-ring capacity", cap, "ctrl rows", nrows)

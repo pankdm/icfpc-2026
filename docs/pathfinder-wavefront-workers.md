@@ -298,6 +298,43 @@ The four accumulator bands use 64 men instead of sixteen elegant four-word
 rings, but they currently cost zero score and make reconstruction state
 explicit.  Compress them only after setup/display pushes height beyond 149.
 
+### Setup packing and a bounded completion gate
+
+`scratchpad/pathfinder_setup_packer.py` converts the 256 setup wall tokens
+into the same sixteen unsigned OPEN words used by the strip core.  The hot
+loop needs no scratch ring.  With the current row accumulator in B and the
+input wall bit in A, it evaluates:
+
+```text
+r - N + W 1 + M
+```
+
+which is `2*acc + (1-wall)`.  A separate BP=16 acknowledger returns 1 after
+rows 0..14 and 0 after row 15, so the packer changes to coordinate mode before
+it can consume `rx ry` as a seventeenth row.  The 56×38 probe passes all-open,
+all-wall, alternating, and twenty deterministic random boards.
+
+The assignment guarantees every shortest path is at most 64 moves.  The first
+complete backend can therefore run exactly 64 wavefront layers instead of
+routing sixteen activity taps through an already full strip.  Row 15 NEXT
+broadcasts its completed frontier to both the ordinary return pipe and a
+BP=64 countdown worker.  That worker replies only after the last row has
+actually completed, preserving the global barrier; replies 1..1,0 run exactly
+64 layers and then enter reconstruction.
+
+The resulting bounded probe is 151×149 and passes four asymmetric 64-layer
+Rust tests with all 64 parent words intact.  The two-cell width increase is
+the outside reply pipe, not computation, and should be reclaimed when setup,
+display, and reconstruction receive their final shared floorplan.
+
+One failed floorplan is worth recording.  Putting a 149-wide activity room
+immediately below NEXT made the existing y=139 return highway run one cell
+outside that room's top wall.  The loader consequently claimed those return
+pipes as ports of the new room.  A visually blank separator row is not always
+optional: a pipe parallel to a wall at distance one attaches to that room.
+Inspect source/destination room IDs after adding any room beside an existing
+highway, not only after moving the highway itself.
+
 This is direct physical evidence for the large-factor interpretation of the
 competitor scores, rather than proof that the competitors use the same
 design.

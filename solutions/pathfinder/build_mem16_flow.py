@@ -294,7 +294,7 @@ def build(
     code_x=65,
     boustrophedon=True,
     dense=True,
-    frontier_rows=9,
+    frontier_rows=3,
     display_col=None,
     memory_send_col=None,
     driver_x=0,
@@ -303,6 +303,7 @@ def build(
     port_base=20,
     port_percent=42,
     side_apron=False,
+    tight_apron=True,
 ):
     p = lm.Program()
     port_spec = {}
@@ -321,13 +322,15 @@ def build(
         # The display trunk sits to the right of every ring return.  Keeping its
         # controller port there makes the exterior matching planar.
         port_spec["Ds"] = (75 - code_x, "s", 1, 10**9)
+    if tight_apron:
+        port_spec["Ds"] = (75 - code_x, "s", 1, 10**9)
     if dense:
         layout = boustro.lay_cfg_boustrophedon(
             p,
             build_flow(),
             port_spec,
             code_x=code_x,
-            op_slack=op_slack,
+            op_slack=op_slack + (2 if tight_apron else 0),
         )
     else:
         layout = flowgrid.lay_cfg_controller(
@@ -382,7 +385,7 @@ def build(
 
         p.input_room(ports["Ir"][0] - 1, bottom + 12)
         p.pipe([(ports["Ir"][0], bottom + 11), ports["Ir"]])
-        driver_x, driver_y = 80, 20
+        driver_x, driver_y = 135, 20
         _add_driver(
             p,
             ports["Ds"],
@@ -392,6 +395,33 @@ def build(
                 ports["Ds"],
                 (ports["Ds"][0], bottom + 4),
                 (driver_x - 2, bottom + 4),
+                (driver_x - 2, driver_y + 2),
+                (driver_x - 1, driver_y + 2),
+            ],
+        )
+    elif tight_apron:
+        apron_y = bottom + 5
+        state_x = ports["Ss"][0] - 5 + ring_shift
+        frontier_x = ports["Fs"][0] - 5 + ring_shift
+        nb_x = ports["Ns"][0] - 5 + ring_shift
+        _short_ring(p, ports["Ss"], ports["Sr"], state_x, apron_y, 5)
+        _frontier_ring(
+            p, ports["Fs"], ports["Fr"], frontier_x, apron_y, frontier_rows
+        )
+        _short_ring(p, ports["Ns"], ports["Nr"], nb_x, apron_y, 3)
+
+        p.input_room(ports["Ir"][0] - 1, bottom + 12)
+        p.pipe([(ports["Ir"][0], bottom + 11), ports["Ir"]])
+        driver_x, driver_y = 88, 20
+        _add_driver(
+            p,
+            ports["Ds"],
+            driver_x,
+            driver_y,
+            [
+                ports["Ds"],
+                (ports["Ds"][0], bottom + 1),
+                (driver_x - 2, bottom + 1),
                 (driver_x - 2, driver_y + 2),
                 (driver_x - 1, driver_y + 2),
             ],
@@ -422,7 +452,7 @@ if __name__ == "__main__":
     parser.add_argument("--code-x", type=int, default=65)
     parser.add_argument("--no-boustrophedon", action="store_true")
     parser.add_argument("--no-dense", action="store_true")
-    parser.add_argument("--frontier-rows", type=int, default=9)
+    parser.add_argument("--frontier-rows", type=int, default=3)
     parser.add_argument("--display-col", type=int)
     parser.add_argument("--memory-send-col", type=int)
     parser.add_argument("--driver-x", type=int, default=0)
@@ -431,6 +461,9 @@ if __name__ == "__main__":
     parser.add_argument("--port-base", type=int, default=20)
     parser.add_argument("--port-percent", type=int, default=42)
     parser.add_argument("--side-apron", action="store_true")
+    parser.add_argument("--tight-apron", dest="tight_apron", action="store_true")
+    parser.add_argument("--no-tight-apron", dest="tight_apron", action="store_false")
+    parser.set_defaults(tight_apron=True)
     parser.add_argument(
         "--output", default=os.path.join(HERE, "mem16-flow-v1.man")
     )
@@ -448,6 +481,7 @@ if __name__ == "__main__":
         args.port_base,
         args.port_percent,
         args.side_apron,
+        args.tight_apron,
     )
     program.save(args.output)
     print("saved", args.output, "footprint", program.footprint())

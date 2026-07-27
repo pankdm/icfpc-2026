@@ -148,7 +148,7 @@ def lay_cfg_boustrophedon(
 
     max_y = max(y for _, y in cursor.cells)
     wall_y = max_y + 1
-    width = max(opmax, max(cols.values())) + 2 - x0
+    width = max(opmax, max(cols.values()), max(x for x, _ in cursor.cells)) + 2 - x0
     height = wall_y - y0 + 1
     program.room(x0, y0, width, height)
     for (x, y), ch in cursor.cells.items():

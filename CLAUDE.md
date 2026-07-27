@@ -257,6 +257,40 @@ Everything together is 736 -> ~667 rows, box 444,889, **1.21x**. Not worth a rew
 that matters is the WRAP row (289 of 688), and op rows average 20 ops over a 101-column span
 inside a 387-column room.
 
+### LLM: forks are FREE but have nothing to do — the hot loop is a POINTER CHASE (2026-07-27)
+
+Three numbers I quoted earlier were wrong; use these:
+- **Stall is 138.8 ticks per RAM READ**, not ~51 per transaction. 782,821 stall ticks over only
+  **5,638 real receives** on case 0 — the old figure divided by 15,521 SENDS instead of receives.
+- **`node sim/difftest.js` is 62/62**, not 61/61.
+- **Free width is 437 columns, not 38.** x318..355 *and* x356..792 are unused; width does not
+  bind until 793.
+- The dominant stall is the **FRAME-RENDER loop** (4 frames x 256 pixels; the 12 hottest `r`
+  sites each net exactly 256/257 receives = 16x16), NOT guest-instruction fetch.
+
+**The fork itself is free and works.** `solutions/little-little-man/fork-s1.man` and `fork-s2.man`
+(patcher: `scratchpad/llmfork/graft.py`) both grade 14/14 with box AND avgTicks BYTE-IDENTICAL to
+the champion, and `lm --profile` shows Y=1/H=1, so the second man is genuinely alive at zero cost.
+s2 also proves the east strip is usable: room 0's wall moved x=317 -> x=355 with box unchanged.
+See `docs/hidden-capabilities.md` for the reusable zero-cost fork idiom (fork on a `v`->`<` drop
+cell) and the measured 3.0x/9.4x/34.6x latency-hiding curve.
+
+**Why it cannot pay HERE — two independent walls:**
+1. **No channel.** Forked men share only pipes, and room 0 cannot gain a usable one. A new port on
+   the bottom wall at x=318..355 is provably safe (tightest existing site is `r` at (312,196),
+   552 vs 549) — but safe and reachable are the same constraint inverted: a port only far-east men
+   can bind to is a port only far-east men can USE. A port near the real work instantly hijacks
+   existing sends (one at (318,~197) sits ~9 cells from the `s` at (309,196) whose binding is 548).
+   Talking through RAM costs a full round trip — the exact latency being hidden.
+2. **No independent address stream.** The hot loop is a POINTER CHASE. Row 196 is `0` / `s1s` /
+   `rM0` / 157 blanks / `sWsr` — **the value returned by RAM1 IS the address sent to RAM2**, and
+   the two biggest stall sites (312,196) and (312,721) at 79,104 ticks each are both downstream of
+   a RAM1 read. A prefetcher cannot form the address. Per the rig, when the consumer must hand the
+   producer the next address the handoff lands on the critical path and two men score **0.90x**.
+
+Ceiling for reference: removing ALL of room 0's `r` stall is **1.71x** (1,892,707 -> 1,109,886),
+score ~1.73e12. Anything beyond needs the 53.89% GLIDE split as well.
+
 ### LLM: THE FOLD LOSES ON LATENCY — box is immovable at the grid level (2026-07-27)
 
 **This supersedes the 4.0x squaring plan below. Do not build it.** The plan was arithmetically

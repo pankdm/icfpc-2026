@@ -100,3 +100,79 @@ placer does not have** — `X`/`d`/`a` are only emitted as loop back-edges today
   `s`es a stale A into the belt and the main man later dies on a wall.
 * The driver's SWAP pipe needs 3 rows above the driver room; at `SOUTH+1` it is
   drawn inside the code room.
+
+
+---
+
+## v3/v4/v5 (2026-07-26): dense placer + delta fetch
+
+Champion: `v5-142x142.man` -- **server 21/21, score 6,283,423,104**
+(submission `8e907387-fe3b-4972-8d32-7e0f3d0ef85b`), from a live 22,459,642,837.
+Sources: `lllm_build5.py` (op stream) + `build3_man.py` (placer + floorplan).
+
+    cd s4 && python3 solutions/little-little-little-man/build3_man.py \
+        solutions/little-little-little-man/v5-142x142.man --stream lllm_build5 \
+        --gw 142 --drv-h 12 --drv-entry 4 --drv-gap 14 --drv-swap-tail 3 \
+        --cell-legs 5 --cell-h 26 --state-relay 16 \
+        --pinp 2 --pcin 8 --pcout 18 --pcmd 31 --psout 64 --psin 69
+
+| | v2b | v3 | v4 | v5 |
+|---|---|---|---|---|
+| emitted ops | 4,589 | 4,589 | 4,716 | 4,475 |
+| code rows | 160 | 109 | 104 | 99 |
+| box | 48,841 | 24,025 | 21,316 | 20,164 |
+| oracle avgTicks | 543,041 | 420,929 | 287,586 | 285,128 |
+| local score | 26.52B | 10.11B | 6.13B | 5.75B |
+| **server** | 29.31B | **11.12B** | **6.70B** | **6.28B** |
+
+### What changed
+
+1. **`build3_man.py` replaces `lllm_layout.py`.**  Nearest-pipe Voronoi bands
+   instead of home-band + excursions (a pipe op costs zero extra rows instead of
+   three), one-row alternating newlines, and loop back-edges on depth-indexed
+   rail columns west of the op area (entry <=1 row, the `d`/`X` tail 2).
+2. **Delta fetch** (`lllm_build4.py`).  See the commit; the enabling trick is
+   that `sc` does not touch A, so `BPLOOP{rc sc}` leaves the last value read in
+   A and a count of `((delta-1) mod N)+1` is both the right rotation and a legal
+   (>=1) trip count.
+3. **One static render** (`lllm_build5.py`): render at the TOP of the round.
+
+### Measured dead ends (v3+)
+
+* **Fanning the six ports out from a twelve-column cluster** to their real
+  targets gives a better box (21,316 at the time) and costs **5.5x in ticks**
+  (543k -> 2.98M): the state ring holds only twenty values, so it is
+  LATENCY-bound, and the fan-out made it 230 cells long.  Every component must
+  sit directly below its own port.  The cells ring is not affected -- it holds
+  256 values in ~294 cells and is throughput-bound.
+* **Splitting the cold ports east/west** (cold `r` at one end, cold `s` at the
+  other) halves the cold-op newline tax, but it is geometrically impossible: a
+  planar fan-out needs the targets in the same left-to-right order as the ports,
+  and that always separates a belt's two pipes.
+* **Widening the `ri` band** by putting INP east of CIN saves ~9k ticks and
+  costs ~10% of the box.  Net worse, twice (v2 and v4 streams).
+* **Unrolling the fetch loop** to amortise its ~12-tick rail walk over u
+  rotations: the split needs `count = u*q + r` with `q,r >= 1`, so any
+  `count <= u` has to borrow a full extra revolution (rotations are mod N).
+  `delta = +1` (walk east) has `count = 1`, which pushes the average rotation
+  count 128 -> 192 and eats the whole saving.
+* **Adding `|` (124) to the character hash**, so the left/right border cells
+  could go through the ordinary interior decode and `mid_row` become one uniform
+  loop: no two-stage hash `((asc*m1)>>s1*m2)>>s2 & 15` exists that separates it
+  (`scratchpad/lllm_hash.py`, exhaustive over digit-product multipliers).
+  `+` and `-` are ambiguous by position anyway, so the top/bottom border rows
+  would still need their own loop.
+* **`cell-h 24`** (cells belt 254 cells) fails `around the block`: the ring must
+  hold all W*H = 256 values.
+* **`--drv-dy 3`** puts the driver's SWAP bulge inside the code room and fails
+  every case; its three rows above the driver room are load-bearing.
+
+### Where the ticks are now (285k, from the VM's 172k ops)
+
+`step` 53%, `fill` 32%, `fetch` 10% by VM op count -- but by real ticks the
+fetch loop is ~27%, because its three-op body pays a ~12-tick rail walk on every
+one of the ~6,000 rotations a case does.  The next order of magnitude is still
+the one the v2 agent named: a **dispatch tree on the cell class**, so `step`
+stops evaluating all twelve cases branchlessly.  `build3_man.py` already has the
+`X`/`d` rail machinery; what it lacks is a general (non-back-edge) branch, which
+is what `s4/tools/railflow.py` provides for a `flowgrid.Flow`.

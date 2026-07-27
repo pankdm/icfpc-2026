@@ -701,9 +701,18 @@ impl World {
 
     // The room-border cell just beyond a pipe's dst end (the forward cell of the end arrowhead).
     fn border_cell_of_pipe_end(&self, p: &Pipe) -> Pt {
+        // The END ARROWHEAD, not the last in-path step -- same defect that broke `U` in
+        // `pipe_flow_dir` (fixed 2026-07-27). They differ whenever a pipe TURNS on its final
+        // cell, and then the extrapolated border cell lands on the wrong side of the room, so
+        // a display's ADDR/DATA/SWAP side is misclassified and the program is REJECTED AT LOAD
+        // with "display pipe bad side". Measured: the live snake champion (69x69, server 48.0e6,
+        // 17/17) failed to load in 0 of 5 cases here while the oracle passed 5/5.
         let end = *p.path.last().unwrap();
-        let prev = if p.path.len() >= 2 { p.path[p.path.len() - 2] } else { end };
-        let d = (end.0 - prev.0, end.1 - prev.1);
+        let d = arrow_dir(self.at(end.0, end.1));
+        let d = if d == (0, 0) {
+            let prev = if p.path.len() >= 2 { p.path[p.path.len() - 2] } else { end };
+            (end.0 - prev.0, end.1 - prev.1)
+        } else { d };
         (end.0 + d.0, end.1 + d.1)
     }
 

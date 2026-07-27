@@ -22,19 +22,16 @@ BUILDER = os.environ.get("SNAKE_BUILDER", REPO + "/solutions/snake/build_fold6.p
 JOBS = int(os.environ.get("SNAKE_JOBS", "4"))
 LM = REPO + "/interp/target/release/lm"
 
-BASE = dict(CW=52, CXL=0, ST_OUT=23, ST_IN=24, ST_X0=19, ST_W=9, FEED_W=28,
-            LOOPR=39, LOOPX=41, LOOPM=40, D_REP=12, D_COLL=2, D_HY=5, D_HX=8,
-            HW_RET=48, HW_TICK=37, HW_SPAWN=31, HW_DIR=36, D_EAT=32, D_NOEAT=23,
-            DRV_OUT=51, DRVX=4, DEC1=20, DEC2=25, REPD=44, BD_OUT=36, BD_IN=42,
-            IN_IN=48, WRAP_E=50, CY0=8)
+BASE = {'CW': 52, 'CXL': 0, 'ST_OUT': 23, 'ST_IN': 24, 'ST_X0': 19, 'ST_W': 9, 'FEED_W': 26, 'LOOPR': 39, 'LOOPX': 41, 'LOOPM': 40, 'D_REP': 12, 'D_COLL': 2, 'D_HY': 5, 'D_HX': 8, 'HW_RET': 48, 'HW_TICK': 37, 'HW_SPAWN': 31, 'HW_DIR': 36, 'D_EAT': 32, 'D_NOEAT': 23, 'DRV_OUT': 51, 'DRVX': 4, 'DEC1': 20, 'DEC2': 25, 'REPD': 44, 'BD_OUT': 36, 'BD_IN': 42, 'IN_IN': 46, 'WRAP_E': 50, 'CY0': 8}
 LSHIFT = ['D_COLL', 'D_HY', 'D_HX', 'D_REP']
 SHIFT = ['LOOPR', 'HW_RET', 'HW_TICK', 'HW_SPAWN', 'HW_DIR', 'D_EAT', 'D_NOEAT',
          'DRV_OUT', 'LOOPX', 'LOOPM', 'REPD', 'BD_OUT', 'BD_IN', 'IN_IN', 'WRAP_E']
-JITTER = {'ST_OUT': 3, 'ST_IN': 3, 'ST_X0': 3, 'ST_W': 3, 'FEED_W': 4,
-          'HW_RET': 4, 'HW_TICK': 4, 'HW_SPAWN': 5, 'HW_DIR': 4, 'D_EAT': 4,
-          'D_NOEAT': 4, 'LOOPX': 3, 'LOOPM': 3, 'LOOPR': 3, 'DEC1': 5, 'DEC2': 5,
-          'REPD': 4, 'BD_OUT': 3, 'BD_IN': 3, 'IN_IN': 3, 'DRV_OUT': 3,
-          'WRAP_E': 3, 'DRVX': 2, 'CY0': 1}
+JITTER = {'ST_OUT': 6, 'ST_IN': 6, 'ST_X0': 6, 'ST_W': 6, 'FEED_W': 8,
+          'HW_RET': 8, 'HW_TICK': 8, 'HW_SPAWN': 9, 'HW_DIR': 8, 'D_EAT': 8,
+          'D_NOEAT': 8, 'LOOPX': 6, 'LOOPM': 6, 'LOOPR': 6, 'DEC1': 9, 'DEC2': 9,
+          'REPD': 8, 'BD_OUT': 6, 'BD_IN': 6, 'IN_IN': 6, 'DRV_OUT': 6,
+          'WRAP_E': 6, 'DRVX': 2, 'CY0': 1, 'D_REP': 4, 'D_HX': 3, 'D_HY': 3,
+          'D_COLL': 2}
 
 HARDCAP = 200
 _mod = None

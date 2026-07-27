@@ -51,6 +51,11 @@ def cases():
     cs.append(make_case("loss aliasing head", 32, [15, 31]))   # 31-0 = 31 >= 16
     cs.append(make_case("n=16 max window", 16, [15] + list(range(15))))
     cs.append(make_case("n=48 single lag", 48, [1, 0] + list(range(2, 48))))
+    # tightest overflow race: the bogus seq's slot aliases the slot the sweeper is
+    # parked on, so it IS stored and drained -- `-1`+`H` must win.
+    cs.append(make_case("alias head=1", 20, [0, 17]))
+    cs.append(make_case("alias head=8", 32, list(range(8)) + [24]))
+    cs.append(make_case("alias mid-burst", 40, list(range(15, -1, -1)) + [32]))
     return cs
 
 

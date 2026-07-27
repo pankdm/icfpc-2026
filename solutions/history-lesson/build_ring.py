@@ -674,6 +674,46 @@ def p1_slot_cells(v, width, east):
     return ["`", *d, "`", "s"] if east else ["s", "`", *d[::-1], "`"]
 
 
+def group_a_grid(smalls, west_first, inner):
+    """Lay ring positions 1..len(smalls) into RA rows x nA slots.
+
+    Group A is *position*-ordered, not width-ordered: the preload walk must
+    visit position 1, 2, 3 ... in order, because DISP reaches position p by
+    rotating the ring p-1 times.  So unlike group B this cannot sort by width;
+    a column's slot is simply as wide as the widest entry the walk drops in it.
+    (The encoder can still permute which phrase lands on which *free* position
+    to make those columns pair well -- see LOGICAL_ORDER in
+    build_vertical_p1.py.  Positions that spell a literal byte are pinned.)
+
+    Returns (grid, TA, RA, nA), preferring the fewest rows and then the fewest
+    slots, which reproduces the hand-written 2x8 layout when len(smalls) == 16.
+    """
+    n = len(smalls)
+    best = None
+    for nA in range(1, n + 1):
+        RA = -(-n // nA)
+        grid = [[None] * nA for _ in range(RA)]
+        pos = 0
+        for r in range(RA):
+            westward = (r % 2 == 0) if west_first else (r % 2 == 1)
+            for pj in (range(nA - 1, -1, -1) if westward else range(nA)):
+                if pos < n:
+                    grid[r][pj] = smalls[pos]
+                    pos += 1
+        TA = [
+            max((len(str(grid[r][j])) for r in range(RA)
+                 if grid[r][j] is not None), default=1)
+            for j in range(nA)
+        ]
+        if sum(TA) + 3 * nA > inner:
+            continue
+        if best is None or (RA, nA) < (best[2], best[3]):
+            best = (grid, TA, RA, nA)
+    if best is None:
+        raise ValueError(f"group A ({n} entries) does not fit width {inner + 4}")
+    return best
+
+
 def p1_room(program, x0, y0, width, ring, layout, west_first=False):
     """Template preload room: 2 group-A rows (smalls 1..16, 8 slots) and
     4 group-B rows, all slot-aligned so every column's backtick count is
@@ -687,15 +727,15 @@ def p1_room(program, x0, y0, width, ring, layout, west_first=False):
     its own -- an 8-row room instead of 10.  It is incompatible with
     ``tail_constants``, which needs those rows to carry extra entries."""
     assert not (west_first and layout["tail_pairs"])
-    smalls = [ring[v] for v in range(1, 17)]
-    szA = [len(str(v)) for v in smalls]
-    TA = [max(szA[j], szA[15 - j]) for j in range(8)]
+    n_small = layout.get("n_small", 16)
+    smalls = [ring[v] for v in range(1, n_small + 1)]
+    gridA, TA, RA, nA = group_a_grid(smalls, west_first, width - 4)
     TB = layout["TB"]
     cellgrid = layout["cellgrid"]
     tail_pairs = layout["tail_pairs"]
     nB = len(TB)
     inner = width - 4
-    assert sum(TA) + 3 * 8 <= inner, (sum(TA) + 24, inner)
+    assert sum(TA) + 3 * nA <= inner, (sum(TA) + 3 * nA, inner)
     if tail_pairs:
         assert sum(TB) + 3 * nB <= inner - 2, (
             sum(TB) + 3 * nB,
@@ -737,16 +777,13 @@ def p1_room(program, x0, y0, width, ring, layout, west_first=False):
         # turn column, two pump columns, right wall
         assert turn + 3 <= x0 + width - 1, (turn, width)
 
-    # Group A rows carry ring positions 1..16.  The row walked first holds
-    # 1..8; a westbound row is visited slot 7 first, so its values sit
-    # reversed to keep preload order ascending.
-    if west_first:
-        # slot j now pairs smalls[7-j] with smalls[8+j], so the widths run the
-        # other way too
-        rows_spec = [(smalls[0:8][::-1], TA[::-1], False),
-                     (smalls[8:16], TA[::-1], True)]
-    else:
-        rows_spec = [(smalls[0:8], TA, True), (smalls[8:16][::-1], TA, False)]
+    # Group A rows carry ring positions 1..n_small in preload-walk order;
+    # group_a_grid() has already placed them, so each row is just its physical
+    # slot contents plus the direction the walk takes through it.
+    rows_spec = []
+    for r in range(RA):
+        westward = (r % 2 == 0) if west_first else (r % 2 == 1)
+        rows_spec.append((gridA[r], TA, not westward))
     # Group B contains the multi-symbol phrase entries.  In the baseline its
     # last zero is the sentinel observed by DISP after one full rotation.
     for r in range(4):

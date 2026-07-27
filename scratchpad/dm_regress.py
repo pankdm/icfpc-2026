@@ -14,8 +14,8 @@ import subprocess
 import sys
 
 LM = "interp/target/release/lm"
-A = "/tmp/dm.man"                                   # original
-B = "solutions/memory/direct-straight.man"          # straightened
+A = "solutions/memory/direct-straight.man"          # reference champion
+B = sys.argv[2] if len(sys.argv) > 2 else "solutions/memory/direct-straight.man"
 
 
 def model(tokens):

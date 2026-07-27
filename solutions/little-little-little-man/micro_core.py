@@ -29,7 +29,8 @@ from layout import Layout, pipelen          # noqa: E402
 # ──────────────────────────────────────────────────────────────────────────
 # geometry
 # ──────────────────────────────────────────────────────────────────────────
-def geometry(CW=104, CY0=20, CBOT=300):
+def geometry(CW=104, CY0=20, CBOT=300, SPC=None, TPC=None, PPC=None, MEN=2,
+              SPAD=0, TPAD=0, PPAD=0):
     """All the integers autotune may sweep.
 
     Every controller port sits on the TOP wall at row ATT = CY0-1, so `s`/`r`
@@ -37,8 +38,17 @@ def geometry(CW=104, CY0=20, CBOT=300):
     DIFFERENT band rows so each ring's capacity can be dialled independently:
     SCRATCH must be SHORT (a push/pop round trip is on the critical path), the
     PROG ring must hold 32 words, the STATE ring 11.
+
+    SPC/TPC/PPC are the STATE / SCRATCH / PROG port columns, as PERCENTS of CW.
+    Measured 2026-07-26: 97% of all pipe traffic is S (690 ops) and T (429); P,
+    D and I together take 36.  The lane a run of ops needs is the one that must
+    be WIDE, so S and T get the whole left two thirds and P/D/I are crushed into
+    the right margin.  The old fixed 13/39/65 gave S a 26-column window no matter
+    how wide the room was -- which is why widening CW did nothing at all.
     """
-    S_OUT, P_OUT, T_OUT = 13, 39, 65
+    S_OUT = max(7, CW * (22 if SPC is None else SPC) // 100)
+    T_OUT = max(S_OUT + 12, CW * (62 if TPC is None else TPC) // 100)
+    P_OUT = max(T_OUT + 12, CW * (88 if PPC is None else PPC) // 100)
     D_OUT, I_IN = CW - 3, CW - 7
     ATT = CY0 - 1
     g = dict(CX0=0, CY0=CY0, CW=CW, CBOT=CBOT, ATT=ATT)
@@ -47,12 +57,19 @@ def geometry(CW=104, CY0=20, CBOT=300):
     g["IYLO"], g["IYHI"] = CY0 + 1, CBOT - 1
     g["attach_out"] = {"S": S_OUT, "P": P_OUT, "T": T_OUT, "D": D_OUT}
     g["attach_in"] = {"S": S_OUT + 2, "P": P_OUT + 2, "T": T_OUT + 2, "I": I_IN}
-    g["relay_row"] = {"P": 0, "S": ATT - 10, "T": ATT - 6}   # room top row
+    # Ring LAP TIME = pipe cells + relay lap; with n values circulating, the
+    # controller gets one every lap/n ticks -- so a ring that runs nearly EMPTY
+    # pays the whole lap per rotation.  RPAD lifts each relay room further from
+    # the controller (longer pipes, more capacity, slower); the minimum is
+    # ATT - 6, where the room's bottom wall is one row above the turn row.
+    g["relay_row"] = {"P": max(0, ATT - 6 - PPAD), "S": ATT - 6 - SPAD,
+                      "T": ATT - 6 - TPAD}
     g["DX"] = CW + 2
     g["DY"] = 6
     g["DISX"] = g["DX"] + 14
     g["DISY"] = g["DY"] + 4
     g["W"] = g["DISX"] + 18
+    g["MEN"] = MEN
     return g
 
 
@@ -83,14 +100,41 @@ def assert_bindings(g, ops):
 # ──────────────────────────────────────────────────────────────────────────
 # rooms, rings, driver, display
 # ──────────────────────────────────────────────────────────────────────────
-def relay_block(L, x, y):
-    """6-tick relay cycle: > R v / ^ s <  -- receive on any incoming, resend."""
-    L.put(x, y, "@"); L.put(x + 1, y, ">"); L.put(x + 2, y, "R")
-    L.put(x + 3, y, "v")
-    L.put(x + 1, y + 1, "^"); L.put(x + 2, y + 1, "s"); L.put(x + 3, y + 1, "<")
+def relay_block(L, x, y, men=2):
+    """The relay cycle `> R v / ^ s <`, driven by `men` little men at once.
+
+    THIS IS THE TICK BUDGET.  Measured 2026-07-26 on `around the block`: the
+    controller walks ~900 cells per loaded program character, but the case costs
+    ~3000 ticks per character, and the missing two thirds are the controller
+    STALLED on a ring op.  A ring cannot rotate faster than one value per relay
+    lap, and the lap is six cells -- so ONE relay man caps every ring in the
+    machine at one rotation per six ticks, no matter how the grid is folded.
+
+    A room may hold only one `@` (a second is a load error), so the extra men
+    are FORKED: the starter walks east into `Y`, whose right copy is pushed
+    SOUTH and left copy NORTH, and both are steered back onto the single cycle.
+    They enter two cells apart and cannot overtake on a single-file track, so
+    `R` order and `s` order stay identical and the FIFO the ring depends on is
+    preserved -- a stalled man merely backs the queue up behind him.  Each man
+    in flight also holds a value, so ring capacity grows by `men`, not by 1.
+
+        r1        >  >  R  v          x .. x+4, three interior rows
+        r2     @  Y  ^  s  <
+        r3        >  ^
+    """
+    c1, c2, c3, c4, c5 = x, x + 1, x + 2, x + 3, x + 4
+    r1, r2, r3 = y, y + 1, y + 2
+    L.put(c3, r1, ">"); L.put(c4, r1, "R"); L.put(c5, r1, "v")
+    L.put(c3, r2, "^"); L.put(c4, r2, "s"); L.put(c5, r2, "<")
+    if men > 1:
+        L.put(c1, r2, "@"); L.put(c2, r2, "Y")
+        L.put(c2, r1, ">")                       # left copy: north, then east
+        L.put(c2, r3, ">"); L.put(c3, r3, "^")   # right copy: south, east, north
+    else:
+        L.put(c1, r1, "@")
 
 
-def _ring(p, g, lane, L):
+def _ring(p, g, lane, L, men=2):
     """Relay room + the two pipes of one ring.  Returns the ring capacity.
 
     Both pipes attach to the relay's BOTTOM wall, four columns apart, and the
@@ -101,17 +145,17 @@ def _ring(p, g, lane, L):
     OX = g["attach_out"][lane]
     IX = g["attach_in"][lane]
     ry = g["relay_row"][lane]
-    turn = ry + 4
-    p.room(OX - 5, ry, 9, 4)
-    relay_block(L, OX - 4, ry + 1)
+    turn = ry + 5
+    p.room(OX - 5, ry, 9, 5)
+    relay_block(L, OX - 4, ry + 1, men=men)
     fwd = [(OX, ATT), (OX, turn), (OX - 3, turn)]
     bwd = [(IX, turn), (IX, ATT)]
     p.pipe(fwd, end_direction="N")
     p.pipe(bwd)
-    return pipelen(fwd) + 1 + pipelen(bwd)
+    return pipelen(fwd) + men + pipelen(bwd)
 
 
-def build_shell(g):
+def build_shell(g, men=2):
     """Rooms + pipes + relay men + driver + display.  Returns (Layout, caps)."""
     L = Layout()
     p = L.p
@@ -120,7 +164,7 @@ def build_shell(g):
     o, i = g["attach_out"], g["attach_in"]
 
     p.room(0, CY0, CW, CBOT - CY0 + 1)                  # controller
-    caps = {lane: _ring(p, g, lane, L) for lane in ("P", "S", "T")}
+    caps = {lane: _ring(p, g, lane, L, men=g.get("MEN", 2)) for lane in ("P", "S", "T")}
 
     # ---- input: room sits between the I and D ports so neither pipe crosses --
     p.input_room(i["I"] - 1, 0)
@@ -152,6 +196,7 @@ def build_shell(g):
             (DX + 8, DY + 13, "W"), (DX + 8, DY + 14, "s"),
             (DX + 8, DY + 15, "<"), (DX + 3, DY + 15, "^"),
             (DX + 9, DY + 12, "v"), (DX + 9, DY + 19, "<"),
+            (DX + 3, DY + 19, "1"),          # SWAP 1: PRESERVE next + cursor,
             (DX + 2, DY + 19, "s"), (DX + 1, DY + 19, "v"),
             (DX + 1, DY + 21, ">"), (DX + 3, DY + 21, "^"),
             (DX + 8, DY + 11, "N"), (DX + 8, DY + 10, "M"),
@@ -176,6 +221,8 @@ class Emit:
         self.ops = []
         self.wraps = 0
         self.tickcols = set()          # columns already holding a backtick
+        self.res = set()               # (x, y) cells reserved by inline gadgets
+        self.dead = set()              # rows wholly owned by an inline gadget
 
     def at(self, x, y, d="E"):
         self.x, self.y, self.d = x, y, d
@@ -189,26 +236,38 @@ class Emit:
         self._step()
 
     def wrap(self):
+        """Drop to the next LIVE row.  A tight loop owns three rows outright, so
+        the drop may have to fall through two dead ones -- the man glides down
+        the highway-free column and only the landing row gets a turn glyph."""
         self.wraps += 1
         bad = self.forbidden - self.wrapcols
+
+        def blocked(x, y):
+            return self.L.get(x, y) != " " or (x, y) in self.res
+        d = 1
+        while (self.y + d) in self.dead:
+            d += 1
+
+        def ok(x):
+            # the man only LANDS on row y+d; the dead rows in between are merely
+            # fallen through, so they need to be physically empty, not unreserved
+            return (x not in bad and not blocked(x, self.y)
+                    and all(self.L.get(x, self.y + i) == " " for i in range(1, d))
+                    and not blocked(x, self.y + d))
         if self.d == "E":
             x = min(self.x, self.xhi)
-            while x <= self.xhi and (x in bad
-                                     or self.L.get(x, self.y) != " "
-                                     or self.L.get(x, self.y + 1) != " "):
+            while x <= self.xhi and not ok(x):
                 x += 1
             assert x <= self.xhi, "no room to wrap east at row %d" % self.y
         else:
             x = max(self.x, self.xlo)
-            while x >= self.xlo and (x in bad
-                                     or self.L.get(x, self.y) != " "
-                                     or self.L.get(x, self.y + 1) != " "):
+            while x >= self.xlo and not ok(x):
                 x -= 1
             assert x >= self.xlo, "no room to wrap west at row %d" % self.y
         self.L.put(x, self.y, "v")
         nd = "W" if self.d == "E" else "E"
-        self.L.put(x, self.y + 1, "<" if nd == "W" else ">")
-        self.y += 1
+        self.L.put(x, self.y + d, "<" if nd == "W" else ">")
+        self.y += d
         self.d = nd
         self.x = x + (-1 if nd == "W" else 1)
         return self
@@ -217,7 +276,11 @@ class Emit:
         return self.xlo <= x <= self.xhi and x not in self.forbidden
 
     def _free(self, x):
-        return self._ok(x) and self.L.get(x, self.y) == " "
+        return (self._ok(x) and self.L.get(x, self.y) == " "
+                and (x, self.y) not in self.res)
+
+    def blank(self, x, y):
+        return self.L.get(x, y) == " " and (x, y) not in self.res
 
     def _advance_to_free(self):
         while True:

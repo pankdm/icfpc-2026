@@ -89,10 +89,13 @@ def konst_tokens(v):
 
 # ──────────────────────────────────────────────────────────────────────────
 class Rows:
-    def __init__(self, y0):
+    def __init__(self, y0, dead=()):
         self.y = y0
+        self.dead = dead
 
     def take(self, n=1):
+        while self.y in self.dead:
+            self.y += 1
         y = self.y
         self.y += n
         return y
@@ -185,7 +188,7 @@ class Scratch:
 class Asm:
     def __init__(self, L, E, g, hw_cols):
         self.L, self.E, self.g = L, E, g
-        self.R = Rows(g["IYLO"])
+        self.R = Rows(g["IYLO"], E.dead)
         self.hw_free = list(hw_cols)
         self.hw_of = {}
         self.blocks = {}                 # name -> (col, row)
@@ -206,6 +209,33 @@ class Asm:
     # -- highways ----------------------------------------------------------
     def _state(self):
         return (tuple(self.T.q), self.S.head, tuple(self.S.names))
+
+    def align(self, name):
+        """Rotate the rings into the state `name` was first entered with.
+
+        Called from jump() BEFORE the man leaves the row, which is the only
+        moment ops can still be emitted.  This is what lets every block keep
+        whatever ring head it happens to end with instead of paying a `home()`
+        (measured: 35 home() calls, ~350 pipe cells and ~40 of the 193 wraps).
+        Branch arms cannot emit, so a block entered from an arm AND a jump has
+        its state fixed by whichever came first -- the jump then aligns to it.
+        """
+        if name in self.nocheck or name not in self.snap:
+            return
+        q, head, names = self.snap[name]
+        if tuple(self.S.names) != names:
+            return
+        if self.S.head != head:
+            self.S.rot((head - self.S.head) % self.S.n)
+        if tuple(self.T.q) != q:
+            assert sorted(q) == sorted(self.T.q), (
+                "scratch contents differ entering %s: %r vs %r"
+                % (name, self.T.q, list(q)))
+            for _ in range(len(self.T.q)):
+                if tuple(self.T.q) == q:
+                    break
+                self.T.asm.E.seq(["r:%s" % self.T.lane, "s:%s" % self.T.lane])
+                self.T.q.append(self.T.q.pop(0))
 
     def capture(self, name):
         """Record (or check) the symbolic ring/scratch state entering `name`.
@@ -242,7 +272,7 @@ class Asm:
         return self.hw_of[name]
 
     def _blank(self, x, y):
-        return self.L.get(x, y) == " "
+        return self.E.blank(x, y)
 
     def glide(self, col):
         E = self.E
@@ -270,6 +300,7 @@ class Asm:
 
     def jump(self, name):
         """Leave the current row for block `name` via its highway column."""
+        self.align(name)
         col = self.hw(name)
         E = self.E
         d = "E" if col >= E.x else "W"
@@ -358,20 +389,36 @@ class Asm:
         For 'X': up = A<0 (CCW), down = A>0 (CW), straight = A==0.
         """
         E = self.E
+        # A branch ARM cannot emit anything, so the state its three targets are
+        # entered with has to be pinned HERE, where ops are still legal.  Head 0
+        # is the pin; every jump into those blocks then align()s to it.
+        self.S.rot((-self.S.head) % self.S.n)
         self.endblock()
         ytop = max(self.R.y, E.y + 1)
         ymid, ybot = ytop + 1, ytop + 2
         self.R.y = ybot + 1
         # pick a drop column free on rows E.y .. ybot
+        for _ in range(12):
+            step = 1 if E.d == "E" else -1
+            dc = E.x
+            while E.xlo <= dc <= E.xhi:
+                if (E._ok(dc) and E._ok(dc + step)
+                        and all(self._blank(dc, y) for y in range(E.y, ybot + 1))
+                        and all(self._blank(dc + step, y)
+                                for y in (ytop, ymid, ybot))):
+                    break
+                dc += step
+            else:
+                # ran off the end of the row: take a fresh one and try again
+                E.wrap()
+                ytop = max(self.R.y, E.y + 1)
+                ymid, ybot = ytop + 1, ytop + 2
+                self.R.y = ybot + 1
+                continue
+            break
+        else:
+            raise RuntimeError("no drop column for a branch")
         step = 1 if E.d == "E" else -1
-        dc = E.x
-        while True:
-            assert E.xlo <= dc <= E.xhi, "no drop column for a branch"
-            if (E._ok(dc) and E._ok(dc + step)
-                    and all(self._blank(dc, y) for y in range(E.y, ybot + 1))
-                    and all(self._blank(dc + step, y) for y in (ytop, ymid, ybot))):
-                break
-            dc += step
         self.glide(dc)
         self.L.put(dc, E.y, "v")
         self.L.put(dc, ymid, ">" if step > 0 else "<")
@@ -387,6 +434,88 @@ class Asm:
         if straight is not None:
             self.arm(bx + step, ymid, "E" if step > 0 else "W", straight)
         self.R.y = max(self.R.y, ybot + 1)
+
+    # -- inline counted loop ------------------------------------------------
+    def tight(self, ops):
+        """`while BP > 0 { BP--; ops }` in THREE rows, entered and left inline.
+
+        Measured 2026-07-26: the block-structured `loop()` below costs ~190
+        WALKED CELLS per iteration (block entry row, the body's own row, the
+        jump's glide back to a highway column, the loop head's row and its two
+        arms).  A LLLM tick rotates the 32-slot PROG ring twice, so those 190
+        cells were the entire STEP tick budget.  This gadget costs len(ops)+8.
+
+        Two mirrored shapes; which one is legal is decided by the LANES, not by
+        where the man happens to be, because the body row is walked in ONE
+        direction and every pipe op must land inside its own window:
+
+          body runs EAST (lane indices ascending)     body runs WEST
+             <  .  .  .  .  a                            >  .  .  .  .  d
+                            m                            m
+             ^ o2 o1 o0  >                               <  o0 o1 o2  ^
+
+        The entry glyph is `a` for the east shape (heading WEST, CCW is south)
+        and `d` for the west shape (heading EAST, CW is south).  On BP == 0 the
+        man simply walks through it and carries on along the same row, so the
+        loop needs no jump, no highway column and no block.
+        """
+        E = self.E
+        n = len(ops)
+        wide = n + 2
+
+        def cols_for(c0, east):
+            if east:
+                return [c0 + 1 + i for i in range(n)], c0, c0 + n + 1
+            return [c0 + n - i for i in range(n)], c0 + n + 1, c0
+
+        def lanes_ok(cols):
+            for t, x in zip(ops, cols):
+                if ":" in t and not t.startswith("#"):
+                    lo, hi = self.E.win[tuple(t.split(":"))]
+                    if not (lo <= x <= hi):
+                        return False
+            return True
+
+        for _ in range(14):
+            y = E.y
+            if y + 2 > E.g["IYHI"]:
+                raise RuntimeError("no room below row %d for a tight loop" % y)
+            east = E.d == "W"
+            step = -1 if east else 1
+            c0 = E.x - (wide - 1) if east else E.x
+            while E.xlo <= c0 and c0 + wide - 1 <= E.xhi:
+                span = range(c0, c0 + wide)
+                if (all(E._ok(x) for x in span)
+                        and all(self._blank(x, yy) for x in span
+                                for yy in (y, y + 1, y + 2))):
+                    body, entry, turn = cols_for(c0, east)
+                    if lanes_ok(body):
+                        self.glide(entry)
+                        self.L.put(entry, y, "a" if east else "d")
+                        self.L.put(entry, y + 1, "m")
+                        self.L.put(entry, y + 2, ">" if east else "<")
+                        for t, x in zip(ops, body):
+                            if ":" in t and not t.startswith("#"):
+                                o, lane = t.split(":")
+                                E.ops.append((x, y + 2, o, lane))
+                                self.L.put(x, y + 2, o)
+                            else:
+                                self.L.put(x, y + 2, t)
+                        self.L.put(turn, y + 2, "^")
+                        self.L.put(turn, y, "<" if east else ">")
+                        for x in span:
+                            E.res.add((x, y))   # the man GLIDES over these
+                        E.dead.add(y + 1)
+                        E.dead.add(y + 2)
+                        for x in range(E.xlo, E.xhi + 1):
+                            for yy in (y + 1, y + 2):
+                                E.res.add((x, yy))
+                        E.x = entry + (-1 if east else 1)
+                        self.R.y = max(self.R.y, y + 3)
+                        return
+                c0 += step
+            E.wrap()
+        raise RuntimeError("cannot place a tight loop for %r" % (ops,))
 
     # -- counted loop ------------------------------------------------------
     def loop(self, name, body, exit_):

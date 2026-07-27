@@ -28,7 +28,34 @@ WALLS       resolved POSITIONALLY, never by character ('swan dive' has a real '+
 
 DISPLAY     one driver pipe carries the whole protocol:
                 v >= 0  -> DATA v      v == -1 -> SWAP 0      v <= -2 -> ADDR -v-2
-            A frame is 256 DATA + ADDR(man) + DATA 9 + SWAP.
+            A frame is 256 DATA + ADDR(man) + DATA 9 + SWAP.  Only the FIRST
+            frame paints 256 pixels; later frames send the two changed ones.
+
+THE TWO THINGS THAT SET THE COST, both measured 2026-07-26 and both invisible
+from the source:
+
+1. `B SURVIVES A RING ROTATION.`  `r`/`s` clobber A and leave B alone, so a
+   two-operand expression over ring slots needs NO scratch:
+
+       K(16); op("M"); S.get("cw"); S.put(); op("*")     # A = 16 * cw
+
+   the rotations inside `get` walk over A only.  Rewriting ATTEST, NONDIG,
+   TICK3, MFIN, D_PM, D_XOP and friends this way deleted most of the SCRATCH
+   traffic, which was both the tick budget and the row budget: every scratch op
+   sits in a DIFFERENT LANE from the state ring, so an S,T,S sequence is a lane
+   descent and costs a whole row.  247 -> 216 controller rows, 300k -> 289k
+   ticks, and it is why `Scratch` now peaks at 4 instead of 9.
+
+2. `A RING CANNOT ROTATE FASTER THAN ITS RELAY LAP.`  A relay is a six-cell
+   cycle (`> R v / ^ s <` -- four of the six cells are forced turns, so six is
+   the floor for a directed cycle carrying both an `r` and an `s`), so every
+   ring op costs the controller several stalled ticks.  Two thirds of the ticks
+   were the controller waiting.  A second relay man is NOT the fix: a room may
+   hold only one `@`, and forking one with `Y` deadlocks -- walking into a
+   stalled man HALTS BOTH (interp `move_phase`), which a six-cell cycle
+   guarantees within a few laps.  The fix that worked was making the rotations
+   FEWER (point 1) and putting the PROG-ring rotation loops inline
+   (`Asm.tight`, ~10 walked cells per iteration against ~190 for a block loop).
 """
 import os
 import sys
@@ -48,17 +75,82 @@ DYT = 4624                      # nibble[dir] = dy+1
 
 LOAD_SLOTS = ["col", "val", "cw", "vw", "n", "mani", "W", "H", "m4",
                "COLW", "VALW"]
-STEP_SLOTS = ["halted", "k", "x", "y", "dir", "A_lm", "B_lm", "val"]
+STEP_SLOTS = ["halted", "k", "x", "y", "dir", "A_lm", "B_lm", "val",
+               "pa", "pc"]     # pa/pc: the pixel the man is standing on
 
 
-def build(CW=104, CY0=20, CBOT=900, save_to=None, verbose=False):
-    g = mc.geometry(CW=CW, CY0=CY0, CBOT=CBOT)
+def hw_columns(g, win, nhw, bias, pocket=8):
+    """Pick `nhw` HIGHWAY columns out of the interior.
+
+    A highway column is dead to the emitter, so where they go is a real lever:
+    put them where the ops are NOT.  `bias` is the fraction of the interior,
+    measured from the RIGHT edge, inside which highways are packed -- the right
+    margin is the P/D/I lanes, which carry 36 of 1155 pipe ops.
+
+    TWO invariants the allocator must keep, both learned by breaking them:
+      * a branch needs TWO ADJACENT free columns, so highways go down in GROUPS
+        separated by >= 2 free columns -- never one-on one-off;
+      * every lane window must retain a free column, or `_reach` spins forever
+        ("lane I unreachable").  The repair pass at the end guarantees it.
+    """
+    lo, hi = g["IXLO"], g["IXHI"]
+    n = hi - lo + 1
+    span = min(n, max(int(n * bias), 3 * nhw // 2))
+    start = max(lo, hi - span + 1)
+    span = hi - start + 1
+    k = 1
+    while k < 8 and nhw * (2 + k) > span * k:
+        k += 1
+    ngrp = max(1, (nhw + k - 1) // k)
+    pitch = span / float(ngrp)
+    cols = set()
+    for gi in range(ngrp):
+        base = int(start + gi * pitch)
+        for j in range(k):
+            c = base + j
+            if lo < c <= hi and len(cols) < nhw:
+                cols.add(c)
+    c = hi
+    while len(cols) < nhw and c > lo:
+        if c not in cols and (c - 1 in cols or c + 1 in cols):
+            cols.add(c)
+        c -= 1
+    # repair 1: every lane window keeps at least three free columns
+    for (op, lane), (a, b) in win.items():
+        free = [x for x in range(a, b + 1) if x not in cols]
+        x = a
+        while len(free) < 3 and x <= b:
+            if x in cols:
+                cols.discard(x)
+                free.append(x)
+            x += 1
+    # repair 2: every lane keeps ONE CONTIGUOUS POCKET wide enough for an inline
+    # `tight()` loop.  Without it the P lane -- which lives in the highway-dense
+    # right margin -- has no run of free columns at all and the 3-row gadget,
+    # which is where the whole STEP tick budget went, cannot be placed.
+    for lane in set(k[1] for k in win):
+        a1, b1 = win.get(("s", lane), win.get(("r", lane)))
+        a2, b2 = win.get(("r", lane), (a1, b1))
+        a, b = max(a1, a2), min(b1, b2)
+        if b - a + 1 < pocket:
+            a, b = min(a1, a2), max(b1, b2)
+        start = max(a, min(b - pocket + 1, (a + b - pocket) // 2))
+        for x in range(start, min(b, start + pocket - 1) + 1):
+            cols.discard(x)
+    return sorted(cols)
+
+
+def build(CW=124, CY0=20, CBOT=900, save_to=None, verbose=False,
+          NHW=62, HWBIAS=1.0, SPC=None, TPC=None, PPC=None, LAZY=True,
+          POCKET=8, MEN=1, SPAD=6, TPAD=0, PPAD=14):
+    g = mc.geometry(CW=CW, CY0=CY0, CBOT=CBOT, SPC=SPC, TPC=TPC, PPC=PPC, MEN=MEN,
+                    SPAD=SPAD, TPAD=TPAD, PPAD=PPAD)
     win = mc.lane_windows(g)
     L, caps = mc.build_shell(g)
-    freecols = [c for c in range(g["IXLO"], g["IXHI"] + 1) if c % 4 in (0, 1)]
+    hw = hw_columns(g, win, NHW, HWBIAS, POCKET)
+    freecols = [c for c in range(g["IXLO"], g["IXHI"] + 1) if c not in hw]
     wrapcols = {freecols[0], freecols[1], freecols[-1], freecols[-2]}
-    forbidden = ([c for c in range(g["IXLO"], g["IXHI"] + 1) if c % 4 in (2, 3)]
-                 + sorted(wrapcols))
+    forbidden = hw + sorted(wrapcols)
     E = mc.Emit(L, g, win, forbidden, wrapcols=wrapcols)
     A = Asm(L, E, g, [c for c in forbidden if c not in wrapcols])
     S = Ring(A, "S", LOAD_SLOTS)
@@ -66,6 +158,12 @@ def build(CW=104, CY0=20, CBOT=900, save_to=None, verbose=False):
     A.S, A.T = S, T
     K, op = A.konst, A.op
     tok = E.tok
+
+    def HOME():
+        # With LAZY the ring keeps whatever head the block ends on and jump()
+        # aligns it at the join instead; the branch arms then define the state.
+        if not LAZY:
+            A.S.home()
 
     # ═══ LOAD: read W*H characters into the two planes ═══════════════════
     A.loop("LOADHEAD", "LOADBODY", "PADSET")
@@ -83,31 +181,31 @@ def build(CW=104, CY0=20, CBOT=900, save_to=None, verbose=False):
     A.block("DIGIT")
     T.drop("cB"); T.drop("tB")
     S.get("col"); K(8); S.put()
-    S.get("val"); T.pop("tA"); S.put()
-    S.home()
+    T.pop("tA"); op("M"); S.get("val"); op("W"); S.put()
+    HOME()
     A.jump("ATTEST")
     A.endblock()
 
     A.block("NONDIG")
     T.drop("tA"); T.drop("tB")
+    # B SURVIVES A RING ROTATION, so a two-operand expression over ring slots
+    # needs NO scratch at all: set B, then `get`/`put` the other operand -- the
+    # rotations in between clobber A only.  That one idiom is what took this
+    # block from 26 scratch ops to four.
     K(29); op("M")
     T.pop("cB"); op("*")                         # A = 29c
-    T.push("h"); K(6); op("M"); T.pop("h"); op("}")
+    op("M"); op("6"); op("W"); op("}")           # A = 29c >> 6
     T.push("h"); K(15); op("M"); T.pop("h"); op("&")     # A = hash slot
-    T.push("hA"); T.push("hB")
-    K(4); op("M"); T.pop("hA"); op("*"); T.push("shA")
-    K(4); op("M"); T.pop("hB"); op("*"); T.push("shB")
-    S.get("COLW"); T.push("tw"); S.put()
-    T.pop("shA"); op("M"); T.pop("tw"); op("}")
+    op("M"); op("4"); op("*")                    # A = sh = 4h
+    T.push("shB"); op("M")                       # B = sh
+    S.get("COLW"); S.put(); op("}")              # A = COLW >> sh
     T.push("t"); K(15); op("M"); T.pop("t"); op("&")
-    T.push("colv")
-    S.get("VALW"); T.push("tw"); S.put()
-    T.pop("shB"); op("M"); T.pop("tw"); op("}")
+    op("M"); S.get("col"); op("W"); S.put()      # col := colour nibble
+    T.pop("shB"); op("M")
+    S.get("VALW"); S.put(); op("}")
     T.push("t"); K(15); op("M"); T.pop("t"); op("&")
-    T.push("valv")
-    S.get("col"); T.pop("colv"); S.put()
-    S.get("val"); T.pop("valv"); S.put()
-    S.home()
+    op("M"); S.get("val"); op("W"); S.put()
+    HOME()
     A.jump("ATTEST")
     A.endblock()
 
@@ -118,61 +216,45 @@ def build(CW=104, CY0=20, CBOT=900, save_to=None, verbose=False):
     T.push("z"); K(63); op("M"); T.pop("z"); op("}")
     op("M"); op("1"); op("+")                    # A = 1 + (-1|0)  -> 1 iff '@'
     T.push("is")
-    S.get("col"); T.push("cv"); S.put()
-    S.get("val"); T.push("vv"); S.put()
-    K(16); op("M"); S.get("cw"); op("*")         # A = 16*cw
-    T.push("t"); T.pop("cv"); op("M"); T.pop("t"); op("+")
-    S.put()
-    K(16); op("M"); S.get("vw"); op("*")
-    T.push("t"); T.pop("vv"); op("M"); T.pop("t"); op("+")
-    S.put()
-    S.get("n"); T.push("n1")
-    op("M"); op("1"); op("+")                    # A = n+1
-    T.push("np")
-    S.put()
-    T.pop("is"); op("M"); T.pop("n1"); op("*")   # A = is * n
+    K(16); op("M"); S.get("cw"); S.put(); op("*")     # A = 16*cw
+    op("M"); S.get("col"); S.put(); op("+")           # A = 16cw + col
+    op("M"); S.get("cw"); op("W"); S.put()
+    K(16); op("M"); S.get("vw"); S.put(); op("*")
+    op("M"); S.get("val"); S.put(); op("+")
+    op("M"); S.get("vw"); op("W"); S.put()
+    S.get("n"); op("M"); op("1"); op("+"); S.put()    # n := n+1, A = n+1, B = n
+    T.pop("is"); op("*")                              # A = is * n
     op("M"); S.get("mani"); op("+"); S.put()
-    S.get("W"); T.push("w"); S.put()
-    T.pop("w"); op("M"); T.pop("np"); op("%")    # A = (n+1) % W
-    T.push("re")
-    S.home()
-    T.pop("re")
+    S.get("n"); S.put(); op("M")                      # B = n+1
+    S.get("W"); S.put(); op("W"); op("%")             # A = (n+1) % W
+    op("M"); HOME(); op("W")
     A.branch("X", up="HALTBLK", down="LOADHEAD", straight="ROWEND")
 
     A.block("ROWEND")
-    K(64); T.push("c64")
-    S.get("W"); T.push("w"); S.put()
-    T.pop("w"); op("M"); op("4"); op("*"); op("M")
-    T.pop("c64"); op("-")                        # A = 64 - 4W
-    T.push("shA"); T.push("shB")
-    T.pop("shA"); op("M")
+    S.get("W"); S.put(); op("M"); op("4"); op("*"); op("N")
+    T.push("nw"); K(64); op("M"); T.pop("nw"); op("+")   # A = 64 - 4W
+    T.push("shB"); op("M")
     S.get("cw"); op("{"); tok("s:P"); op("0"); S.put()
     T.pop("shB"); op("M")
-    S.get("vw"); op("{"); tok("s:P"); op("0"); S.put()
-    S.home()
+    S.get("vw"); op("{"); tok("s:P"); op("0"); S.put()  # noqa
+    HOME()
     A.jump("LOADHEAD")
     A.endblock()
 
     # ═══ PAD the plane to 16 rows ════════════════════════════════════════
     A.block("PADSET")
-    K(16); T.push("c16")
-    S.get("H"); T.push("h1"); S.put()
-    T.pop("h1"); op("M"); T.pop("c16"); op("-")  # A = 16 - H
+    S.get("H"); S.put(); op("N")
+    T.push("nh"); K(16); op("M"); T.pop("nh"); op("+")   # A = 16 - H
     op("b")
-    S.home()
-    A.jump("PADHEAD")
-    A.endblock()
-
-    A.loop("PADHEAD", "PADBODY", "FIXSET")
-    A.block("PADBODY")
-    op("m"); op("0"); tok("s:P"); tok("s:P")
-    A.jump("PADHEAD")
+    HOME()
+    A.tight(["0", "s:P", "s:P"])
+    A.jump("FIXSET")
     A.endblock()
 
     # ═══ WALL PASS: recolour the room's horizontal walls ═════════════════
     A.block("FIXSET")
     K(16); op("b")
-    S.home()
+    HOME()
     A.jump("FIXHEAD")
     A.endblock()
 
@@ -184,7 +266,7 @@ def build(CW=104, CY0=20, CBOT=900, save_to=None, verbose=False):
     T.push("C1"); T.push("C2"); T.push("C3")
     op("1"); op("M"); T.pop("C1"); op("}")       # A = C>>1
     T.push("s")
-    S.get("m4"); T.push("m4c"); S.put(); S.home()
+    S.get("m4"); S.put(); T.push("m4c"); HOME()
     T.pop("m4c"); op("M")                        # B = 0x4444...
     T.pop("C2"); op("&"); T.push("a")            # a = C & M4
     T.pop("s"); op("&")                          # b = (C>>1) & M4
@@ -210,9 +292,9 @@ def build(CW=104, CY0=20, CBOT=900, save_to=None, verbose=False):
 
     # ═══ hand the ring over to the STEP schema ═══════════════════════════
     A.block("STEPSET")
-    S.get("mani"); T.push("mani"); S.put()
-    S.get("W"); T.push("Wc"); S.put()
-    S.home()
+    S.get("mani"); S.put(); T.push("mani");
+    S.get("W"); S.put(); T.push("Wc");
+    HOME()
     for _ in range(len(LOAD_SLOTS)):
         tok("r:S")
     T.pop("Wc"); op("M")
@@ -226,6 +308,8 @@ def build(CW=104, CY0=20, CBOT=900, save_to=None, verbose=False):
     op("0"); tok("s:S")                          # A_lm
     op("0"); tok("s:S")                          # B_lm
     op("0"); tok("s:S")                          # val
+    op("0"); tok("s:S")                          # pa
+    op("0"); tok("s:S")                          # pc
     S2 = Ring(A, "S", STEP_SLOTS)
     A.S = S = S2
     A.jump("FRAME")
@@ -271,85 +355,91 @@ def build(CW=104, CY0=20, CBOT=900, save_to=None, verbose=False):
 
     A.block("PAINTMAN")
     T.drop("rowc")
-    S.get("x"); T.push("xc"); S.put()
-    S.get("y"); T.push("yc"); S.put()
-    S.home()
-    K(16); op("M"); T.pop("yc"); op("*"); op("M")
-    T.pop("xc"); op("+")                         # A = 16y + x
-    op("M"); op("2"); op("+"); op("N")           # A = -(addr+2)  -> ADDR
-    tok("s:D")
-    op("9"); tok("s:D")                          # the man pixel
-    op("1"); op("N"); tok("s:D")                 # -1 -> SWAP 0
+    A.jump("MANDRAW")
+    A.endblock()
+
+    # ═══ DELTA frame: erase the old man pixel, then redraw ═══════════════
+    # Only TWO pixels ever change between consecutive frames, so a frame is
+    # five sends instead of 258.  This is the whole tick budget: the full
+    # repaint runs exactly once, for the very first frame.
+    A.block("DELTA")
+    S.get("pa"); S.put(); op("M"); op("2"); op("+"); op("N"); tok("s:D")
+    S.get("pc"); S.put(); op("M"); HOME(); op("W"); tok("s:D")
+    A.jump("MANDRAW")
+    A.endblock()
+
+    # ═══ MANDRAW: (re)read the colour under the man, draw him, commit ════
+    A.block("MANDRAW")
+    K(2); op("M"); S.get("y"); S.put(); op("*"); op("b")
+    A.tight(["r:P", "s:P"])
+    tok("r:P"); T.push("C"); tok("s:P")
+    K(2); op("M"); S.get("y"); S.put(); op("*"); op("N")
+    T.push("n2"); K(31); op("M"); T.pop("n2"); op("+")   # A = 31 - 2y
+    op("b")
+    A.tight(["r:P", "s:P"])
+    HOME()
+    A.jump("MFIN")
+    A.endblock()
+
+    A.block("MFIN")
+    K(4); op("M"); S.get("x"); S.put(); op("*"); op("N")
+    T.push("n4"); K(60); op("M"); T.pop("n4"); op("+")   # A = sh = 60 - 4x
+    op("M"); T.pop("C"); op("}")
+    T.push("t"); K(15); op("M"); T.pop("t"); op("&")
+    op("M"); S.get("pc"); op("W"); S.put()       # pc := colour under the man
+    K(16); op("M"); S.get("y"); S.put(); op("*")
+    op("M"); S.get("x"); S.put(); op("+")        # A = 16y + x
+    op("M"); S.get("pa"); op("W"); S.put()       # pa := addr, A = addr
+    op("M"); HOME(); op("W")
+    op("M"); op("2"); op("+"); op("N"); tok("s:D")
+    op("9"); tok("s:D")
+    op("1"); op("N"); tok("s:D")                 # -1 -> SWAP 1 (preserve)
     A.jump("RDK")
     A.endblock()
 
     # ═══ round loop ══════════════════════════════════════════════════════
     A.block("RDK")
-    tok("r:I"); T.push("kv")
-    S.get("k"); T.pop("kv"); S.put()
-    S.home()
+    tok("r:I"); op("M"); S.get("k"); op("W"); S.put()
+    HOME()
     A.jump("STEPLOOP")
     A.endblock()
 
     A.block("STEPLOOP")
-    S.get("halted"); T.push("h"); S.put()
-    S.home()
-    T.pop("h")
-    A.branch("X", up="HALTBLK", down="FRAME", straight="STEPK")
+    S.get("halted"); S.put(); op("M"); HOME(); op("W")
+    A.branch("X", up="HALTBLK", down="DELTA", straight="STEPK")
 
     A.block("STEPK")
-    S.get("k"); T.push("kA"); T.push("kB")
-    op("1"); op("M"); T.pop("kA"); op("-")
-    S.put()
-    S.home()
-    T.pop("kB")
-    A.branch("X", up="HALTBLK", down="TICK", straight="FRAME")
+    S.get("k"); op("M"); op("1"); op("-"); op("N"); S.put()   # k := k-1
+    op("M"); HOME(); op("W")
+    op("M"); op("1"); op("+")                    # A = the OLD k
+    A.branch("X", up="HALTBLK", down="TICK", straight="DELTA")
 
     # ═══ one LLLM tick ═══════════════════════════════════════════════════
     A.block("TICK")
-    S.get("y"); T.push("y1"); T.push("y2"); S.put()
-    S.home()
-    K(2); op("M"); T.pop("y1"); op("*")          # A = 2y
+    K(2); op("M"); S.get("y"); S.put(); op("*")  # A = 2y
     op("b")
-    A.jump("ROT1")
-    A.endblock()
-
-    A.loop("ROT1", "ROT1B", "TICK2")
-    A.block("ROT1B")
-    op("m"); tok("r:P"); tok("s:P")
-    A.jump("ROT1")
-    A.endblock()
-
-    A.block("TICK2")
+    A.tight(["r:P", "s:P"])
     tok("r:P"); T.push("C"); tok("s:P")
     tok("r:P"); T.push("V"); tok("s:P")
-    K(30); T.push("c30")
-    K(2); op("M"); T.pop("y2"); op("*"); op("M")
-    T.pop("c30"); op("-")                        # A = 30 - 2y
+    K(2); op("M"); S.get("y"); S.put(); op("*"); op("N")
+    T.push("n2"); K(30); op("M"); T.pop("n2"); op("+")   # A = 30 - 2y
     op("b")
-    A.jump("ROT2")
-    A.endblock()
-
-    A.loop("ROT2", "ROT2B", "TICK3")
-    A.block("ROT2B")
-    op("m"); tok("r:P"); tok("s:P")
-    A.jump("ROT2")
+    A.tight(["r:P", "s:P"])
+    HOME()
+    A.jump("TICK3")
     A.endblock()
 
     A.block("TICK3")
-    K(60); T.push("c60")
-    S.get("x"); T.push("x1"); S.put()
-    K(4); op("M"); T.pop("x1"); op("*"); op("M")
-    T.pop("c60"); op("-")                        # A = sh = 60 - 4x
-    T.push("sA"); T.push("sB")
-    T.pop("sA"); op("M"); T.pop("C"); op("}")
+    K(4); op("M"); S.get("x"); S.put(); op("*"); op("N")
+    T.push("n4"); K(60); op("M"); T.pop("n4"); op("+")   # A = sh = 60 - 4x
+    T.push("sB"); op("M")
+    T.pop("C"); op("}")
     T.push("t"); K(15); op("M"); T.pop("t"); op("&")
     T.push("cA"); T.push("cB")                   # two copies of the colour
     T.pop("sB"); op("M"); T.pop("V"); op("}")
     T.push("t"); K(15); op("M"); T.pop("t"); op("&")
-    T.push("vv")
-    S.get("val"); T.pop("vv"); S.put()
-    S.home()
+    op("M"); S.get("val"); op("W"); S.put()
+    HOME()
     K(8); op("M"); T.pop("cA"); op("-")          # A = col - 8
     A.branch("X", up="D_LOW", down="D_HIGH", straight="D_DIGIT")
 
@@ -367,48 +457,46 @@ def build(CW=104, CY0=20, CBOT=900, save_to=None, verbose=False):
 
     A.block("D_DIGIT")
     T.drop("cB")
-    S.get("val"); T.push("v"); S.put()
-    S.get("A_lm"); T.pop("v"); S.put()
-    S.home()
+    S.get("val"); S.put(); op("M"); S.get("A_lm"); op("W"); S.put()
+    HOME()
     A.jump("ADVANCE")
     A.endblock()
 
     A.block("D_M")
-    S.get("A_lm"); T.push("a"); S.put()
-    S.get("B_lm"); T.pop("a"); S.put()
-    S.home()
+    S.get("A_lm"); S.put(); op("M"); S.get("B_lm"); op("W"); S.put()
+    HOME()
     A.jump("ADVANCE")
     A.endblock()
 
     A.block("D_PM")
-    S.get("val"); T.push("v"); S.put()
-    S.home()
+    S.get("val"); S.put(); T.push("v");
+    HOME()
     T.pop("v"); op("M"); op("2"); op("*"); op("M")
     op("1"); op("-")                             # A = 1 - 2*val
     T.push("sg")
-    S.get("B_lm"); T.push("b"); S.put()
+    S.get("B_lm"); S.put(); T.push("b");
     T.pop("sg"); op("M"); T.pop("b"); op("*"); op("M")
     S.get("A_lm"); op("+"); S.put()
-    S.home()
+    HOME()
     A.jump("ADVANCE")
     A.endblock()
 
     A.block("D_ARROW")
-    S.get("val"); T.push("vA"); T.push("vB"); S.put()
-    S.home()
+    S.get("val"); S.put(); T.push("vA"); T.push("vB");
+    HOME()
     K(14); op("M"); T.pop("vA"); op("-")         # A = val - 14
     A.branch("X", up="D_DIR", down="D_XOP", straight="D_HALT")
 
     A.block("D_DIR")
     S.get("dir"); T.pop("vB"); S.put()
-    S.home()
+    HOME()
     A.jump("ADVANCE")
     A.endblock()
 
     A.block("D_XOP")
     T.drop("vB")
-    S.get("A_lm"); T.push("a1"); T.push("a2"); S.put()
-    S.home()
+    S.get("A_lm"); S.put(); T.push("a1"); T.push("a2");
+    HOME()
     K(63); op("M"); T.pop("a1"); op("}"); T.push("hi")
     T.pop("a2"); op("N"); T.push("na")
     K(63); op("M"); T.pop("na"); op("}"); T.push("lo")
@@ -418,26 +506,26 @@ def build(CW=104, CY0=20, CBOT=900, save_to=None, verbose=False):
     T.pop("sg"); op("M"); T.pop("d0"); op("+")
     T.push("nd"); K(3); op("M"); T.pop("nd"); op("&")
     S.put()
-    S.home()
+    HOME()
     A.jump("ADVANCE")
     A.endblock()
 
     A.block("D_HALT")
     T.drop("vB")
     S.get("halted"); op("1"); S.put()
-    S.home()
+    HOME()
     A.jump("STEPLOOP")
     A.endblock()
 
     A.block("D_WALL")
     S.get("halted"); op("1"); S.put()
-    S.home()
+    HOME()
     A.jump("STEPLOOP")
     A.endblock()
 
     A.block("ADVANCE")
-    S.get("dir"); T.push("d1"); T.push("d2"); S.put()
-    S.home()
+    S.get("dir"); S.put(); T.push("d1"); T.push("d2");
+    HOME()
     K(4); op("M"); T.pop("d1"); op("*"); T.push("sA")
     K(4); op("M"); T.pop("d2"); op("*"); T.push("sB")
     K(DXT); T.push("tbl")
@@ -452,7 +540,7 @@ def build(CW=104, CY0=20, CBOT=900, save_to=None, verbose=False):
     T.push("dy")
     T.pop("dx"); op("M"); S.get("x"); op("+"); S.put()
     T.pop("dy"); op("M"); S.get("y"); op("+"); S.put()
-    S.home()
+    HOME()
     A.jump("STEPLOOP")
     A.endblock()
 
@@ -467,8 +555,9 @@ def build(CW=104, CY0=20, CBOT=900, save_to=None, verbose=False):
     keep = E.forbidden
     E.forbidden = {A.hw("LOADHEAD")}
     y0 = A.R.take()
-    L.put(1, y0, "@")
-    E.at(2, y0, "E")
+    mx = min(c for c in freecols if c + 1 in freecols)
+    L.put(mx, y0, "@")
+    E.at(mx + 1, y0, "E")
     op("0"); tok("s:S")                          # col
     op("0"); tok("s:S")                          # val
     op("0"); tok("s:S")                          # cw
@@ -512,11 +601,11 @@ def build(CW=104, CY0=20, CBOT=900, save_to=None, verbose=False):
     return p, A, caps, used
 
 
-def autobuild(CW=104, CY0=20, save_to=None, verbose=False):
+def autobuild(CW=124, CY0=20, save_to=None, verbose=False, **kw):
     """Build once to learn the row count, then again with the room trimmed."""
-    _, _, _, rows = build(CW=CW, CY0=CY0, CBOT=2000)
+    _, _, _, rows = build(CW=CW, CY0=CY0, CBOT=2000, **kw)
     return build(CW=CW, CY0=CY0, CBOT=CY0 + 1 + rows,
-                 save_to=save_to, verbose=verbose)
+                 save_to=save_to, verbose=verbose, **kw)
 
 
 if __name__ == "__main__":

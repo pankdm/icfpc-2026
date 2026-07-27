@@ -540,6 +540,10 @@ def build(save_to=None, CY0=8, CBOT=85, CW=55, CXL=0,
     #   3    .  .  .  .  >  >  .  s  v        A>=0 arms merge -> ADDR send
     #   4    ^  .  .  .  .  s  r  .  <        read colour -> DATA send
     #
+    # snake3 round 2: the whole east lobe slides one more column west (X ix+4 ->
+    # ix+3), taking ADDR ix+7 -> ix+6 and DATA ix+4 -> ix+3 with it, and the SWAP
+    # send moves ix+2 -> ix+1 so nothing ties.  Margins: SWAP s(1,0) 6 vs 8,
+    # DATA s(4,4) 3 vs 4/5, ADDR s(5,3) 4 vs 5/7.  Lap 18 -> 16 cells.
     # snake3: the ADDR leg was two columns further east than it had to be.  The
     # driver's lap is on the RELEASE path (controller commit -> driver -> display
     # -> round judged), so every cell off this loop is 1:1 on the period, twice
@@ -552,11 +556,11 @@ def build(save_to=None, CY0=8, CBOT=85, CW=55, CXL=0,
     # SWAP send sits on the top row and cannot simply be mirrored.
     ix, iy = DRV_X + 1, DRV_Y + 1
     for (rx, ry, ch) in [
-            (0, 0, "v"), (2, 0, "s"), (4, 0, "<"),
-            (4, 1, "1"),
-            (0, 2, ">"), (1, 2, "@"), (2, 2, "r"), (4, 2, "X"), (5, 2, "v"),
-            (4, 3, ">"), (5, 3, ">"), (6, 3, "s"), (7, 3, "v"),
-            (0, 4, "^"), (5, 4, "s"), (6, 4, "r"), (7, 4, "<")]:
+            (0, 0, "v"), (1, 0, "s"), (3, 0, "<"),
+            (3, 1, "1"),
+            (0, 2, ">"), (1, 2, "@"), (2, 2, "r"), (3, 2, "X"), (4, 2, "v"),
+            (3, 3, ">"), (4, 3, ">"), (5, 3, "s"), (6, 3, "v"),
+            (0, 4, "^"), (4, 4, "s"), (5, 4, "r"), (6, 4, "<")]:
         L.put(ix + rx, iy + ry, ch)
     # The three outgoing pipes all attach to the driver's BOTTOM wall (row RB+1),
     # so their binding is by column alone: SWAP ix+1, DATA ix+4, ADDR ix+8, and
@@ -570,8 +574,8 @@ def build(save_to=None, CY0=8, CBOT=85, CW=55, CXL=0,
     # cell is read as entering from BELOW -- "display pipe bad side".  Every leg
     # below therefore ends with a straight run in the direction it must enter.
     RB = DRV_Y + 6
-    pipe([(ix + 7, RB + 1), (ix + 7, DIS_Y - 1)])                      # -> ADDR (top)
-    pipe([(ix + 4, RB + 1), (ix + 4, RB + 3), (DIS_X - 2, RB + 3),
+    pipe([(ix + 6, RB + 1), (ix + 6, DIS_Y - 1)])                      # -> ADDR (top)
+    pipe([(ix + 3, RB + 1), (ix + 3, RB + 3), (DIS_X - 2, RB + 3),
           (DIS_X - 2, DIS_Y + 1), (DIS_X - 1, DIS_Y + 1)])             # -> DATA (left)
     pipe([(ix + 1, RB + 1), (ix + 1, RB + 2), (DIS_X - 3, RB + 2),
           (DIS_X - 3, DIS_Y + 19), (DIS_X + 1, DIS_Y + 19),

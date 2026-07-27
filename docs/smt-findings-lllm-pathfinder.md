@@ -354,3 +354,31 @@ Priority for a tick round:
 
 NOT a lever, though it looks like one: the 3-7 "rounds" are INPUT rounds supplied by the
 test case, not internal iterations, so there is no fixed iteration count to early-exit.
+
+### 9b. The 38x40 matmul CHAMPION is also at its floor (and why this needed re-checking)
+
+Sections 8 and 9 optimized `b53230d6` and `e55c808d`, both **42x42 / box 1764** — neither is
+the champion. The live best is **38x40 / box 1600** (`live-final-38x40`, oracle 7/7,
+17,695,314). It was never swept, because until the corner-pipe fix
+(`interp/src/lib.rs`, an arrow pointing into a room corner is not a pipe start) the Rust
+engine rejected it at load and `grade_fast` scored it **0/7** — so smtplace's baseline gate
+failed instantly and any sweep aimed at it would have reported nothing. A fidelity gap in
+the fast engine silently redirects optimization onto the wrong file.
+
+Re-run against the real champion, the verdict is the same:
+
+| pass | result |
+|---|---|
+| `smtplace` | 12 SAT models at M=37/38/39, **all 12 `pipe 2/5/9 unroutable`**, then **UNSAT at 40** |
+| `fold` | 0 row folds, 0 column folds |
+| `roomfit` | "no room has a free margin" |
+
+Same signature as 42x42: Z3 fits the 9 rooms into a smaller envelope, the 12 pipes cannot be
+threaded, and the certificate lands at the current box. Consistent with section 9's
+explanation — the box is a near-square packing of rooms plus a FIXED quantity of
+length-padding serpentine, and pipe length is capacity AND latency, so it cannot be
+compressed. matmul is done at 38x40 / 1600.
+
+**Process lesson:** identify the champion by SCORE (or by `submissions.py --download`, which
+returns the best submitted program) BEFORE sweeping, and verify the fast engine can load it.
+Two full sweeps here went into a build that was 10% worse than the live one.

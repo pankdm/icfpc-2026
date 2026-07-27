@@ -62,6 +62,10 @@ def loader_ok(program):
     return "loaderror" not in got.stdout
 
 
+BELTS = 9
+SCALAR_BELTS = 4
+
+
 def evaluate(cols, floor):
     """(faults, box, pipelen, w, h, cw, ch) or None when it will not build."""
     if len(set(cols.values())) != len(cols):
@@ -74,6 +78,7 @@ def evaluate(cols, floor):
     spec = {n: (cols[n], stateflow.DEFAULT_PORTS[n][1]) for n in PORTS}
     try:
         program, layout = build_rail.build(
+            belts=BELTS, scalar_belts=SCALAR_BELTS,
             verify=False, ports=spec, floor=shape,
             queue_rows=qrows, queue_right_off=qright)
     except Exception:
@@ -125,8 +130,12 @@ def main():
     ap.add_argument("--out", default=None)
     ap.add_argument("--floor-only", action="store_true")
     ap.add_argument("--port-prob", type=float, default=0.55)
+    ap.add_argument("--belts", type=int, default=9)
+    ap.add_argument("--scalar-belts", type=int, default=4)
     args = ap.parse_args()
 
+    global BELTS, SCALAR_BELTS
+    BELTS, SCALAR_BELTS = args.belts, args.scalar_belts
     cols, floor = dict(BASE_PORTS), dict(BASE_FLOOR)
     if args.start:
         blob = json.load(open(args.start))

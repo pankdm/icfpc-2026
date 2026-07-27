@@ -891,7 +891,11 @@ def fit(save_to=None, **kw):
 
 
 if __name__ == "__main__":
-    path = sys.argv[1] if len(sys.argv) > 1 else os.path.join(HERE, "fold7.man")
-    prog, cap, nrows = fit(save_to=path, CW=53)
+    # CHAMPION = fold9.man, 74x72, box 5476, avgTicks 7884, score 43,172,784.
+    # ST_OUT/FEED_W/LOOPR came out of a graded random search (build-only filter on
+    # the box, then a full 5/5 grade_fast gate -- an ungraded geometry search is
+    # useless here, `branch()`'s tight-arm heuristic makes plenty of smaller boxes
+    # that build, bind and are silently WRONG).
+    prog, cap, nrows = fit(save_to=path, CW=53, ST_OUT=23, FEED_W=27, LOOPR=40)
     print("saved", path)
     print("footprint", prog.footprint(), "body-ring capacity", cap, "ctrl rows", nrows)

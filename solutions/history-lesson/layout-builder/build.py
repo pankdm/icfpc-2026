@@ -712,6 +712,16 @@ DECODER64_ROWS = (
     ">W/WsWX@v",
     "^`46`M<r<",
 )
+FOLDED_DECODER64_ROWS = (
+    ">W/WsWXU",
+    "^`46`M<<",
+    "@r     ^",
+)
+FOLDED_UNPACK128_ROWS = (
+    ">>W/WsWXU",
+    "^`821`M<<",
+    "@r      ^",
+)
 
 
 def compact_alphabet(symbols: list[int]) -> tuple[list[int], dict[str, object]]:
@@ -1025,6 +1035,85 @@ def add_connection_pipes(
     return 6
 
 
+def add_folded_connection_pipes(
+    program: Program,
+    *,
+    feeder_rows: int,
+    dictionary: tuple[int, int, int, int],
+    service_rooms: list[tuple[str, int, int, int, int]],
+) -> int:
+    """Route the six planar connections in the exact 80x80 folded tail.
+
+    The feeder enters down the two-column east lane.  Both dictionary-ring
+    legs use the two-column west lane.  The two rows between the combined
+    room and the codecs carry the remaining three connections without a
+    crossing.
+    """
+    room_by_name = {
+        name: (x, y, width, height)
+        for name, x, y, width, height in service_rooms
+    }
+    dictionary_x, dictionary_y, dictionary_width, _ = dictionary
+    combined_x, combined_y, combined_width, combined_height = (
+        room_by_name["combined_dispatcher"]
+    )
+    decoder_x, decoder_y, decoder_width, _ = room_by_name["decoder64"]
+    unpack_x, unpack_y, _, _ = room_by_name["unpack"]
+    output_x, output_y, _, _ = room_by_name["output"]
+
+    routing_top = combined_y + combined_height
+    routing_bottom = decoder_y - 1
+    assert routing_bottom == routing_top + 1
+
+    # Feeder -> folded base-64 decoder, down the east edge and one cell west.
+    program.pipe(
+        [
+            (79, feeder_rows + 2),
+            (79, routing_bottom),
+            (decoder_x + decoder_width - 2, routing_bottom),
+        ],
+        end_direction="S",
+    )
+
+    # Decoder -> combined dispatcher, straight through the two routing rows.
+    program.pipe([
+        (decoder_x + 5, routing_bottom),
+        (decoder_x + 5, routing_top),
+    ])
+
+    # Combined dispatcher -> folded /128 unpacker.
+    program.pipe([
+        (unpack_x + 9, routing_top),
+        (unpack_x + 9, routing_bottom),
+    ])
+
+    # Unpacker -> output.  Rise into the upper routing row, cross west, then
+    # turn down into the output room.
+    program.pipe(
+        [
+            (unpack_x + 5, routing_bottom),
+            (unpack_x + 5, routing_top),
+            (output_x + 1, routing_top),
+            (output_x + 1, routing_bottom),
+        ],
+        end_direction="S",
+    )
+
+    # The two dictionary-ring legs are two-cell horizontal pipes in the west
+    # lane.  Keeping them adjacent makes their attachment order explicit.
+    ring_forward_y = combined_y + 3
+    ring_return_y = combined_y + 4
+    program.pipe([
+        (dictionary_x + dictionary_width, ring_forward_y),
+        (combined_x - 1, ring_forward_y),
+    ])
+    program.pipe([
+        (combined_x - 1, ring_return_y),
+        (dictionary_x + dictionary_width, ring_return_y),
+    ])
+    return 6
+
+
 def build(
     feeder_width: int = DEFAULT_FEEDER_WIDTH,
     dictionary_width: int = DEFAULT_DICTIONARY_WIDTH,
@@ -1039,15 +1128,10 @@ def build(
         raise ValueError("feeder width must be at least 8")
     if dictionary_width > feeder_width:
         raise ValueError("dictionary width cannot exceed feeder width")
-    if fold_tail and connect_pipes:
-        raise ValueError(
-            "folded-tail pipe routing is not implemented yet; "
-            "build the geometry prototype without --connect-pipes"
-        )
-    if use_compact_alphabet and connect_pipes:
+    if use_compact_alphabet and connect_pipes and not fold_tail:
         raise ValueError(
             "compact-alphabet decoder is not implemented yet; "
-            "build the geometry prototype without --connect-pipes"
+            "use it with --fold-tail or omit --connect-pipes"
         )
     if not MIN_DICTIONARY_WORDS <= dictionary_words <= MAX_DICTIONARY_WORDS:
         raise ValueError(
@@ -1167,7 +1251,7 @@ def build(
                 unpadded_dictionary_height - 1
             ),
         )
-        if connect_pipes
+        if connect_pipes and not fold_tail
         else 0
     )
     _, dictionary_height = place_dictionary(
@@ -1202,10 +1286,10 @@ def build(
                 "--dictionary-words 52 --compact-alphabet"
             )
         LOGGER.info("placing folded service rooms in the dictionary strip")
-        # Keep x=55..58 and rows tail_y+10..11 open as routing lanes.  The
-        # arithmetic unmapper and compact dispatcher will share the large
-        # upper-right room, eliminating their old inter-room pipe.
-        combined_x = 59
+        # Two columns on each side and two rows below remain routing lanes.
+        # The folded codecs leave enough width for the output room in the
+        # bottom strip.
+        combined_x = 57
         combined_y = tail_y
         combined_width, combined_height = vertical.base.paste_room(
             program,
@@ -1213,7 +1297,7 @@ def build(
             combined_y,
             ("@H",),
             w=21,
-            h=10,
+            h=9,
         )
         service_rooms.append(
             (
@@ -1225,13 +1309,13 @@ def build(
             )
         )
         for name, x, y, rows in [
-            ("decoder64", 55, tail_y + 12, DECODER64_ROWS),
-            ("unpack", 66, tail_y + 12, vertical.base.UNPACK_ROWS),
+            ("unpack", 58, tail_y + 11, FOLDED_UNPACK128_ROWS),
+            ("decoder64", 70, tail_y + 11, FOLDED_DECODER64_ROWS),
         ]:
             width, height = vertical.base.paste_room(program, x, y, rows)
             service_rooms.append((name, x, y, width, height))
         output_x = 55
-        output_y = tail_y
+        output_y = tail_y + 11
         program.output_room(output_x, output_y)
         service_rooms.append(("output", output_x, output_y, 3, 3))
         service_y = tail_y
@@ -1276,18 +1360,22 @@ def build(
     pipe_count = 0
     if connect_pipes:
         LOGGER.info("routing six functional connection pipes")
-        pipe_count = add_connection_pipes(
-            program,
-            feeder_width=feeder_width,
-            feeder_rows=feeder_rows,
-            dictionary=(
+        pipe_builder = (
+            add_folded_connection_pipes if fold_tail else add_connection_pipes
+        )
+        pipe_kwargs = {
+            "feeder_rows": feeder_rows,
+            "dictionary": (
                 dictionary_x,
                 tail_y,
                 dictionary_width,
                 dictionary_height,
             ),
-            service_rooms=service_rooms,
-        )
+            "service_rooms": service_rooms,
+        }
+        if not fold_tail:
+            pipe_kwargs["feeder_width"] = feeder_width
+        pipe_count = pipe_builder(program, **pipe_kwargs)
         dictionary_bottom = tail_y + dictionary_height - 1
         max_layout_y = program.bounds()[3]
         if max_layout_y > dictionary_bottom:

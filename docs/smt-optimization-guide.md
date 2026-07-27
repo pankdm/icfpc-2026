@@ -223,6 +223,68 @@ A folded pipe keeps its length exactly, so capacity and latency are untouched an
 `tools/equiv.py`-PROVABLE — it can be accepted with no grading at all. This one addition
 unblocks rigid placement on every problem in the table above.
 
+### RESOLVED, AND IT UNBLOCKED NOTHING — the real blocker is COLUMN-VORONOI BINDING
+
+Folded routing landed (`tools/router.py` §3c, `be429ed`; `place.py` already had its own
+`_route_len`/`_pad`). Measured 2026-07-27 on the three named targets: **no problem's box moved.**
+
+| target | baseline | best floorplan found | why it stops |
+|---|---|---|---|
+| LLLM | 142x141, box 20164 | 142x136 (free), 142x141 (exact) — **box 20164 either way** | room 0 is **142 wide**, and the grid is 142 wide. `max(w,h)^2` is already at its floor; the height the placer buys is worth exactly zero. |
+| Grade Book | 47x64, box 4096 | 4096 in free/min/exact | height floor 58+2+4 = 64, see below |
+| LLM | 356x793, box 628849 | 628849 | tail is a fixed-length pipe CHAIN, see below |
+
+**Widening `place.py::_pad`'s fold window changed nothing**: gradebook, 798 tries/seed 7, old
+window (2..len-4) vs new (1..len-2) gives byte-identical results — exact 2 valid, min 19, free 15,
+best box 4096, same failure histograms. The comment in `_pad` that credited the widening with
+`2/60 -> 20/60` was wrong and has been corrected.
+
+**Most `pipe N unroutable` failures are NOT length failures.** They persist with `--pipe-len free`,
+where there is no length target at all (gradebook free: 74 for pipe 9, 43 for pipe 3, …; LLM tail
+lifted 1 row: `pipe 5 unroutable` in free/min/exact alike). They are occupancy and attachment
+failures. Length padding was never the binding constraint.
+
+**What actually binds: `r`/`s` resolution.** Both big controllers put EVERY port on ONE wall of
+the big room, and each pipe's ops form a narrow COLUMN band spanning nearly the room's full
+height — so binding is a pure column Voronoi and the port set cannot leave that wall:
+
+    gradebook room0 39x58, 12 ports all on y=57, 66 ops:
+      's'->pipe 1: x[8,8]    y[18,56]      'r'->pipe 7:  x[2,5]   y[1,44]
+      's'->pipe 2: x[9,10]   y[14,50]      'r'->pipe 8:  x[7,11]  y[15,55]
+      ...                                  ...
+    LLM room0 318x742, 12 ports all on y=741, 2362 ops:
+      's'->pipe 1: x[119,206] y[1,735]  (1381 ops)   'r'->pipe 10: x[150,203] y[3,735]
+
+The decisive experiment: gradebook's satellites stacked in the right margin is a **47x58, box
+3364 (-17.9%)** floorplan, and it **ROUTES COMPLETELY** — `route_all(pipe_len='exact')` returns
+`bad=None` with every pipe at its exact original length `[48,2,2,2,2,2,38,2,2,2,2,2]`, the two
+long ones padded by the folder. `build()` then rejects it with **`nearest-pipe resolution
+changed`**. Every op band spans the full height, so no row-ordering of right-wall ports can
+reproduce a column partition. It is not a near miss; it is structurally impossible.
+
+Two geometric floors that follow, both proven rather than searched:
+
+* **Grade Book h=64 is exact.** A 2-cell pipe must be a STRAIGHT 2-cell stub out of the source
+  wall (`interp/src/lib.rs`: cells[0] is a pipe start only if `cells[0] - arrow_dir(cells[0])` is
+  a room border, so the first step is the wall normal; only the LAST cell may bend). For the five
+  satellite->room0 pipes that forces the satellite's top wall to y=60, and four satellites are 4
+  tall => 58+2+4 = 64. Side-wall variants that reach y=58 force `left_edge = qx_out+2` and
+  `left_edge = qx_in+1` simultaneously, i.e. `qx_in = qx_out+1`, which no satellite's port pair
+  satisfies (block 4 needs 9, has 11) and which moving the port would re-bind.
+* **LLM's 51-row tail is a pipe chain, not a slab.** room0(y=741) --len 9--> block3 (7x8)
+  --len 2--> block24 (15x38). Block 24 cannot go beside room 0 (room 0 owns x 0..317 for all
+  y<742) so its top is >= 742 and its bottom >= 779: the absolute rigid floor is ~790 vs 793,
+  **1.03x**, not the 1.14x this guide previously implied. Pulling the whole tail up even ONE row
+  fails as `pipe 5 unroutable` in free mode (the 18x18 display collides), so the 1.03x is a
+  ceiling nobody can reach cheaply.
+
+**Practical rule.** Before running any placer, print the op bands
+(`base_resolution` grouped by (op, pipe) with x/y extents). If each pipe's ops are a column band
+spanning the room's height, the ports are welded to one wall and rigid placement can only
+translate the satellites along that wall — the box will not move, whatever the router can do.
+Folded routing is still worth having (it is what let the 3364 floorplan route at exact length at
+all, which is how we could prove the blocker is binding); it is just not the lever.
+
 **Ports can already move**: `place.py` takes `--pin-attach` to pin them (so they are free by
 default), and the plan JSON carries `attach:[[[sx,sy],[dx,dy]]..]`. Moving a port is what makes
 a reflow possible in the first place — but it re-binds every op inside its new radius, silently.

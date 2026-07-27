@@ -80,7 +80,10 @@ def br_exit(rect):
         col(lane, 38 - DY, tr) + row(38 - DY, 15 - DX, lane)
 
 
-AP_LEAD = row(5, 10 - DX, 11 - DX) + col(10 - DX, 2, 5) + row(2, 3, 10 - DX)
+# LANE: the one free column in the gutter between the A band's east edge (col 2) and
+# SPL/AREL/MUL's west wall.  At DX>=8 the old 10-DX lane lands ON the band, so clamp.
+LANE = max(3, 10 - DX)
+AP_LEAD = row(5, LANE, 11 - DX) + col(LANE, 2, 5) + row(2, 3, LANE)
 # BREL's SD attachment is at x = -12, so SD's descent lane must be <= -12 and must
 # clear the A band, whose west edge is 2 - APW + 1.
 SDX = min(-12, 2 - int(os.environ.get('APW', '14')))
@@ -89,8 +92,8 @@ CORR = {
     'IN':  col(13 - DX, 0, 1),
     'AR':  row(26 - DY, 22 - DX, 23 - DX) + col(23 - DX, 26 - DY, 32 - DY) +
            row(32 - DY, 15 - DX, 23 - DX) + col(15 - DX, 32 - DY, 33 - DY),
-    'BF':  row(35 - DY, 10 - DX, 11 - DX) + col(10 - DX, 35 - DY, 43 - DY) +
-           row(43 - DY, -1, 10 - DX) + col(-1, 42 - DY, 43 - DY),
+    'BF':  row(35 - DY, LANE, 11 - DX) + col(LANE, 35 - DY, 43 - DY) +
+           row(43 - DY, -1, LANE) + col(-1, 42 - DY, 43 - DY),
     # SDX: the column SD descends on.  It only has to clear the A band's west edge
     # (x0 - APW + 1), so it follows the band instead of sitting at a fixed -13.
     'SD':  row(11, 28 - DX, 29 - DX) + col(29 - DX, -4, 11) + row(-4, SDX, 29 - DX) +

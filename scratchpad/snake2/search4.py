@@ -20,7 +20,9 @@ SPREAD = {'ST_OUT': 4, 'ST_IN': 4, 'ST_X0': 4, 'ST_W': 4, 'FEED_W': 5,
           'HW_RET': 4, 'HW_TICK': 4, 'HW_SPAWN': 4, 'HW_DIR': 4,
           'D_EAT': 4, 'D_NOEAT': 4, 'LOOPX': 4, 'LOOPM': 4, 'LOOPR': 4,
           'DEC1': 5, 'DEC2': 5, 'REPD': 4, 'BD_OUT': 4, 'BD_IN': 4, 'IN_IN': 4,
-          'DRV_OUT': 4, 'WRAP_E': 4, 'DRVX': 2, 'DISX': 2, 'CY0': 2}
+          'DRV_OUT': 4, 'WRAP_E': 4, 'DRVX': 2, 'DISX': 2, 'CY0': 2,
+          'FEED_T': 4, 'FEED_W2': 4, 'RET_E': 4, 'BD_X0': 4, 'BD_W': 3,
+          'FEED_E': 4}
 RANGE = {'ST_OUT': (14, 32), 'ST_IN': (14, 34), 'ST_X0': (8, 28), 'ST_W': (3, 18),
          'FEED_W': (14, 36), 'D_REP': (6, 22), 'D_COLL': (1, 8), 'D_HX': (3, 14),
          'D_HY': (2, 12), 'HW_RET': (34, 58), 'HW_TICK': (26, 50),
@@ -29,7 +31,9 @@ RANGE = {'ST_OUT': (14, 32), 'ST_IN': (14, 34), 'ST_X0': (8, 28), 'ST_W': (3, 18
          'LOOPR': (24, 48), 'DEC1': (8, 32), 'DEC2': (12, 36), 'REPD': (28, 52),
          'BD_OUT': (22, 46), 'BD_IN': (28, 52), 'IN_IN': (34, 58),
          'DRV_OUT': (36, 60), 'WRAP_E': (36, 60), 'DRVX': (1, 7),
-         'DISX': (8, 18), 'CY0': (5, 12)}
+         'DISX': (8, 18), 'CY0': (5, 12), 'FEED_T': (18, 46),
+         'FEED_W2': (14, 40), 'RET_E': (32, 58), 'BD_X0': (16, 42),
+         'BD_W': (5, 20), 'FEED_E': (24, 50)}
 
 _mod = None
 _gf = None

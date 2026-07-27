@@ -109,18 +109,36 @@ def lay_ring(g, x, y, w, h, glyphs):
 # the build
 # ─────────────────────────────────────────────────────────────────────────────
 
-def build(IW=56):
-    toks = SS.run(3, 4, 20, 19).toks
-    body, tail = toks[:-4], toks[-4:]
-    assert [k for _, k in tail] == [SS.OUT, SS.READ, SS.OP, SS.READ], tail
-    assert all(len(t) == 1 for t, _ in toks), "multi-cell token in the stream"
+def geometry(npre, ntail):
+    """Pick (L, k, IW): L = last serpentine row, k = the branch row (must head
+    EAST, so even), IW = interior width.  The pipe split forces IH ~ 2L, so rows
+    are twice as expensive as columns and the search is worth doing."""
+    best = None
+    for L in range(9, 24, 2):                    # L odd: last row heads east
+        IH = max(2 * L + 1, L + 9)
+        if IH > 2 * L + 2:
+            continue
+        for k in range(0, L - 1, 2):
+            prows, trows = k + 1, L - k - 1
+            if trows < 1:
+                continue
+            T = max(-(-npre // prows), -(-ntail // trows))
+            IW = T + 3
+            w, h = IW + 18, IH + 40
+            cand = (max(w, h) ** 2, L, k, IW, IH)
+            if best is None or cand < best:
+                best = cand
+    return best[1:]
 
-    per_row = IW - 3
-    R = -(-len(body) // per_row)
-    if R % 2 == 0:
-        R += 1                                   # last serpentine row heads EAST
-    IH = 2 * R - 1                               # forced by the pipe split
-    assert R + 8 <= IH, (R, IH)
+
+def build(geom=None):
+    pre, px, py, tail = SS.segments()
+    tail_body, tail_fin = tail[:-4], tail[-4:]
+    assert [k for _, k in tail_fin] == [SS.OUT, SS.READ, SS.OP, SS.READ]
+    assert all(len(t) == 1 for t, _ in pre + px + py + tail)
+    L, k, IW, IH = geom or geometry(len(pre), len(tail_body))
+    BX = IW                                      # branch column
+    MC = BX + max(len(px), len(py)) + 1           # merge column
 
     g = G()
     # ---------------- top band ----------------
@@ -133,7 +151,7 @@ def build(IW=56):
     cells = ring_cells(ex, ey, ECHO_W - 2, 2)
     corners = {(ex, ey): ">", (ex + ECHO_W - 3, ey): "v",
                (ex + ECHO_W - 3, ey + 1): "<", (ex, ey + 1): "^"}
-    gl, k = [], 0
+    gl, kk = [], 0
     for cx, cy in cells:
         if (cx, cy) in corners:
             gl.append(corners[(cx, cy)])
@@ -142,51 +160,82 @@ def build(IW=56):
         elif (cx, cy) == (ex + 2, ey):
             gl.append(".")                       # keeps the R/s parity even
         else:
-            gl.append("R" if k % 2 == 0 else "s")
-            k += 1
-    assert k % 2 == 0
+            gl.append("R" if kk % 2 == 0 else "s")
+            kk += 1
+    assert kk % 2 == 0
     lay_ring(g, ex, ey, ECHO_W - 2, 2, gl)
 
-    # RELAY forwards FOUR values per lap.  It has to clear all four inputs into
-    # ECHO before CTRL's first scratch push can arrive there, or ECHO -- which
-    # only prefers the RELAY pipe when that pipe is READY -- interleaves them.
     rx, ry = rel.ix0, rel.iy0
     lay_ring(g, rx, ry, 7, 2,
              [">", "@", ".", "r", "s", "r", "v", "<", "s", "r", "s", "r", "s", "^"])
 
     # ---------------- CTRL ----------------
-    CT = 6                                       # ECHO band is 4 rows + 2 for the pipes
-    ctrl = g.p.room(0, CT, IW + 2, IH + 2)
+    CT = 6
+    ctrl = g.p.room(0, CT, MC + 3, IH + 2)
     X0, Y0 = ctrl.ix0, ctrl.iy0
 
     def C(ix, iy):
         return (X0 + ix, Y0 + iy)
 
-    g.put(*C(0, 0), ">")                         # return-path merge
-    g.put(*C(1, 0), "@")
-    for j in range(R):
-        if j % 2 == 0:
-            if j:
-                g.put(*C(1, j), ">")
-            g.put(*C(IW - 1, j), "v")
-        else:
-            g.put(*C(IW - 1, j), "<")
-            g.put(*C(1, j), "v")
-    idx = 0
-    for j in range(R):
-        cols = range(2, IW - 1) if j % 2 == 0 else range(IW - 2, 1, -1)
-        for c in cols:
-            g.put(*C(c, j), body[idx][0] if idx < len(body) else ".")
-            idx += 1
+    dirs = {j: ("E" if j % 2 == 0 else "W") for j in range(k + 1)}
+    dirs.update({j: ("W" if (j - k) % 2 == 0 else "E") for j in range(k + 2, L + 1)})
+    assert dirs[k] == "E" and dirs[L] == "E"
 
-    g.put(*C(IW - 1, R), "<")                    # tail: s(Jc) r M r
-    g.row(*C(IW - 2, R), "".join(t[0] for t in tail), -1)
+    g.put(*C(0, 0), ">")                         # return-path merge
+    idx_pre = idx_tail = 0
+    for j, d in sorted(dirs.items()):
+        src = pre if j <= k else tail_body
+        if d == "E":
+            g.put(*C(1, j), "@" if j == 0 else ">")
+            cols = range(2, IW - 1)
+            g.put(*C(IW - 1, j), "." if j == k else "v")
+        else:
+            cols = range(IW - 2, 1, -1)
+            if j != k + 2:                       # k+2 is entered from the block
+                g.put(*C(IW - 1, j), "<")
+            g.put(*C(1, j), "v")
+        for c in cols:
+            if j <= k:
+                ch = pre[idx_pre][0] if idx_pre < len(pre) else "."
+                idx_pre += 1
+            else:
+                ch = tail_body[idx_tail][0] if idx_tail < len(tail_body) else "."
+                idx_tail += 1
+            g.put(*C(c, j), ch)
+    assert idx_pre >= len(pre) and idx_tail >= len(tail_body)
+
+    # ---------------- the octant branch ----------------
+    # `X` turns CW on A > 0 and CCW on A < 0, and the test is odd so it never
+    # falls through.  y-major goes south, x-major north; both rows are free east
+    # of the serpentine, so the block costs columns, not rows.
+    g.put(*C(BX, k), "X")
+    g.put(*C(BX, k - 1), ">")
+    for i, t in enumerate(px):
+        g.put(*C(BX + 1 + i, k - 1), t[0])
+    for c in range(BX + 1 + len(px), MC):
+        g.put(*C(c, k - 1), ".")
+    g.put(*C(MC, k - 1), "v")
+    g.put(*C(MC, k), ".")
+    g.put(*C(BX, k + 1), ">")
+    for i, t in enumerate(py):
+        g.put(*C(BX + 1 + i, k + 1), t[0])
+    for c in range(BX + 1 + len(py), MC):
+        g.put(*C(c, k + 1), ".")
+    g.put(*C(MC, k + 1), "v")                    # merge
+    g.put(*C(MC, k + 2), "<")
+    for c in range(IW - 1, MC):
+        g.put(*C(c, k + 2), ".")
+
+    # ---------------- tail row, ramp ring, return ----------------
+    R = L + 1
+    g.put(*C(IW - 1, R), "<")
+    g.row(*C(IW - 2, R), "".join(t[0] for t in tail_fin), -1)
     g.put(*C(IW - 6, R), "v")
     g.put(*C(IW - 6, R + 1), ">")
     g.put(*C(IW - 5, R + 1), "v")
     rrx, rry = IW - 5, R + 2
     lay_ring(g, *C(rrx, rry), 3, 3, [">", "s", "v", "m", "d", "+", "^", "."])
-    g.put(*C(rrx + 2, rry + 3), "0")             # ramp exit -> sentinel -> home
+    g.put(*C(rrx + 2, rry + 3), "0")
     g.put(*C(rrx + 2, rry + 4), "s")
     g.put(*C(rrx + 2, rry + 5), "<")
     for c in range(1, rrx + 2):
@@ -199,7 +248,7 @@ def build(IW=56):
     # The chain sits LEFT of the display.  Routing is planar only if ADDR leaves
     # ADDRM upward on a column that clears MOD (col 9, MOD is only 7 wide) while
     # CTRL -> MOD runs west one row higher and drops into MOD's TOP wall.
-    DY = CT + IH + 6
+    DY = CT + IH + 5
     mod = g.p.room(0, DY, 7, 8)
     adr = g.p.room(0, DY + 10, 12, 6)
     dat = g.p.room(0, DY + 19, 12, 7)
@@ -245,7 +294,7 @@ def build(IW=56):
       end_direction="N")                                             # CTRL -> ECHO
     P([(CX + 6, ech.y1 + 1), (CX + 6, ech.y1 + 2), (CX + 10, ech.y1 + 2)],
       end_direction="S")                                             # ECHO -> CTRL
-    P([(CX, DY - 4), (CX, DY - 3), (3, DY - 3), (3, DY - 1)])         # CTRL -> MOD
+    P([(CX, DY - 3), (CX, DY - 2), (3, DY - 2), (3, DY - 1)])         # CTRL -> MOD
     P([(mx + 2, mod.y1 + 1), (mx + 2, adr.y0 - 1)])                   # MOD -> ADDRM
     # ADDR and DATA are two branches of the same pixel; the display consumes
     # ADDR before DATA only if they ARRIVE in that order, so the two pipe lengths
@@ -253,6 +302,7 @@ def build(IW=56):
     # and the 8-tick pixel cadence.  ADDR = 19 cells, DATA = 17.
     P([(ax + 8, adr.y0 - 1), (ax + 8, DY - 2), (disp.x0 + 1, DY - 2),
        (disp.x0 + 1, DY - 1)])                                       # ADDR
+
     # ADDRM -> DATAM is deliberately 18 cells long.  The display sees ADDR_k,
     # DATA_k, ADDR_{k+1} in that order only if
     #     LA - 2 <= LX + LD < LA + cadence - 2
@@ -261,14 +311,18 @@ def build(IW=56):
     P([(ax + 8, adr.y1 + 1), (ax + 8, adr.y1 + 2), (ax, adr.y1 + 2),
        (ax, adr.y1 + 3), (ax + 7, adr.y1 + 3)], end_direction="S")
     P([(dat.x1 + 1, dy + 3), (disp.x0 - 1, dy + 3)])                  # DATA
-    P([(dx + 5, dat.y1 + 1), (dx + 5, disp.y1 + 2), (30, disp.y1 + 2),
-       (30, disp.y1 + 1)])                                            # SWAP
-    return g.p, dict(IW=IW, IH=IH, R=R, ops=len(toks))
+    # SWAP only has to arrive no EARLIER than the last DATA, so it is the one
+    # pipe worth shortening: every cell of it is a tick of per-round drain.
+    P([(dx + 5, dat.y1 + 1), (dx + 5, disp.y1 + 2), (disp.x0 + 3, disp.y1 + 2),
+       (disp.x0 + 3, disp.y1 + 1)])                                   # SWAP
+    return g.p, dict(L=L, k=k, IW=IW, IH=IH,
+                     ops=len(pre) + len(px) + len(tail),
+                     cells=len(pre) + len(px) + len(py) + len(tail))
 
 
 if __name__ == "__main__":
-    p, info = build(*(int(a) for a in sys.argv[1:2]))
-    out = os.path.join(HERE, "plotter-swar1.man")
+    p, info = build()
+    out = os.path.join(HERE, "plotter-swar3.man")
     p.save(out)
     print(info, p.footprint())
     print(subprocess.run([sys.executable, os.path.join(HERE, "..", "..", "tools",

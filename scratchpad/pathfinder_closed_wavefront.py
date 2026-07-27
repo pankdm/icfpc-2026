@@ -183,7 +183,7 @@ def build(frontiers=None, states=None):
         next_ops = ["@", "0", "M"]
         for _ in range(4):
             next_ops += ["r", "|", "M"]
-        next_ops += ["r", "s", "W", "S" if lane == LANES - 1 else "s"]
+        next_ops += ["r", "~", "s", "W", "S" if lane == LANES - 1 else "s"]
         lane_loop_room(p, lane_x, next_y, 12, next_ops)
         p.pipe([
             (lane_x + 2, parent_y[3] + 8),
@@ -203,10 +203,10 @@ def build(frontiers=None, states=None):
             # trigger.  The high right-wall attachment stays farther from the
             # preceding ordinary state send than the normal return pipe.
             p.pipe([
-                (lane_x + 7, next_y + 2),
-                (lane_x + 8, next_y + 2),
-                (lane_x + 8, next_y + 4),
-                (lane_x + 7, next_y + 4),
+                (lane_x + 7, next_y + 1),
+                (lane_x + 8, next_y + 1),
+                (lane_x + 8, next_y + 3),
+                (lane_x + 7, next_y + 3),
                 (lane_x + 7, counter_y - 1),
             ])
 
@@ -244,14 +244,16 @@ def reference(frontiers, states, limit=100):
                 frontiers[lane] // 2,
                 frontiers[lane + 1] if lane + 1 < LANES else 0,
             ]
-            remaining = states[lane]
-            nxt = 0
+            old_state = states[lane]
+            hits = []
             for direction, candidate in enumerate(candidates):
-                take = remaining & candidate
-                remaining ^= take
-                parents[direction][lane] |= take
-                nxt |= take
-            next_states.append(remaining)
+                hit = old_state & candidate
+                hits.append(hit)
+                parents[direction][lane] |= hit
+            nxt = 0
+            for hit in hits:
+                nxt |= hit
+            next_states.append(old_state ^ nxt)
             next_frontiers.append(nxt)
         states = next_states
         frontiers = next_frontiers

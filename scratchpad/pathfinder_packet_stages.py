@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Compose the streaming row driver with four real priority stages.
 
-Input packets are ``[state,U,R,L,D]``.  Stage ``i`` forwards earlier TAKE
-values, consumes its adjacent state/candidate pair, emits TAKE plus reduced
+Input packets are ``[state,U,R,L,D]``.  Stage ``i`` forwards earlier HIT
+values, consumes its adjacent state/candidate pair, emits HIT plus the original
 state, then forwards later candidates.  The stream therefore evolves as:
 
     [state,U,R,L,D]
@@ -11,7 +11,9 @@ state, then forwards later candidates.  The stream therefore evolves as:
     [U,R,L,state,D]
     [U,R,L,D,state]
 
-Every stage has exactly fifteen operations and fits a 7×9 room.
+All shortest predecessors are retained.  This makes the physical stage order
+independent of the visible reconstruction tie order; the walker later tests
+U/R/D/L explicitly.  Every stage fits a 7×9 room.
 """
 
 import json
@@ -57,10 +59,10 @@ def packet_stage(p, x, y, index):
     p.put(x + 1, bottom, "^")
 
     ops = ["@"] + ["r", "s"] * index
-    ops += ["r", "M", "r", "&", "s", "W", "~", "s"]
+    ops += ["r", "M", "r", "&", "s", "W", "s"]
     ops += ["r", "s"] * (3 - index)
     slots = perimeter_slots(x, y, h)
-    assert len(ops) == 15 and len(ops) <= len(slots)
+    assert len(ops) == 14 and len(ops) <= len(slots)
     for (cx, cy), op in zip(slots, ops):
         p.put(cx, cy, op)
 
@@ -144,13 +146,10 @@ def main():
             frontiers[lane] // 2,
             frontiers[lane + 1] if lane + 1 < LANES else 0,
         ]
-        remaining = state
-        takes = []
+        hits = []
         for candidate in candidates:
-            take = remaining & candidate
-            remaining ^= take
-            takes.append(take)
-        expected = [*takes, remaining]
+            hits.append(state & candidate)
+        expected = [*hits, state]
         got = pipe_values(pipe)
         assert got == expected, (lane, got, expected, snapshot)
 

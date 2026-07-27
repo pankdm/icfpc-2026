@@ -248,7 +248,15 @@ is closest to the previous packet pipe.  To retain the frontier with only A
 and B after computing both shifts, it reconstructs the original from the
 right-shift quotient and remainder: `frontier = 2*q + remainder`.
 
-All four priority rooms are now identical 7×9 blocks with fifteen operations.
+All four priority rooms are now identical 7×9 blocks.  The first physical
+version shrank UNVIS after each direction, silently making U/R/L/D stage order
+the parent tie-break.  That is not the display's required U/R/D/L order.
+The corrected stages compute every `HIT = original_UNVIS & candidate` without
+shrinking the state; NEXT ORs all hits, then performs the single
+`UNVIS ^= NEXT` update.  Every shortest predecessor is retained, so the
+reconstruction query can impose U/R/D/L directly.  The corrected stage is also
+one operation shorter.
+
 Their packet sequence is:
 
 ```text

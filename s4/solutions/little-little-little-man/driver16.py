@@ -7,14 +7,27 @@ def put(p,x,y,ch):
     assert p.get(x,y)==' ', f"overlap {(x,y)} {p.get(x,y)!r} vs {ch!r}"
     p.put(x,y,ch)
 
-def build_driver(p, dvx, dvy, cmd_attach_from, dispw=16, disph=16, swap_value=1):
+def build_driver(p, dvx, dvy, cmd_attach_from, dispw=16, disph=16, swap_value=1,
+                 room_h=26, entry_off=13, disp_gap=30):
+    """`room_h`/`entry_off`/`disp_gap` shrink the driver block's HEIGHT.
+
+    The stock 26-row room only ever writes rows T, T+2, T+13..T+17 and B, so
+    every row in between is blank glide.  The constraints are: `rENTRY-1` holds
+    the SWAP literal and must sit strictly below `rSWAP=T+2`, and `rPIX=B` must
+    be at least five rows below `rENTRY` (M,1,-,N then the glide).  `disp_gap`
+    is the display's offset below the room top; it must leave a one-cell pipe
+    from the room's bottom wall to the display's top wall.
+    """
     DX = dvx + 6
-    DY = dvy + 30
+    DY = dvy + disp_gap
     D = p.display(DX, DY, dispw+2, disph+2)
-    W,H=16,26
+    W,H=16,room_h
     DR = p.room(dvx, dvy, W, H)
     L,T,Rr,B = DR.ix0,DR.iy0,DR.ix1,DR.iy1
-    cBr=L+8; rENTRY=T+13; rSWAP=T+2; rRET=T; rPIX=B
+    cBr=L+8; rENTRY=T+entry_off; rSWAP=T+2; rRET=T; rPIX=B
+    assert rENTRY - 1 > rSWAP, "SWAP literal row collides with the SWAP row"
+    assert rPIX >= rENTRY + 5, "no room for M,1,-,N below the X"
+    assert DY - 1 >= DR.y1 + 1, "display overlaps the driver room"
     Ca=cBr-1; Cd=L+2; Cswap=cBr+1; railW=L+1; railR=Rr
     put(p,L,rENTRY,"@"); put(p,railW,rENTRY,">")
     put(p,cBr-1,rENTRY,"r"); put(p,cBr,rENTRY,"X")

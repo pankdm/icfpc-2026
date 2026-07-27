@@ -482,6 +482,72 @@ def evacuate_line(plan, axis, index, shear=0, pipe_len="exact", slack=None,
     return fail
 
 
+def diagnose_line(plan, axis, index, shear=0, slack=None, margin=8):
+    """Why a line will not evacuate, per pipe, in terms you can act on.
+
+    `pipe N unroutable` hides two completely different situations and the fix differs:
+      * "no route"       — the free space is genuinely severed; only MOVING A BLOCK helps.
+      * "shortest K > N" — a route exists but it is already LONGER than the original, and a
+                           re-route may never shorten a pipe.  Nothing about free area or
+                           fold windows can help; the pipe's endpoints are simply farther
+                           apart in the shrunk box.
+      * "pad failed"     — a shorter route exists but the slack cannot be absorbed nearby;
+                           this one IS worth more --slack or a different shear.
+    """
+    ax = _axis_i(axis)
+    px = 1 - ax
+    x0, y0, x1, y1 = grid_bbox(plan.rows)
+    lo, hi = (y0, y1) if ax else (x0, x1)
+    plo, phi = (x0, x1) if ax else (y0, y1)
+    delta = [0, 0]
+    delta[ax], delta[px] = -1, shear
+    offs = [((b.ox0 + delta[0], b.oy0 + delta[1]) if _side(plan, bi, ax, index) > 0
+             else (b.ox0, b.oy0)) for bi, b in enumerate(plan.blocks)]
+    layout = (tuple(offs), tuple((p.src_off, p.dst_off) for p in plan.pipes))
+    new_len = (hi - lo + 1) - 1
+    pneed = phi - plo + 1 + (1 if shear else 0)
+    pmax = max(pneed, new_len) if slack is None else pneed + slack
+    plo2 = plo + min(0, shear)
+    bnd = [0, 0, 0, 0]
+    bnd[ax], bnd[ax + 2] = lo, lo + new_len - 1
+    bnd[px], bnd[px + 2] = plo2, plo2 + pmax - 1
+    rb = tuple(bnd)
+
+    occ = plan.occupancy(offs)
+    core = plan.bound(offs, 0)
+    taken = set()
+    movers = []
+    for p in plan.pipes:
+        src, dst = plan.ends(layout, p)
+        r = plan._reuse(p, src, dst, occ, taken, rb)
+        if r is None:
+            movers.append(p.idx)
+        else:
+            taken |= set(r[0])
+    out = []
+    for pi in movers:
+        p = plan.pipes[pi]
+        src, dst = plan.ends(layout, p)
+        r = plan._route_one(src, dst, occ, taken, 2, None, rb, core, lambda c: True)
+        if r is None:
+            out.append((pi, p.length, None, "no route — the free space is severed"))
+            continue
+        got = len(r[0])
+        if got > p.length:
+            out.append((pi, p.length, got,
+                        "shortest route is LONGER than the original; a re-route may never "
+                        "shorten a pipe (length is capacity AND latency)"))
+        elif (p.length - got) % 2:
+            out.append((pi, p.length, got, "odd slack — parity forbids this length"))
+        else:
+            pad = plan._pad(r[0], dst, p.length, occ, taken, src, rb,
+                            lambda c: True, "exact")
+            out.append((pi, p.length, got,
+                        "ok in isolation (fails only against the other pipes)"
+                        if pad else "pad failed — not enough FREE area beside the route"))
+    return movers, out
+
+
 # ═══════════════════════════════════════════════════════════════ driver / CLI
 
 
@@ -568,6 +634,8 @@ def main():
                     help="how far the NON-binding axis may grow (default: free, up to "
                          "the new binding side)")
     ap.add_argument("--margin", type=int, default=8)
+    ap.add_argument("--why", action="store_true",
+                    help="explain, per pipe, why a line will not evacuate")
     ap.add_argument("--no-engine", action="store_true",
                     help="skip the Rust-engine re-parse gate (NOT recommended)")
     ap.add_argument("-o", "--out", default=None)
@@ -612,8 +680,21 @@ def main():
 
     plan = P.Plan(args.man)
     ax = args.axis or binding_axis(plan.rows)
+    if args.why:
+        lines = ([args.line] if args.line is not None else
+                 [r.index for r in scan_lines(plan, ax)
+                  if r.verdict in ("candidate", "shearable")])
+        for ln in lines:
+            for sh in shear_modes:
+                movers, diag = diagnose_line(plan, ax, ln, shear=sh, slack=args.slack,
+                                             margin=args.margin)
+                print(f"{ax} {ln} shear {sh:+d}: {len(movers)} pipes must move")
+                for pi, need, got, why in diag:
+                    print(f"    pipe {pi}: need {need}, shortest "
+                          f"{got if got is not None else '-'}  {why}")
+        return
     if args.line is None:
-        sys.exit("give --line N (or --scan / --all)")
+        sys.exit("give --line N (or --scan / --all / --why)")
     for sh in shear_modes:
         res = evacuate_line(plan, ax, args.line, shear=sh, pipe_len=args.pipe_len,
                             slack=args.slack, margin=args.margin, allow_grow=False)

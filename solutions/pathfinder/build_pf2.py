@@ -419,6 +419,56 @@ def _tight_state_ring(program, send, recv, drop=3, lift=2):
     ])
 
 
+def _right_frontier_ring(
+    program, send, recv, drop=3, east_row=9, west_row=8,
+    ascend_x=96, descend_x=90, top=151, relay_x=None,
+):
+    """FRONTIER ring whose capacity pipe runs in the free column band to the RIGHT
+    of the controller instead of in extra rows under it.
+
+    The original `_frontier_ring` pays its ~140 cells of queue capacity as two
+    58-cell horizontal sweeps at rows bottom+13/bottom+14, and those two rows are
+    the whole program's height driver.  The band right of the controller (between
+    the driver's left trunk and the display's right edge) is empty from just below
+    the driver down to the bottom of the memory, so the same length fits there for
+    zero extra height.
+
+    Nesting rule: the ascent column must be RIGHT of the descent column, otherwise
+    the return sweep crosses the outgoing one.
+    """
+    fs, bottom = send
+    fr = recv[0]
+    assert ascend_x > descend_x, (ascend_x, descend_x)
+    assert east_row > west_row >= drop + 4, (east_row, west_row, drop)
+    y0 = bottom + drop                      # relay room top wall
+    # Relay: entry through the BOTTOM wall, exit through the TOP wall and one
+    # short step across to the controller's recv column.
+    # The exit must LEAVE the relay through its top wall in the recv column: a
+    # pipe's source room is the cell BEHIND its first arrow, so an exit that
+    # starts by heading east has no source room at all ("no-pipe" at runtime).
+    x0 = fr - 5 if relay_x is None else relay_x
+    program.room(x0, y0, 7, 4)
+    program.text(x0 + 1, y0 + 1, "@>Rsv")
+    program.put(x0 + 5, y0 + 2, "<")
+    program.put(x0 + 2, y0 + 2, "^")
+    program.pipe([(fr, y0 - 1), recv])
+    # Long leg: controller send port -> east lane -> up the right band -> back
+    # down -> west lane -> the relay's bottom wall.
+    e_y, w_y = bottom + east_row, bottom + west_row
+    pts = [
+        send,
+        (fs, e_y),
+        (ascend_x, e_y),
+        (ascend_x, top),
+        (descend_x, top),
+        (descend_x, w_y),
+        (x0 + 2, w_y),
+        (x0 + 2, y0 + 4),
+    ]
+    program.pipe(pts)
+    return pipelen(pts)
+
+
 def _frontier_ring(
     program, send, recv, x, y, rows=15, left_span=2, right_span=8
 ):
@@ -504,6 +554,7 @@ def build(
     eager_payload=False,
     port_cols=None,
     tight_state_ring=0,
+    right_frontier=0,
 ):
     p = lm.Program()
     flow = build_flow_one_ring(eager_payload) if merge_nb else build_flow()
@@ -629,18 +680,33 @@ def build(
                               drop=tight_state_ring, lift=2)
         else:
             _short_ring(p, ports["Ss"], ports["Sr"], state_x, apron_y, 1)
-        _frontier_ring(
-            p,
-            ports["Fs"],
-            ports["Fr"],
-            frontier_x,
-            apron_y,
-            frontier_rows,
-            left_span=50,
-        )
+        if right_frontier:
+            _right_frontier_ring(
+                p, ports["Fs"], ports["Fr"],
+                top=right_frontier,
+                ascend_x=max(96, layout["width"] + 12),
+                descend_x=max(90, layout["width"] + 6),
+            )
+        else:
+            _frontier_ring(
+                p,
+                ports["Fs"],
+                ports["Fr"],
+                frontier_x,
+                apron_y,
+                frontier_rows,
+                left_span=50,
+            )
         if not merge_nb:
             _short_ring(p, ports["Ns"], ports["Nr"], nb_x, apron_y, 1)
 
+        # With --right-frontier the FRONTIER relay occupies columns [Fr-5, Fr+1]
+        # at rows bottom+3..bottom+6, so Ir must sit at least 3 columns right of
+        # Fr: an input arrow whose BACKWARD neighbour is that relay's wall would
+        # start a second, spurious outgoing pipe from the relay room.
+        if right_frontier:
+            assert ports["Ir"][0] >= ports["Fr"][0] + 3, (
+                ports["Ir"][0], ports["Fr"][0])
         p.input_room(ports["Ir"][0] - 1, bottom + 4)
         p.pipe([(ports["Ir"][0], bottom + 3), ports["Ir"]])
         # Keep the driver's left-side trunk strictly beyond the controller's
@@ -706,6 +772,10 @@ if __name__ == "__main__":
         help="drop (rows below the controller) for the minimal STATE relay; "
              "0 keeps the original _short_ring")
     parser.add_argument(
+        "--right-frontier", type=int, default=0,
+        help="top row of the FRONTIER capacity pipe in the free band right of "
+             "the controller; 0 keeps the original under-controller serpentine")
+    parser.add_argument(
         "--port-cols", default=None,
         help="explicit absolute controller port columns, e.g. "
              "'Cr=12,Hs=15,Ss=32,Sr=35,Fs=49,Fr=52,Ir=80,Ds=81'")
@@ -740,6 +810,7 @@ if __name__ == "__main__":
         args.eager_payload,
         pcols,
         args.tight_state_ring,
+        args.right_frontier,
     )
     program.save(args.output)
     print("saved", args.output, "footprint", program.footprint())

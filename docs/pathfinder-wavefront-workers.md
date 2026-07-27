@@ -646,3 +646,19 @@ serpentine without speculative prefetch or random-access RAM.  It needs a
 measured gadget before integration; merely forking the current controller
 does not work because its B register carries the previous row frontier across
 the split boundary.
+
+The measured gadgets now support that replacement:
+
+- `pathfinder_row_assembler.py` is the tight arithmetic loop.  Four complete
+  packets take 88 ticks on both engines: **22 ticks/row/layer**.
+- `pathfinder_row_assembler_ports.py` proves five independent nearest-input
+  bindings (state, U, self-R, self-L, D) and the exact output packet on both
+  engines.  Its intentionally spacious binding rig settles in 51 ticks.
+- The broadcaster is the already-proven `@rS` relay: one received frontier is
+  delivered atomically to the two neighbours and two self inputs.
+
+This matches the profile that localized 78.1% of all stall to the sixteen lane
+receive cells: the workers were 99.5% idle, so optimizing their arithmetic
+cannot matter.  Replacing the serial feed changes the expected layer issue
+interval from roughly 1,250 ticks to the 22–34 tick assembler/broadcast lap;
+the priority/parent stages then become the next measured bottleneck.

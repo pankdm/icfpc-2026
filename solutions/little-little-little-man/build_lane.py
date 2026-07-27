@@ -265,11 +265,6 @@ def build(CW=165, CY0=20, CBOT=900, save_to=None, verbose=False,
     op("b")
     HOME()
     A.tight(["0", "s:P", "s:P"])
-    A.jump("FIXSET")
-    A.endblock()
-
-    # ═══ WALL PASS: recolour the room's horizontal walls ═════════════════
-    A.block("FIXSET")
     K(16); op("b")
     HOME()
     A.jump("FIXHEAD")
@@ -336,11 +331,6 @@ def build(CW=165, CY0=20, CBOT=900, save_to=None, verbose=False,
         tok("s:S")
     S2 = Ring(A, "S", STEP_SLOTS)
     A.S = S = S2
-    A.jump("FRAME")
-    A.endblock()
-
-    # ═══ FRAME: repaint all 256 pixels, draw the man, commit ═════════════
-    A.block("FRAME")
     K(16); T.push("rowc")
     A.jump("PAINTOUT")
     A.endblock()
@@ -402,10 +392,6 @@ def build(CW=165, CY0=20, CBOT=900, save_to=None, verbose=False,
     op("b")
     A.tight(["r:P", "s:P"])
     HOME()
-    A.jump("MFIN")
-    A.endblock()
-
-    A.block("MFIN")
     K(4); op("M"); S.get("x"); S.put(); op("*"); op("N")
     T.push("n4"); K(60); op("M"); T.pop("n4"); op("+")   # A = sh = 60 - 4x
     op("M"); T.pop("C"); op("}")
@@ -418,11 +404,6 @@ def build(CW=165, CY0=20, CBOT=900, save_to=None, verbose=False,
     op("M"); op("2"); op("+"); op("N"); tok("s:D")
     op("9"); tok("s:D")
     op("1"); op("N"); tok("s:D")                 # -1 -> SWAP 1 (preserve)
-    A.jump("RDK")
-    A.endblock()
-
-    # ═══ round loop ══════════════════════════════════════════════════════
-    A.block("RDK")
     tok("r:I"); op("M"); S.get("k"); op("W"); S.put()
     HOME()
     A.jump("STEPLOOP")
@@ -450,10 +431,6 @@ def build(CW=165, CY0=20, CBOT=900, save_to=None, verbose=False,
     op("b")
     A.tight(["r:P", "s:P"])
     HOME()
-    A.jump("TICK3")
-    A.endblock()
-
-    A.block("TICK3")
     K(4); op("M"); S.get("x"); S.put(); op("*"); op("N")
     T.push("n4"); K(60); op("M"); T.pop("n4"); op("+")   # A = sh = 60 - 4x
     T.push("sB"); op("M")
@@ -469,16 +446,15 @@ def build(CW=165, CY0=20, CBOT=900, save_to=None, verbose=False,
 
     A.block("D_LOW")
     K(3); op("M"); T.pop("cB"); op("-")          # A = col - 3
-    A.branch("X", up="D_SPACE", down="D_WALL", straight="D_ARROW")
+    A.branch("X", up="ADVANCE", down="D_HALT", straight="D_ARROW")
 
     A.block("D_HIGH")
     K(12); op("M"); T.pop("cB"); op("-")         # A = col - 12
     A.branch("X", up="D_PM", down="HALTBLK", straight="D_M")
 
-    A.block("D_SPACE")
-    A.jump("ADVANCE")
-    A.endblock()
-
+    # D_SPACE was an empty block whose only job was to jump to ADVANCE, and
+    # D_WALL was byte-identical to D_HALT.  Both arms now name their real target,
+    # which deletes two block rows and two jumps.
     A.block("D_DIGIT")
     T.drop("cB")
     S.get("val"); S.put(); op("M"); S.get("A_lm"); op("W"); S.put()
@@ -526,12 +502,6 @@ def build(CW=165, CY0=20, CBOT=900, save_to=None, verbose=False,
     A.endblock()
 
     A.block("D_HALT")
-    S.get("halted"); op("1"); S.put()
-    HOME()
-    A.jump("STEPLOOP")
-    A.endblock()
-
-    A.block("D_WALL")
     S.get("halted"); op("1"); S.put()
     HOME()
     A.jump("STEPLOOP")

@@ -540,6 +540,11 @@ def build(save_to=None, CY0=8, CBOT=85, CW=55, CXL=0,
     #   3    .  .  .  .  >  >  .  s  v        A>=0 arms merge -> ADDR send
     #   4    ^  .  .  .  .  s  r  .  <        read colour -> DATA send
     #
+    # snake3 round 3: the westward return climbed at column 0, two cells past the
+    # last op it needed.  `@` is only ever executed once, so it moves to (0,4) and
+    # the climb moves to (1,4)/(1,2); a second `>` at (1,2) is a no-op to the man
+    # already heading east, and the SWAP arm still descends column 0 into (0,2).
+    # Lap 16 -> 14 cells.
     # snake3 round 2: the whole east lobe slides one more column west (X ix+4 ->
     # ix+3), taking ADDR ix+7 -> ix+6 and DATA ix+4 -> ix+3 with it, and the SWAP
     # send moves ix+2 -> ix+1 so nothing ties.  Margins: SWAP s(1,0) 6 vs 8,
@@ -558,9 +563,9 @@ def build(save_to=None, CY0=8, CBOT=85, CW=55, CXL=0,
     for (rx, ry, ch) in [
             (0, 0, "v"), (1, 0, "s"), (3, 0, "<"),
             (3, 1, "1"),
-            (0, 2, ">"), (1, 2, "@"), (2, 2, "r"), (3, 2, "X"), (4, 2, "v"),
+            (0, 2, ">"), (1, 2, ">"), (2, 2, "r"), (3, 2, "X"), (4, 2, "v"),
             (3, 3, ">"), (4, 3, ">"), (5, 3, "s"), (6, 3, "v"),
-            (0, 4, "^"), (4, 4, "s"), (5, 4, "r"), (6, 4, "<")]:
+            (0, 4, "@"), (1, 4, "^"), (4, 4, "s"), (5, 4, "r"), (6, 4, "<")]:
         L.put(ix + rx, iy + ry, ch)
     # The three outgoing pipes all attach to the driver's BOTTOM wall (row RB+1),
     # so their binding is by column alone: SWAP ix+1, DATA ix+4, ADDR ix+8, and

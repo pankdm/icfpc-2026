@@ -264,6 +264,27 @@ zero borders.  The remaining solver work is to replace the final passive
 sinks with persistent UNVIS/parent/NEXT state and feed `[state,frontier]`
 back to the driver.
 
+That feedback loop is now physically closed in
+`pathfinder_closed_wavefront.py`: 149×110 for sixteen rows, including seed/
+return merges, the streaming driver, all four packet stages, persistent
+parent summaries, NEXT, and the return pipes.  Four distinct seed patterns
+match the bitplane reference after 5,000 Rust ticks.
+
+The multi-seed check caught a subtle row-wrap bug that the symmetric first
+seed hid.  After appending the zero D boundary for row 15, the controller must
+also reset B to zero before its next lap; otherwise row 15's frontier becomes
+row 0's U candidate on every layer after the first.  The reset is one `M`
+placed on the driver's existing return corridor.  This is another reason to
+validate stateful gadgets across multiple layers rather than only checking a
+single packet.
+
+The architectural unknowns are now outside the BFS core:
+
+1. construct the sixteen OPEN words and goal frontier from the input raster;
+2. replace each probe parent summary with the proven canonical four-word ring;
+3. stop on target discovery and run parent-guided reconstruction;
+4. connect the existing display/output protocol.
+
 This is direct physical evidence for the large-factor interpretation of the
 competitor scores, rather than proof that the competitors use the same
 design.

@@ -123,6 +123,7 @@ def build(with_sinks=True):
     p.put(last_exit + 1, 1, "0")
     p.put(last_exit + 2, 1, "s")
     p.put(147, 1, "v")
+    p.put(147, 2, "M")
     p.put(147, 14, "<")
     p.put(1, 14, "^")
 

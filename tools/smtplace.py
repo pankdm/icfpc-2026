@@ -18,12 +18,23 @@ The division of labour is strict:
                            the Rust engine grades the result.  smtplace NEVER renders a
                            grid place.py did not bless.
 
-CEGAR: a Z3 model that place.py rejects (unroutable pipe / changed resolution / oracle
-parse drift) becomes a no-good cube on the block positions (radius 1), plus a growing
-separation floor between the offending pipe's two rooms, and Z3 re-solves.  A verified
-improvement tightens the envelope bound and the loop continues until UNSAT / timeout /
-iteration cap.  UNSAT under the final bound is a (model-relative) optimality certificate:
-no placement with that clearance and pipe-stretch budget fits a smaller box.
+CEGAR: a Z3 model that place.py rejects becomes a LEARNED CONSTRAINT, and Z3 re-solves.
+The cut is on RELATIVE offsets, not absolute positions — that distinction is the whole
+loop.  Z3 models no routing (its only routing constraint is the length lower bound
+|dx|+|dy|-1), so it will happily re-propose a corridor that cannot carry a route; an
+absolute-position cube only excludes one point of that geometry's translation orbit, and
+the solver answers it by sliding the floorplan one cell and offering the identical failure
+again.  Measured on gradebook before this: 20 proposals, 20 routing failures, 0 verified.
+So:
+  `pipe k unroutable`      -> forbid the RELATIVE offset of that pipe's two rooms
+                              (`no_good_rel`), radius growing with repeat failures, plus
+                              the existing separation bump;
+  resolution / topo drift  -> forbid the whole relative CONFIGURATION (`no_good_rel_all`),
+                              since nearest-pipe binding is also translation-invariant;
+  anything unattributable  -> fall back to the absolute cube (`no_good`).
+A verified improvement tightens the envelope bound and the loop continues until UNSAT /
+timeout / iteration cap.  UNSAT under the final bound is a (model-relative) optimality
+certificate: no placement with that clearance and pipe-stretch budget fits a smaller box.
 
 Groups (--group "1,2,9"): blocks locked to their ORIGINAL relative offsets and moved as
 one rigid cluster.  Pipes internal to a group keep their exact original route (translated
@@ -107,17 +118,26 @@ class GroupPlan(PLACE.Plan):
     still run on the result, so this is an optimisation, not a bypass."""
 
     def route_all(self, layout, pipe_len="free", margin=8, order=None, retries=3,
-                  tighten=False):
+                  tighten=False, routing_bound=None, force_reroute=None,
+                  pipe_modes=None):
         """Route reusable pipes FIRST so they claim their own original cells.
 
         place.py's longest-first order lets a re-routed 300-cell serpentine steal cells
         from a pipe that did not move at all; when that pipe's turn comes its original
         route is blocked and the router fails in a maze of its neighbours' combs.  A
         pipe whose two endpoints moved by one common delta will simply reclaim its own
-        (translated) route, so those go first, then the truly-moved ones longest-first."""
+        (translated) route, so those go first, then the truly-moved ones longest-first.
+
+        The trailing three arguments mirror `Plan.route_all` and must be forwarded, not
+        defaulted away: `Plan.build` passes them positionally-by-name on EVERY call, so an
+        override that omits them makes smtplace die with `unexpected keyword argument
+        'routing_bound'` on its very first verification — which is what the loop did at
+        HEAD, before any CEGAR refinement could ever run."""
         if order is not None:
             return super().route_all(layout, pipe_len=pipe_len, margin=margin,
-                                     order=order, retries=retries, tighten=tighten)
+                                     order=order, retries=retries, tighten=tighten,
+                                     routing_bound=routing_bound,
+                                     force_reroute=force_reroute, pipe_modes=pipe_modes)
         base = self.base_layout()
         reusable, rest = [], []
         slack = {}
@@ -142,7 +162,8 @@ class GroupPlan(PLACE.Plan):
         last = None
         for _ in range(max(retries, 4)):
             paths, bad = self._route_pass(layout, pipe_len, margin,
-                                          reusable + rest, tighten)
+                                          reusable + rest, tighten, routing_bound,
+                                          force_reroute, pipe_modes)
             if paths is not None:
                 return paths, None
             last = bad
@@ -350,7 +371,12 @@ class Model:
         return True
 
     def no_good(self, offsets, radius=1):
-        """Exclude a cube around a rejected placement (free blocks only)."""
+        """Exclude a cube around a rejected placement (free blocks only).
+
+        This is the WEAK cut and should be the fallback, not the workhorse: it names
+        ABSOLUTE positions, so Z3 can answer it by translating the whole floorplan one cell
+        and re-proposing the identical, identically-unroutable geometry. Prefer
+        `no_good_rel` whenever the rejection can be attributed to a pair of blocks."""
         lits = []
         for i, (vx, vy) in enumerate(offsets):
             if i == self.anchor or self.gid[i] != i:
@@ -361,6 +387,45 @@ class Model:
                               self.Y[i] >= vy + radius + 1))
         if lits:
             self.opt.add(z3.Or(lits))
+
+    def no_good_rel(self, i, j, offsets, radius=1):
+        """The STRONG cut: forbid the RELATIVE offset of blocks i and j.
+
+        Routing failure is a property of geometry, not of address. `pipe k unroutable`
+        means the corridor between its two rooms could not carry a route AT THAT RELATIVE
+        DISPLACEMENT, and that stays true under any translation of the pair. An
+        absolute-position cube (`no_good`) excludes one point of a translation orbit Z3 can
+        walk forever; this excludes the orbit in one constraint, which is what stops the
+        loop re-proposing the same failure. Returns False when the pair sits in one rigid
+        group (their offset is not a variable), so the caller can fall back."""
+        if self.gid[i] == self.gid[j]:
+            return False
+        dx = offsets[j][0] - offsets[i][0]
+        dy = offsets[j][1] - offsets[i][1]
+        rdx = self.X[j] - self.X[i]
+        rdy = self.Y[j] - self.Y[i]
+        self.opt.add(z3.Or(rdx <= dx - radius - 1, rdx >= dx + radius + 1,
+                           rdy <= dy - radius - 1, rdy >= dy + radius + 1))
+        self.rel_cuts = getattr(self, "rel_cuts", 0) + 1
+        return True
+
+    def no_good_rel_all(self, offsets, radius=1):
+        """Fallback strong cut when no single pair is implicated (resolution change, oracle
+        drift): forbid the whole relative CONFIGURATION — every free block's offset from the
+        anchor. Still translation-invariant, unlike `no_good`."""
+        lits = []
+        ax, ay = offsets[self.anchor]
+        for i, (vx, vy) in enumerate(offsets):
+            if i == self.anchor or self.gid[i] != i:
+                continue
+            dx, dy = vx - ax, vy - ay
+            rdx = self.X[i] - self.X[self.anchor]
+            rdy = self.Y[i] - self.Y[self.anchor]
+            lits.append(z3.Or(rdx <= dx - radius - 1, rdx >= dx + radius + 1,
+                              rdy <= dy - radius - 1, rdy >= dy + radius + 1))
+        if lits:
+            self.opt.add(z3.Or(lits))
+            self.rel_cuts = getattr(self, "rel_cuts", 0) + 1
 
     def solve(self, timeout_s):
         self.opt.set("timeout", int(timeout_s * 1000))
@@ -511,13 +576,20 @@ def main():
                                        tighten=not args.no_tighten)
         if cells is None:
             print(f"      place.py rejects: {err}")
-            model.no_good(offsets)
             if err and err.startswith("pipe") and "unroutable" in err:
                 stats["routing_fail"] += 1
                 pi = int(err.split()[1])
                 p = plan.pipes[pi]
                 key = (min(p.src_b, p.dst_b), max(p.src_b, p.dst_b))
                 pair_fail[key] = pair_fail.get(key, 0) + 1
+                # LEARN, don't discard. The cut is on the pair's RELATIVE offset, so it
+                # rules out every translate of this corridor at once; the radius grows with
+                # repeat failures of the same pair, because a pair that fails twice is
+                # failing over a neighbourhood, not at a point.
+                radius = min(1 + pair_fail[key], 6)
+                if not model.no_good_rel(key[0], key[1], offsets, radius=radius):
+                    model.no_good_rel_all(offsets)
+                    model.no_good(offsets)
                 if pair_fail[key] >= 2:
                     model.bump_sep(*key)
                     pair_fail[key] = 0
@@ -533,12 +605,20 @@ def main():
                 else:
                     m_fail = [mval, 1]
             elif err == "nearest-pipe resolution changed":
+                # Which pipe an `s`/`r`/`q` binds to is decided by Manhattan distance to the
+                # attach cells, so it too depends only on RELATIVE offsets — a translated
+                # copy of this floorplan rebinds identically.
                 stats["resolution_fail"] += 1
+                model.no_good_rel_all(offsets)
+            else:
+                model.no_good_rel_all(offsets)
+                model.no_good(offsets)
             continue
         bad = PLACE.verify_topology(plan, cells, lay)
         if bad:
             print(f"      oracle rejects: {bad}")
             stats["topo_fail"] += 1
+            model.no_good_rel_all(offsets)
             model.no_good(offsets)
             continue
         w, h, box = PLACE.box_of(cells)
@@ -574,7 +654,8 @@ def main():
             print(f"      wrote {out}")
         model.opt.add(model.M <= real_m - 1)
 
-    print(f"  stats: {stats}, elapsed {time.time()-t_start:.0f}s")
+    print(f"  stats: {stats}, learned-rel-cuts {getattr(model, 'rel_cuts', 0)}, "
+          f"elapsed {time.time()-t_start:.0f}s")
     if best and best[0] is not None:
         print(f"  BEST: {best[4]}x{best[5]} box {best[3]} score {best[0]:,.0f} "
               f"vs baseline {base_res['score']:,.0f} "

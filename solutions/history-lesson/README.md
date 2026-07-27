@@ -1,5 +1,50 @@
 # History Lesson — ring dictionary build
 
+## 79-column feeder and fixed-dictionary search (2026-07-27)
+
+The 81x81 build uses a 63-row feeder and a 2+4-row dictionary.  The 80x80
+stolen-threshold build changes that balance to a 61-row feeder and a 3+4-row
+dictionary: three feeder rows are bought for one preload row, while the
+eight-row service band stays unchanged.
+
+`search_feeder_dictionary.py` now searches that trade directly.  It keeps the
+80x80 dictionary budget fixed at 37 ring entries and at most seven preload
+rows, rejects layouts which exceed the width-79 P1 capacity, and runs the
+exact paired-literal feeder DP only on Pareto finalists.  Its weighted phrase
+frontier found two useful variants:
+
+| candidate | feeder | dictionary | footprint | ticks | status |
+| --- | ---: | ---: | ---: | ---: | --- |
+| `candidates/feeder79-v1.man` | 79×63 | 3+4 | 80×82 | 228,530 | Rust + WASM pass |
+| `candidates/feeder79-v2.man` | 79×63 | 3+4 | 80×82 | 228,078 | Rust + WASM pass |
+| `candidates/79wide-v2.man` | 79×63 | 3+4 | 79×82 | 228,086 | Rust pass |
+| `candidates/79x81.man` | 79×63 | 3+3 | **79×81** | 232,231 | Rust pass |
+
+The 3+3 table required fixing a latent packer assumption: a 3×6 group-B grid
+has three holes, but only one is the zero sentinel.  The other two must be
+unsent literal fillers.  The six-row preload uses the established
+`west_first` pump orientation and preserves the 37-entry ring.
+
+The remaining 79x79 gap is now exactly two feeder rows:
+
+```text
+63 feeder + 2 feeder walls + 8 service + (6 dictionary + 2 walls) = 81
+```
+
+The eight-row service band is the measured UNPACK-over-DECODER floor, and the
+dictionary is already down to six rows.  A 79x79 build therefore needs a
+61-row feeder with this 3+3 table (or a different service architecture).
+
+Reproduce the search and candidates:
+
+```bash
+python3 solutions/history-lesson/search_feeder_dictionary.py --width 79
+python3 solutions/history-lesson/build_ring.py --feeder79
+python3 solutions/history-lesson/build_ring.py --feeder79-v2
+python3 solutions/history-lesson/build_ring.py --79wide-v2
+python3 solutions/history-lesson/build_ring.py --79x81
+```
+
 `best/81x81.man` is the checked-in champion.  It has an **81×81** non-space
 footprint, so its footprint-only score is **6,561**.  The default builder
 invocation reproduces it; `--legacy 82` and `--narrow` still reproduce the

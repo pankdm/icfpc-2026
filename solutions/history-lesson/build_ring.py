@@ -170,6 +170,77 @@ def choose_phrases(stream):
     return stream, phrases
 
 
+def choose_phrases_weighted(stream, ring_entries=37, table_weight=1.0):
+    """Fill a fixed-size dictionary on the symbol/table-width frontier.
+
+    This is the reproducible selector found by ``search_feeder_dictionary.py``.
+    Unlike ``choose_phrases``, it keeps the 80x80 ring entry count fixed while
+    allowing the source-cell weight to be swept.
+    """
+    dig1 = math.log10(B1)
+    forbidden = set(STOLEN) | {0, ESC}
+    remaining = {
+        "single": len(SMALL_FREE),
+        "pair": ring_entries - (THRESHOLD - 1) - len(STOLEN),
+    }
+    if remaining["pair"] < 0:
+        raise ValueError("ring budget is smaller than the forced entries")
+    phrases = []
+    for value in STOLEN:
+        stream = replace_nonoverlap(
+            stream, (value,), [-len(phrases) - 1]
+        )
+        phrases.append(((value,), False))
+
+    while any(remaining.values()):
+        found = {}
+        for size in range(2, 10):
+            counts = Counter(
+                tuple(stream[i:i + size])
+                for i in range(len(stream) - size + 1)
+                if all(v >= 1 and v not in forbidden
+                       for v in stream[i:i + size])
+            )
+            for phrase, count in counts.items():
+                if count < 2 or len(phrase_bytes(phrase)) > 9:
+                    continue
+                value = pack128(phrase_bytes(phrase))
+                if not fits_literal(value) or len(str(value)) > 18:
+                    continue
+                hits = count_nonoverlap(stream, phrase)
+                if hits >= 2:
+                    found[phrase] = hits
+
+        best = None
+        for phrase, hits in found.items():
+            value = pack128(phrase_bytes(phrase))
+            table_cells = len(str(value)) + 3
+            for kind, slots in remaining.items():
+                if not slots:
+                    continue
+                saving = (
+                    len(phrase) - (1 if kind == "single" else 2)
+                ) * hits
+                if saving <= 0:
+                    continue
+                score = dig1 * saving - table_weight * table_cells
+                key = (
+                    score, saving, hits, -table_cells,
+                    phrase_bytes(phrase), kind,
+                )
+                if best is None or key > best[0]:
+                    best = (key, phrase, kind)
+        if best is None:
+            raise ValueError(f"could not fill dictionary slots: {remaining}")
+        _, phrase, kind = best
+        stream = replace_nonoverlap(
+            stream, phrase, [-len(phrases) - 1]
+        )
+        phrases.append((phrase, kind == "single"))
+        remaining[kind] -= 1
+    return stream, phrases
+
+
 def add_best_pair_phrases(stream, phrases, count):
     """Add escape-pair phrases ranked only by symbol-stream reduction.
 
@@ -217,7 +288,7 @@ def add_best_pair_phrases(stream, phrases, count):
 
 def build_encoding(table_budget=None, extra_pair_count=0, tail_constants=False,
                    west_first=False, threshold=None, group_b_rows=4,
-                   group_a_cap=73, bottom_up=False):
+                   group_a_cap=73, bottom_up=False, phrase_selector=None):
     """``threshold`` is DISP's T: symbols 1..T-1 are ring lookups, T is the
     reserved value, and T+1..91 are literal bytes.  Raising it converts escape
     pairs (2 stream symbols) into direct references (1) at no P1 cost, since a
@@ -226,7 +297,8 @@ def build_encoding(table_budget=None, extra_pair_count=0, tail_constants=False,
     never occurs."""
     T = THRESHOLD if threshold is None else threshold
     RB = group_b_rows
-    stream, phrases = choose_phrases(tokenize(TEXT))
+    selector = choose_phrases if phrase_selector is None else phrase_selector
+    stream, phrases = selector(tokenize(TEXT))
     if extra_pair_count:
         stream, chosen = add_best_pair_phrases(
             stream, phrases, extra_pair_count
@@ -416,7 +488,8 @@ def build_encoding(table_budget=None, extra_pair_count=0, tail_constants=False,
                   val_of={i: pack128(phrase_bytes(phrases[i][0]))
                           for i in pairs},
                   tail_pairs=tail_pairs, n_small=T - 1, group_b_rows=RB,
-                  group_a_rows=group_a_rows, bottom_up=bottom_up)
+                  group_a_rows=group_a_rows, bottom_up=bottom_up,
+                  sentinel_cell=(RB - 1, last_cell))
 
     symbols = []
     for t in stream:
@@ -926,9 +999,15 @@ def p1_room(program, x0, y0, width, ring, layout, west_first=False):
         for pj in range(nB):
             idx = cellgrid[r][pj]
             if idx is None:
-                # Baseline: the sole empty cell is the sentinel.  Narrow
-                # variant: it is an unsent vertical-literal filler.
-                vals.append(None if tail_pairs else 0)
+                # Exactly one empty cell is the sentinel.  Smaller row counts
+                # can leave additional holes; those are unsent literal fillers
+                # and must not inject extra zeroes into the ring.
+                vals.append(
+                    0
+                    if not tail_pairs
+                    and (r, pj) == layout.get("sentinel_cell")
+                    else None
+                )
             else:
                 vals.append(layout["val_of"][idx])
         overall_row = RA + r
@@ -1056,14 +1135,15 @@ def audit_vertical_ticks(program):
 
 
 def build(W=83, variable=False, compact_tail=False, narrow=False,
-          west_first=False, bottom_up=False, feeder_width=None):
+          west_first=False, bottom_up=False, feeder_width=None,
+          phrase_selector=None, group_b_rows=4):
     assert not (west_first and bottom_up)
     compact_p1 = west_first or bottom_up
     feeder_width = W if feeder_width is None else feeder_width
     assert feeder_width <= W
-    assert W >= (80 if compact_p1 else 81 if narrow else 82 if variable else 83)
+    assert W >= (79 if compact_p1 else 81 if narrow else 82 if variable else 83)
     if narrow or compact_p1:
-        allowed = (80, 81) if compact_p1 else (81,)
+        allowed = (79, 80, 81) if compact_p1 else (81,)
         if (W not in allowed) or not (variable and compact_tail):
             raise ValueError(
                 "the narrow/west-first tails require variable=True, "
@@ -1078,6 +1158,9 @@ def build(W=83, variable=False, compact_tail=False, narrow=False,
         tail_constants=narrow,
         west_first=west_first,
         bottom_up=bottom_up,
+        phrase_selector=phrase_selector,
+        group_a_cap=W - 7 if compact_p1 else 73,
+        group_b_rows=group_b_rows,
     )
     if variable:
         bands = optimize_feeder(symbols, feeder_width)
@@ -1191,6 +1274,66 @@ def build_feeder79():
     return program
 
 
+def build_feeder79_v2():
+    """The fixed-dictionary search winner rendered in the 79-wide feeder."""
+    global THRESHOLD, ESC, SMALL_FREE, STOLEN
+    old = (THRESHOLD, ESC, SMALL_FREE, STOLEN)
+    THRESHOLD = 23
+    ESC = 29
+    SMALL_FREE = [2, 4, 5, 6, 7, 8, 11, 12, 16, 17, 18, 19, 20, 21, 22]
+    STOLEN = (8, 18, 23)
+    try:
+        program = build(
+            80, variable=True, compact_tail=True, bottom_up=True,
+            feeder_width=79,
+            phrase_selector=choose_phrases_weighted,
+        )
+    finally:
+        THRESHOLD, ESC, SMALL_FREE, STOLEN = old
+    assert program.footprint() == (80, 82, 6724)
+    return program
+
+
+def build_79wide_v2():
+    """Fit the searched v2 feeder and unchanged seven-row table in width 79."""
+    global THRESHOLD, ESC, SMALL_FREE, STOLEN
+    old = (THRESHOLD, ESC, SMALL_FREE, STOLEN)
+    THRESHOLD = 23
+    ESC = 29
+    SMALL_FREE = [2, 4, 5, 6, 7, 8, 11, 12, 16, 17, 18, 19, 20, 21, 22]
+    STOLEN = (8, 18, 23)
+    try:
+        program = build(
+            79, variable=True, compact_tail=True, bottom_up=True,
+            phrase_selector=choose_phrases_weighted,
+        )
+    finally:
+        THRESHOLD, ESC, SMALL_FREE, STOLEN = old
+    return program
+
+
+def build_79x81():
+    """Trade a little compression for a six-row dictionary at width 79."""
+    global THRESHOLD, ESC, SMALL_FREE, STOLEN
+    old = (THRESHOLD, ESC, SMALL_FREE, STOLEN)
+    THRESHOLD = 23
+    ESC = 29
+    SMALL_FREE = [2, 4, 5, 6, 7, 8, 11, 12, 16, 17, 18, 19, 20, 21, 22]
+    STOLEN = (8, 18, 23)
+    selector = lambda stream: choose_phrases_weighted(
+        stream, table_weight=1.25
+    )
+    try:
+        program = build(
+            79, variable=True, compact_tail=True, west_first=True,
+            phrase_selector=selector, group_b_rows=3,
+        )
+    finally:
+        THRESHOLD, ESC, SMALL_FREE, STOLEN = old
+    assert program.footprint() == (79, 81, 6561)
+    return program
+
+
 def build_champion():
     """Build the checked-in 81x81 champion."""
     program = build(81, variable=True, compact_tail=True, west_first=True)
@@ -1269,7 +1412,7 @@ def build_compact_once(W, chunks, ring, layout, bands, narrow=False,
     # P1's group-B row needs exactly 80 columns (sum(TB) + 3*nB + 4 <= inner+1
     # is tight at inner=76), so west_first always gives it 80 -- which at W=81
     # leaves one dead column beside it and at W=80 is the whole width.
-    p1h = p1_room(program, 0, tail_top + 8, 80 if west_first else W - 2,
+    p1h = p1_room(program, 0, tail_top + 8, W if west_first else W - 2,
                   ring, layout, west_first=west_first)
     if THRESHOLD == 17:
         assert p1h == (8 if west_first else 10)
@@ -1336,8 +1479,9 @@ def build_compact_once(W, chunks, ring, layout, bands, narrow=False,
             # pipes and stranding most of the ring in the full first leg.
             back = [(e - 3, tail_top + 7), (e - 3, tail_top + 2),
                     (e - 4, tail_top + 2), (e - 4, tail_top + 6),
-                    (e - 5, tail_top + 6), (e - 5, tail_top + 2),
-                    (73, tail_top + 2)]
+                    (e - 5, tail_top + 6), (e - 5, tail_top + 2)]
+            if e - 5 != 73:
+                back.append((73, tail_top + 2))
         program.pipe(back, end_direction="W")
         return program
 
@@ -1450,14 +1594,40 @@ def main():
     w80 = "--w80" in sys.argv
     best80 = "--80x80" in sys.argv
     feeder79 = "--feeder79" in sys.argv
+    feeder79_v2 = "--feeder79-v2" in sys.argv
+    width79_v2 = "--79wide-v2" in sys.argv
+    best79 = "--79x81" in sys.argv
     positional = [
         arg for arg in sys.argv[1:]
         if arg not in (
             "--legacy", "--variable", "--narrow", "--w80", "--80x80",
-            "--feeder79",
+            "--feeder79", "--feeder79-v2",
+            "--79wide-v2",
+            "--79x81",
         )
     ]
-    if feeder79:
+    if best79:
+        if (
+            legacy or variable or narrow or w80 or best80
+            or feeder79 or feeder79_v2 or width79_v2 or positional
+        ):
+            raise SystemExit("--79x81 does not accept other modes or a width")
+        program = build_79x81()
+        name = os.path.join("candidates", "79x81.man")
+    elif width79_v2:
+        if (
+            legacy or variable or narrow or w80 or best80
+            or feeder79 or feeder79_v2 or positional
+        ):
+            raise SystemExit("--79wide-v2 does not accept other modes or a width")
+        program = build_79wide_v2()
+        name = os.path.join("candidates", "79wide-v2.man")
+    elif feeder79_v2:
+        if legacy or variable or narrow or w80 or best80 or feeder79 or positional:
+            raise SystemExit("--feeder79-v2 does not accept other modes or a width")
+        program = build_feeder79_v2()
+        name = os.path.join("candidates", "feeder79-v2.man")
+    elif feeder79:
         if legacy or variable or narrow or w80 or best80 or positional:
             raise SystemExit("--feeder79 does not accept other modes or a width")
         program = build_feeder79()
@@ -1492,6 +1662,9 @@ def main():
                 "default build is best/81x81.man; use --legacy 82 for the "
                 "previous champion, --80x80 for the stolen-threshold champion, "
                 "--feeder79 for the 79-column feeder checkpoint, "
+                "--feeder79-v2 for the fixed-dictionary search winner, "
+                "--79wide-v2 for the width-79 layout workbench, "
+                "--79x81 for the six-row dictionary layout, "
                 "--narrow for the constant-tail candidate, "
                 "or --legacy [W] [--variable] for an older layout"
             )

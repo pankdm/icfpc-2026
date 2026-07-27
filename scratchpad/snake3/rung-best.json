@@ -1,0 +1,27 @@
+{
+ "params": {
+  "CW": 52,
+  "CXL": 0,
+  "ST_OUT": 23,
+  "FEED_W": 28,
+  "LOOPR": 39,
+  "ST_X0": 19,
+  "D_REP": 12,
+  "D_COLL": 2,
+  "D_HY": 5,
+  "D_HX": 8,
+  "HW_RET": 48,
+  "HW_TICK": 37,
+  "HW_SPAWN": 31,
+  "HW_DIR": 36,
+  "D_EAT": 32,
+  "D_NOEAT": 23,
+  "DRV_OUT": 51,
+  "DRVX": 4
+ },
+ "score": 38720514,
+ "box": 5329,
+ "ticks": 7266,
+ "cap": 51,
+ "side": 73
+}

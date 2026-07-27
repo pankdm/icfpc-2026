@@ -384,22 +384,19 @@ def build(CW=156, CY0=20, CBOT=900, save_to=None, verbose=False,
 
     # ═══ MANDRAW: (re)read the colour under the man, draw him, commit ════
     A.block("MANDRAW")
-    # Same shape as TICK: shift first, so the plane word is masked the moment it
-    # comes off the ring and never crosses the interior in scratch.
-    K(4); op("M"); S.get("x"); S.put(); op("*"); op("N")
-    T.push("n4"); K(60); op("M"); T.pop("n4"); op("+")   # A = sh = 60 - 4x
-    T.push("sh1")
     K(2); op("M"); S.get("y"); S.put(); op("*"); op("b")
     A.tight(["r:P", "s:P"])
-    tok("r:P"); tok("s:P"); op("M")              # B = C[y]
-    T.pop("sh1"); op("W"); op("}")               # A = C >> sh
-    MASK4()
-    op("M"); S.get("pc"); op("W"); S.put()       # pc := colour under the man
+    tok("r:P"); T.push("C"); tok("s:P")
     K(2); op("M"); S.get("y"); S.put(); op("*"); op("N")
     T.push("n2"); K(31); op("M"); T.pop("n2"); op("+")   # A = 31 - 2y
     op("b")
     A.tight(["r:P", "s:P"])
     HOME()
+    K(4); op("M"); S.get("x"); S.put(); op("*"); op("N")
+    T.push("n4"); K(60); op("M"); T.pop("n4"); op("+")   # A = sh = 60 - 4x
+    op("M"); T.pop("C"); op("}")
+    MASK4()
+    op("M"); S.get("pc"); op("W"); S.put()       # pc := colour under the man
     K(16); op("M"); S.get("y"); S.put(); op("*")
     op("M"); S.get("x"); S.put(); op("+")        # A = 16y + x
     op("M"); S.get("pa"); op("W"); S.put()       # pa := addr, A = addr

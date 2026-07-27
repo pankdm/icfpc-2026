@@ -57,11 +57,20 @@ in 10 minutes). Use it as a **pre-filter, not the judge**: fast reject ⇒ disca
 `lm` also has `--profile` and `--inspect=N` (single-tick JSON snapshot) which the wasm
 harness cannot give you.
 
-**A Rust pass on the public cases is good enough to SUBMIT.** `node sim/difftest.js` compares
-the two engines step-by-step (runner states, pipe contents, output, end reason, parsed topology)
-and as of 2026-07-26 reports **61 passed, 0 failed** — including `fork-into-wall(copy)`, the
-fixture the old note called a known divergence (it is FIXED; the note was stale), and seven
-literal fixtures added with the fix below. Since submitting never lowers a score, the cost of a
+**A Rust pass is good enough to SUBMIT, but a Rust FAIL is NOT good enough to discard.**
+`node sim/difftest.js` compares the two engines step-by-step (runner states, pipe contents,
+output, end reason, parsed topology). It is **NOT green**: measured 2026-07-27 it reports
+**57 passed, 4 failed** — `lit-cross-h-digit`, `lit-cross-v-digit`, `lit-two-rooms-same-row`,
+`lit-junk-in-col`, i.e. every remaining failure is LITERAL semantics. (An earlier note here
+claimed 61/0; that was wrong or has regressed — re-run it, do not trust this paragraph either.)
+
+**Worked example of the false reject, and it is not hypothetical.** The LIVE brackets champion
+(`solutions/brackets/live-351bec3e.man`, 15×15, server 97,719 at 26/26) scores **0/9 in the Rust
+engine** — eight cases `crash: wall` at tick 10, one `timeout` — while the **oracle passes 9/9**
+in 144 ticks with `inputRead` never advancing past 0 in the Rust trace. An agent following
+"fast reject ⇒ discard" would have thrown away a champion. So: a Rust reject means
+**re-check with `node tools/grade.js` before believing it**, especially on grids with literals
+or several small rooms. Since submitting never lowers a score, the cost of a
 rare false pass is one submission slot (max 5 pending), not points. Prefer the oracle as a final
 check when it is cheap, but do NOT block on it: it OOMs outright on LLLM (`Go program has already
 exited`) and `sim/xray.js` on a single 2M-tick pathfinder case does not finish in 10 minutes.
@@ -169,6 +178,23 @@ There are **no unsubmitted improvements** lying around. Two traps found doing it
   Grade Book win read as a 12x private *regression* purely because it was measured against a
   live champion three generations newer than its own input.
 
+### LLLM: the live champion is NOT in git (measured 2026-07-26 ~21:00Z)
+
+`tools/submissions.py` reports our live LLLM entry as **142x141, box 20,164, avgTicks
+311,616, score 6,283,423,104, rank 7/60**. That build exists in **no worktree and no
+`submitted/` archive** — every LLLM `.man` on this machine has a box of 41,209 or more,
+and the best archived submission JSON is `fa4fb613` (polish-203x200) at **22,459,642,837**.
+So a teammate submitted it from another machine. Two consequences:
+
+* **Do not use `polish-203x200.man` as the LLLM baseline.** It is the best build *in git*,
+  not the best build *on the board*, and the gap is 3.6x.
+* The local:server score ratio for LLLM is **~1.07** (measured on three submissions:
+  polish 2.03e10 -> 2.25e10, lane2 1.64e10 -> 1.75e10, lane3 1.42e10 -> 1.51e10). Earlier
+  notes claiming 0.309 were reading the board score against the wrong local file.
+
+To beat 6.28e9 on the server a build needs local box x avgTicks < ~5.9e9 — at the lane
+build's 292k ticks that is a box under 20,200, i.e. **142x142**.
+
 ### Measured dead ends (2026-07-26) — do not repeat these
 
 - **Boustrophedon band widening / replica ports (LLM, Snake, Pathfinder).** 870 of LLM's 994
@@ -194,6 +220,13 @@ There are **no unsubmitted improvements** lying around. Two traps found doing it
   4473 digit cells ≈ 14.9 kbit encode 2810 bytes (ratio 0.66) where gzip gets 1563 B — matching
   gzip would free ~700 cells and reach 76×76, which is the leader's box. **Lesson: "at its floor"
   findings are scoped to the generator that produced them, not to the problem.**
+- **LLLM: multiple men on one relay cycle.** A ring rotates no faster than its relay lap,
+  and the lap is six cells (four of the six are forced turns, so six is the floor for a
+  directed cycle carrying both an `r` and an `s`) — two thirds of LLLM's ticks were the
+  controller stalled on that. More men would fix it and cannot be built: a room admits one
+  `@` (a second is a load error), and forking with `Y` deadlocks because **walking into a
+  stalled man HALTS BOTH** (interp `move_phase`), which a six-cell cycle guarantees within
+  a few laps. The lever that did work was fewer rotations, not faster ones.
 - **Sudoku `multi2` is not the champion** (see trap above); autotune on it found DX 16→15
   (box 1764→1681) and `DX=14` reaches 40×40 but dies with `loaderror: pipe ends without
   reaching another room`.

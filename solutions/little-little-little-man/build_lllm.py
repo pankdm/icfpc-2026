@@ -206,7 +206,18 @@ class Columns(object):
         # through exactly the 2-column gap its own tier leaves free below.
         #   tier 0:  X..X+3         pipes X+1, X+2      (X+6..X+9 next)
         #   tier 1:      X+3..X+6   pipes X+4, X+5
-        # 3 is the floor: 2 pipe columns plus the wall column that is shared.
+        # 3 is the floor for private rooms: 2 pipe columns plus the shared wall
+        # column, and it does not improve with more tiers (4 tiers is 12 columns
+        # for 4 holders, still 3 each).
+        #
+        # MEASURED DEAD END 2026-07-26: pitch 2 -- the arithmetic floor, since a
+        # holder needs two pipe columns -- IS reachable on paper by putting all
+        # 20 holders in ONE shared room as 2-column ring units.  It builds, and
+        # verify_bindings passes (each s/r sits directly over its own pipe at
+        # dx = 0, every other pipe at least one column further), width drops
+        # 131 -> 111.  The ORACLE REFUSES IT: "room (29,18)..(70,23) has
+        # multiple '@'s".  One man per room is a load-time rule, so a shared
+        # bank would need the other 19 men forked in with `Y` at startup.
         self.holder_room_x = {}
         self.holder_tier = {}
         self.hr = {}

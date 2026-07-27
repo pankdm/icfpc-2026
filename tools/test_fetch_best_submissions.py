@@ -93,6 +93,56 @@ class ProgramTests(unittest.TestCase):
         self.assertEqual(fetcher.compact_score(16_192_622_871), "16.2B")
         self.assertEqual(fetcher.compact_score(2_798_366_124_328), "2.80T")
 
+    def test_project_problem_uses_frozen_field_and_current_score(self):
+        problem = {
+            "slug": "example",
+            "name": "Original Name",
+            "problemSetName": "Semester 1",
+            "orderInSet": 0,
+        }
+        current = {
+            "score": 80,
+            "casesPassed": 2,
+            "casesTotal": 2,
+        }
+        standings = {
+            "rows": [
+                {
+                    "teamName": fetcher.TEAM,
+                    "score": 120,
+                    "casesPassed": 2,
+                    "casesTotal": 2,
+                    "rank": 3,
+                    "points": 1.5,
+                },
+                {
+                    "teamName": "better",
+                    "score": 70,
+                    "casesPassed": 2,
+                    "casesTotal": 2,
+                    "rank": 1,
+                },
+                {
+                    "teamName": "passed by us",
+                    "score": 100,
+                    "casesPassed": 2,
+                    "casesTotal": 2,
+                    "rank": 2,
+                },
+                {
+                    "teamName": "partial",
+                    "score": 1,
+                    "casesPassed": 1,
+                    "casesTotal": 2,
+                    "rank": 4,
+                },
+            ]
+        }
+        result = fetcher.project_problem(problem, current, standings)
+        self.assertEqual(result["projectedRank"], 2)
+        self.assertEqual(result["rankGain"], 1)
+        self.assertAlmostEqual(result["projectedPoints"], 5 / 3)
+
 
 if __name__ == "__main__":
     unittest.main()

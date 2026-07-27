@@ -40,6 +40,7 @@ import lib  # noqa: E402
 
 DEFAULT_OUTPUT = Path(lib.REPO) / "best-submissions"
 DEFAULT_COOKIE_FILE = Path("~/.icfpc-cookie").expanduser()
+TEAM = "Snakes, Monkeys, and Two Smoking Lambdas"
 
 
 class FetchError(RuntimeError):
@@ -210,6 +211,188 @@ def compact_score(score: int | float) -> str:
     return f"{score:,.0f}"
 
 
+def project_problem(problem: dict, current: dict, standings: dict) -> dict:
+    board = standings.get("rows") or []
+    mine = next((row for row in board if row.get("teamName") == TEAM), None)
+    if mine is None:
+        raise FetchError(f"{problem['slug']}: team is absent from frozen standings")
+
+    eligible = [row for row in board if row.get("rank") is not None]
+    field_size = len(eligible)
+    current_score = number(current.get("score"))
+    current_passed = int(number(current.get("casesPassed")) or 0)
+    current_total = int(number(current.get("casesTotal")) or 0)
+    if current_score is None or current_passed != current_total:
+        raise FetchError(f"{problem['slug']}: current best is not a complete scored result")
+
+    better = [
+        row
+        for row in eligible
+        if row.get("teamName") != TEAM
+        and row.get("casesPassed") == row.get("casesTotal")
+        and number(row.get("score")) is not None
+        and number(row["score"]) < current_score
+    ]
+    projected_rank = 1 + len(better)
+    projected_pass_points = current_passed / current_total
+    projected_rank_points = (
+        (field_size - projected_rank) / (field_size - 1)
+        if field_size > 1
+        else 1.0
+    )
+    projected_points = projected_pass_points + projected_rank_points
+    frozen_score = number(mine.get("score"))
+    frozen_points = number(mine.get("points")) or 0.0
+    frozen_rank = int(number(mine.get("rank")) or 0)
+    return {
+        "slug": problem["slug"],
+        "problemName": problem.get("name") or problem["slug"],
+        "problemSetName": problem.get("problemSetName"),
+        "orderInSet": problem.get("orderInSet"),
+        "fieldSize": field_size,
+        "frozenScore": frozen_score,
+        "currentScore": current_score,
+        "scoreChangePercent": (
+            ((current_score / frozen_score) - 1.0) * 100.0 if frozen_score else None
+        ),
+        "frozenRank": frozen_rank,
+        "projectedRank": projected_rank,
+        "rankGain": frozen_rank - projected_rank,
+        "frozenPoints": frozen_points,
+        "projectedPoints": projected_points,
+        "pointsGain": projected_points - frozen_points,
+    }
+
+
+def standings_snapshot(problems: list[dict], entries: list[dict], generated_at: str) -> dict:
+    current_by_slug = {entry["slug"]: entry for entry in entries}
+    ordered = sorted(
+        problems,
+        key=lambda problem: (
+            problem.get("problemSetName") or "",
+            problem.get("orderInSet") or 0,
+        ),
+    )
+    problem_snapshots = []
+    projections = []
+    for problem in ordered:
+        standings = lib.problem_standings(problem["id"])
+        if not standings or not isinstance(standings.get("rows"), list):
+            raise FetchError(f"{problem['slug']}: frozen standings are unavailable")
+        projection = project_problem(problem, current_by_slug[problem["slug"]], standings)
+        problem_snapshots.append(
+            {
+                "problem": {
+                    key: problem.get(key)
+                    for key in ("id", "slug", "name", "problemSetName", "orderInSet")
+                },
+                "currentBest": current_by_slug[problem["slug"]],
+                "frozenStandings": standings,
+                "projection": projection,
+            }
+        )
+        projections.append(projection)
+
+    status, overall = lib._request("GET", "/standings")
+    if status != 200 or not isinstance(overall, dict):
+        raise FetchError(f"overall frozen standings returned HTTP {status}")
+    teams = overall.get("teams") or []
+    mine = next((row for row in teams if row.get("teamName") == TEAM), None)
+    if mine is None:
+        raise FetchError("team is absent from overall frozen standings")
+
+    frozen_points = sum(row["frozenPoints"] for row in projections)
+    projected_points = sum(row["projectedPoints"] for row in projections)
+    if abs(frozen_points - float(mine["points"])) > 1e-8:
+        raise FetchError(
+            "per-problem frozen points do not match the overall frozen standings"
+        )
+    projected_rank = 1 + sum(
+        1
+        for row in teams
+        if row.get("teamName") != TEAM
+        and number(row.get("points")) is not None
+        and number(row["points"]) > projected_points
+    )
+    overall_projection = {
+        "fieldSize": len(teams),
+        "frozenPoints": float(mine["points"]),
+        "projectedPoints": projected_points,
+        "pointsGain": projected_points - float(mine["points"]),
+        "frozenRank": int(mine["rank"]),
+        "projectedRank": projected_rank,
+        "rankGain": int(mine["rank"]) - projected_rank,
+    }
+    return {
+        "generatedAt": generated_at,
+        "team": TEAM,
+        "assumption": (
+            "Our archived current-best scores replace our frozen scores; every other "
+            "team and score remains exactly as frozen."
+        ),
+        "frozenOverallStandings": overall,
+        "overallProjection": overall_projection,
+        "problems": problem_snapshots,
+    }
+
+
+def format_percent(value: float | None) -> str:
+    if value is None or abs(value) < 0.0005:
+        return "—"
+    decimals = 2 if abs(value) < 0.1 else 1
+    return f"{value:+.{decimals}f}%".replace("-", "−")
+
+
+def projection_markdown(snapshot: dict) -> str:
+    overall = snapshot["overallProjection"]
+    lines = [
+        "# Frozen-standings projection",
+        "",
+        f"Generated: `{snapshot['generatedAt']}`",
+        "",
+        "This projection replaces our score on each frozen problem board with the",
+        "current best submission archived here. Every other team and score is held",
+        "fixed. Lower problem scores and ranks are better; higher points are better.",
+        "",
+        "| semester | original problem name | slug | frozen score | current score | "
+        "score Δ | frozen rank | projected rank | rank gain | frozen pts | projected pts |",
+        "|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|",
+    ]
+    for item in snapshot["problems"]:
+        row = item["projection"]
+        rank_gain = f"+{row['rankGain']}" if row["rankGain"] else "—"
+        lines.append(
+            f"| {row['problemSetName']} | {row['problemName']} | `{row['slug']}` | "
+            f"{compact_score(row['frozenScore'])} | {compact_score(row['currentScore'])} | "
+            f"{format_percent(row['scoreChangePercent'])} | "
+            f"{row['frozenRank']}/{row['fieldSize']} | "
+            f"{row['projectedRank']}/{row['fieldSize']} | {rank_gain} | "
+            f"{row['frozenPoints']:.4f} | {row['projectedPoints']:.4f} |"
+        )
+    overall_rank_gain = f"+{overall['rankGain']}" if overall["rankGain"] else "—"
+    lines.extend(
+        [
+            "",
+            "## Expected final standing",
+            "",
+            "| frozen total | projected total | points gain | frozen rank | "
+            "projected rank | rank gain |",
+            "|---:|---:|---:|---:|---:|---:|",
+            f"| {overall['frozenPoints']:.4f} | {overall['projectedPoints']:.4f} | "
+            f"+{overall['pointsGain']:.4f} | "
+            f"{overall['frozenRank']}/{overall['fieldSize']} | "
+            f"{overall['projectedRank']}/{overall['fieldSize']} | "
+            f"{overall_rank_gain} |",
+            "",
+            "Expected final result under this assumption: "
+            f"**{overall['projectedPoints']:.4f} points, rank "
+            f"{overall['projectedRank']} of {overall['fieldSize']}**.",
+            "",
+        ]
+    )
+    return "\n".join(lines)
+
+
 def readme(entries: list[dict]) -> str:
     lines = [
         "# Best contest submissions",
@@ -219,15 +402,18 @@ def readme(entries: list[dict]) -> str:
         "submission to that graded problem. `manifest.json` records the submission ID,",
         "official score, dimensions, and SHA-256 digest.",
         "Program bytes are preserved as delivered, including trailing spaces.",
+        "`standings.json` contains the raw frozen boards and current-score projection;",
+        "`SUMMARY.md` presents the projected final points and ranks.",
         "",
-        "| problem | cases | dimensions | exact score | UI score | submission |",
-        "|---|---:|---:|---:|---:|---|",
+        "| original problem name | slug | cases | dimensions | exact score | UI score | submission |",
+        "|---|---|---:|---:|---:|---:|---|",
     ]
     for entry in entries:
         score = entry["score"]
         score_text = f"{score:,.0f}" if score is not None else ""
         lines.append(
-            f"| {entry['slug']} | {entry['casesPassed']}/{entry['casesTotal']} | "
+            f"| {entry['problemName']} | `{entry['slug']}` | "
+            f"{entry['casesPassed']}/{entry['casesTotal']} | "
             f"{entry['width']}x{entry['height']} | {score_text} | "
             f"{compact_score(score) if score is not None else ''} | "
             f"`{entry['submissionId']}` |"
@@ -320,6 +506,7 @@ def fetch(output: Path, cookie_file: Path, jobs: int = 8) -> list[dict]:
             )
 
         generated_at = dt.datetime.now(dt.timezone.utc).isoformat().replace("+00:00", "Z")
+        frozen = standings_snapshot(graded, entries, generated_at)
         manifest = {
             "generatedAt": generated_at,
             "source": "per-problem dashboard histories and source downloads",
@@ -331,6 +518,12 @@ def fetch(output: Path, cookie_file: Path, jobs: int = 8) -> list[dict]:
             json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8"
         )
         (staged / "README.md").write_text(readme(entries), encoding="utf-8")
+        (staged / "standings.json").write_text(
+            json.dumps(frozen, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+        )
+        (staged / "SUMMARY.md").write_text(
+            projection_markdown(frozen), encoding="utf-8"
+        )
         replace_directory(staged, output)
     except Exception:
         if staged.exists():

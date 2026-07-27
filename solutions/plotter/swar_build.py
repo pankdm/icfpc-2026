@@ -109,23 +109,33 @@ def lay_ring(g, x, y, w, h, glyphs):
 # the build
 # ─────────────────────────────────────────────────────────────────────────────
 
+BASE_TICKS = 505      # measured: fixed overhead + 8 ticks x 18 pixels a round
+
+
 def geometry(npre, ntail):
     """Pick (L, k, IW): L = last serpentine row, k = the branch row (must head
     EAST, so even), IW = interior width.  The pipe split forces IH ~ 2L, so rows
     are twice as expensive as columns and the search is worth doing."""
     best = None
-    for L in range(9, 24, 2):                    # L odd: last row heads east
-        IH = max(2 * L + 1, L + 9)
+    for L in range(7, 24):
+        # The 4x4 ramp ring puts the `0 ; s` sentinel in the column BESIDE it, so
+        # the machinery under the serpentine is 7 rows, not 8 -- which is what
+        # lets L be even (last row heads west, tail row starts on the left).
+        IH = max(2 * L + 1, L + 8)
         if IH > 2 * L + 2:
             continue
-        for k in range(0, L - 1, 2):
+        for k in range(0, L - 1):
             prows, trows = k + 1, L - k - 1
             if trows < 1:
                 continue
             T = max(-(-npre // prows), -(-ntail // trows))
             IW = T + 3
-            w, h = IW + 18, IH + 40
-            cand = (max(w, h) ** 2, L, k, IW, IH)
+            # PADDING IS TICKS: a '.' in an unfilled serpentine slot is walked
+            # every round.  Minimising the box alone picks a wide, mostly-empty
+            # serpentine and loses more in ticks than it gains in area.
+            pad = prows * T - npre + trows * T - ntail
+            w, h = IW + 18, IH + 39
+            cand = (max(w, h) ** 2 * (BASE_TICKS + pad), L, k, IW, IH)
             if best is None or cand < best:
                 best = cand
     return best[1:]
@@ -173,27 +183,32 @@ def build(geom=None):
     CT = 6
     ctrl = g.p.room(0, CT, MC + 3, IH + 2)
     X0, Y0 = ctrl.ix0, ctrl.iy0
+    east = (k % 2 == 0)
+    off = 0 if east else MC - IW + 1            # left-hand block: shift right
 
     def C(ix, iy):
-        return (X0 + ix, Y0 + iy)
+        return (X0 + off + ix, Y0 + iy)
 
+    # Row k+1 is skipped (the branch block sits beside it), so the rows after it
+    # take the direction row k+1 would have had.
     dirs = {j: ("E" if j % 2 == 0 else "W") for j in range(k + 1)}
-    dirs.update({j: ("W" if (j - k) % 2 == 0 else "E") for j in range(k + 2, L + 1)})
-    assert dirs[k] == "E" and dirs[L] == "E"
+    dirs.update({j: ("E" if j % 2 == 1 else "W") for j in range(k + 2, L + 1)})
+    assert (dirs[k] == "E") == east
 
     g.put(*C(0, 0), ">")                         # return-path merge
     idx_pre = idx_tail = 0
     for j, d in sorted(dirs.items()):
         src = pre if j <= k else tail_body
         if d == "E":
-            g.put(*C(1, j), "@" if j == 0 else ">")
+            if not (j == k + 2 and not east):    # k+2 is entered from the block
+                g.put(*C(1, j), "@" if j == 0 else ">")
             cols = range(2, IW - 1)
-            g.put(*C(IW - 1, j), "." if j == k else "v")
+            g.put(*C(IW - 1, j), "." if (j == k and east) else "v")
         else:
             cols = range(IW - 2, 1, -1)
-            if j != k + 2:                       # k+2 is entered from the block
+            if not (j == k + 2 and east):
                 g.put(*C(IW - 1, j), "<")
-            g.put(*C(1, j), "v")
+            g.put(*C(1, j), "." if (j == k and not east) else "v")
         for c in cols:
             if j <= k:
                 ch = pre[idx_pre][0] if idx_pre < len(pre) else "."
@@ -208,40 +223,70 @@ def build(geom=None):
     # `X` turns CW on A > 0 and CCW on A < 0, and the test is odd so it never
     # falls through.  y-major goes south, x-major north; both rows are free east
     # of the serpentine, so the block costs columns, not rows.
-    g.put(*C(BX, k), "X")
-    g.put(*C(BX, k - 1), ">")
-    for i, t in enumerate(px):
-        g.put(*C(BX + 1 + i, k - 1), t[0])
-    for c in range(BX + 1 + len(px), MC):
-        g.put(*C(c, k - 1), ".")
-    g.put(*C(MC, k - 1), "v")
-    g.put(*C(MC, k), ".")
-    g.put(*C(BX, k + 1), ">")
-    for i, t in enumerate(py):
-        g.put(*C(BX + 1 + i, k + 1), t[0])
-    for c in range(BX + 1 + len(py), MC):
-        g.put(*C(c, k + 1), ".")
-    g.put(*C(MC, k + 1), "v")                    # merge
-    g.put(*C(MC, k + 2), "<")
-    for c in range(IW - 1, MC):
-        g.put(*C(c, k + 2), ".")
+    # `X` turns CW on A > 0 and CCW on A < 0, so the two octants leave the branch
+    # cell on opposite sides -- north/south of an EASTWARD row k, and (mirrored)
+    # south/north of a WESTWARD one.  Letting k be odd is what balances the PRE
+    # and TAIL row counts; the block just moves to the other side, costing the
+    # same 16 columns and no rows.
+    step = 1 if east else -1
+    bx0 = BX if east else -1
+    mce = bx0 + step * (max(len(px), len(py)) + 1)
+    up, dn = (px, py) if east else (py, px)      # row k-1 gets `up`
+    g.put(*C(bx0, k), "X")
+    for row, seg in ((k - 1, up), (k + 1, dn)):
+        g.put(*C(bx0, row), ">" if east else "<")
+        for i, t in enumerate(seg):
+            g.put(*C(bx0 + step * (1 + i), row), t[0])
+        for c in range(len(seg) + 1, max(len(px), len(py)) + 1):
+            g.put(*C(bx0 + step * c, row), ".")
+    g.put(*C(mce, k - 1), "v")
+    g.put(*C(mce, k), ".")
+    g.put(*C(mce, k + 1), "v")                   # merge
+    g.put(*C(mce, k + 2), "<" if east else ">")
+    lo, hi = (IW - 1, mce) if east else (mce + 1, 2)
+    for c in range(lo, hi):
+        if g.p.get(*C(c, k + 2)) == " ":
+            g.put(*C(c, k + 2), ".")
 
     # ---------------- tail row, ramp ring, return ----------------
     R = L + 1
-    g.put(*C(IW - 1, R), "<")
-    g.row(*C(IW - 2, R), "".join(t[0] for t in tail_fin), -1)
-    g.put(*C(IW - 6, R), "v")
-    g.put(*C(IW - 6, R + 1), ">")
-    g.put(*C(IW - 5, R + 1), "v")
-    rrx, rry = IW - 5, R + 2
-    lay_ring(g, *C(rrx, rry), 3, 3, [">", "s", "v", "m", "d", "+", "^", "."])
-    g.put(*C(rrx + 2, rry + 3), "0")
-    g.put(*C(rrx + 2, rry + 4), "s")
-    g.put(*C(rrx + 2, rry + 5), "<")
-    for c in range(1, rrx + 2):
-        g.put(*C(c, rry + 5), ".")
-    g.put(*C(0, rry + 5), "^")
-    for j in range(1, rry + 5):
+    # The ramp ring follows the tail row to whichever side it ends on -- padding
+    # the tail row across the serpentine to reach a fixed ring column cost 30
+    # ticks a round, more than the row it saved.
+    fin = "".join(t[0] for t in tail_fin)
+    if dirs[L] == "E":
+        g.put(*C(IW - 1, R), "<")
+        g.row(*C(IW - 2, R), fin, -1)
+        rrx = IW - 2 - len(fin) - 1
+    else:                                        # last row headed west
+        g.put(*C(1, R), ">")
+        g.row(*C(2, R), fin)
+        rrx = 2 + len(fin)
+    # Ramp ring: 4x4, TWO pixels per lap.  A pixel needs three edge cells
+    # (s, m, +) and one turning test (`d`), and a rectangle has four corners, so
+    # two `d`s fit -- 12 cells / 2 pixels = 6 ticks/pixel instead of 8.  Both
+    # `d`s exit when BP hits 0, one east and one west, so the two exits merge on
+    # the row below before the `0 ; s` sentinel.
+    g.put(*C(rrx, R), "v")
+    g.put(*C(rrx, R + 1), ".")
+    rry = R + 2
+    lay_ring(g, *C(rrx, rry), 4, 4,
+             [">", "s", "m", "d", "+", ".", "<", "s", "m", "d", "+", "."])
+    ret = rry + 4
+    g.put(*C(rrx + 4, rry), "v")                 # east exit
+    for j in range(rry + 1, ret):
+        g.put(*C(rrx + 4, j), ".")
+    g.put(*C(rrx + 4, ret), "<")
+    for c in range(rrx, rrx + 4):
+        g.put(*C(c, ret), ".")
+    g.put(*C(rrx - 1, rry + 3), "v")             # west exit
+    g.put(*C(rrx - 1, ret), "<")                 # merge
+    g.put(*C(rrx - 2, ret), "0")
+    g.put(*C(rrx - 3, ret), "s")
+    for c in range(1, rrx - 3):
+        g.put(*C(c, ret), ".")
+    g.put(*C(0, ret), "^")
+    for j in range(1, ret):
         g.put(*C(0, j), ".")
 
     # ---------------- display + plot chain -------------------------------

@@ -1,0 +1,10 @@
+{
+  "casesPassed": 20,
+  "casesTotal": 20,
+  "score": 39133864.4,
+  "slug": "matmul",
+  "source": ".claude/worktrees/mm-dense/solutions/matmul/matmul-dense1.man",
+  "status": "done",
+  "submissionId": "84cd4407-ce19-4c04-91be-5b69a3309eed",
+  "submittedAt": "2026-07-27T05:43:58Z"
+}

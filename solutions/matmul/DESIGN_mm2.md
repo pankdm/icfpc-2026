@@ -161,3 +161,74 @@ east edge set by the two lanes clearing the output room:
 
 Balance needs `h = w + 3`, and `15 x 18` is the only integer solution — hence 61x61.
 Going below needs fewer CELLS (8-bit packing of the two channels), not better routing.
+
+
+## P=2 (two MAC engines) — what is solved, and the wall it hits (2026-07-27)
+
+Work lives in `scratchpad/mmpar/`.  Two of the three named blockers are BUILT and
+MEASURED PASSING; the third turned out not to be the real problem.
+
+### SOLVED: the ordered two-stream merge and the A-queue split
+`scratchpad/mmpar/t_merge.py` builds a standalone rig
+`I -> DIST -> {ADMX, MCTLA, MCTLC} -> (two streams) -> MRG -> O` and checks that
+what comes out is the input **in order**.  All pass on the Rust engine:
+
+    N,Q = 3,2 | 1,3 | 4,1 | 5,4 | 2,1 | 1,1 | 7,3 | 6,2 | 16,16 | 15,16 | 1,16 | 16,1 | 9,7
+
+i.e. **odd N, N=1, K=1 and full 16x16 all pass** — the generality risk the brief
+called out is retired.  The gadgets (`scratchpad/mmpar/prooms.py`):
+
+* **MCTL** — reads N,M,K, emits `+V,-V,+V,...` exactly N times (V = M or K).
+  The **parity of N is free**: after N negations the sign of A *is* N's parity,
+  so a `X` on the way out emits the odd-N pad token with no extra register.
+* **ADMX** — `r_CTL ; X` three-way: `A>0` east loop (block of |A| to stream 1),
+  `A<0` west loop (negate, block to stream 2), `A==0` pad loop (M zeros to
+  stream 2, taking M from the stashed B).  Verified: for odd N exactly M zeros
+  are left pending on stream 2; for even N none.
+* **MRG** — the same skeleton in reverse: K values from O1, K from O2, N times.
+  Two separate `r` cells bound to O1/O2 by nearest-pipe — **no `R`**, so the
+  "two pipes pending at once" hazard never arises.
+
+### THE REAL BLOCKER: pipes cannot cross, so the netlist must be PLANAR
+The row-split wiring in the brief is **not planar**.  Reduced (contract degree-2
+rooms), `{SPL, engine1, engine2} x {ADMX, BREL, MRG}` is a **K(3,3) minor**, so no
+router can ever place it.  Measured: `scratchpad/mmpar/router2.py`'s PathFinder
+negotiated-congestion router stalls at 700–1100 permanently contended cells and
+never converges; targeted rip-up gets to 9/28 nets and cycles forever; plain
+BFS+halo with 400 random net orders never routed even an 11-net rig.
+
+Two independent fixes make it planar (both implemented in
+`scratchpad/mmpar/build_p2.py` / `p3rooms.py`):
+1. **One B ring per engine** (a `BDUP` room `S`-relays B to both BRELs) instead of
+   chaining B through `MUL1 -> MUL2`.  This deletes the E1–E2 edge *and* the
+   deadlock coupling — an idle engine can no longer stall the other's ring, so
+   the phantom-row padding is only needed to keep N2 >= 1.
+2. **Move the N,M,K fan-out off SPL** onto the room that is already downstream of
+   it, so SPL has out-degree 2.
+
+### AND THEN: the champion engine cannot be reused as a black box
+The obvious P=2 (two *whole* dense matmuls + splitter + merger, each solving a
+smaller N) is blocked by geometry, not logic: with the I/O rooms removed,
+**both ports of `build_dense` are sealed inside the fold**.  Measured by
+`scratchpad/mmpar/reach.py` / `reach2.py` — free-cell flood fill (with the 1-cell
+halo a pipe needs) from `SPL.IN` reaches 99 cells and from `ACC.OUT` only **14**,
+and *neither escapes the block* for any of 48 `DX x DY x PPX x CTLX` variants
+(including the unfolded 60x61).  ACC's OUT sits in a pocket walled by the PP
+corridor (north + east) and ACC's own PP row (south); the `O` room is a pendant
+inside that pocket, which is why the champion works and a port does not.
+
+### THE WAY THROUGH (not yet built): re-pick the room PORTS
+`scratchpad/mmpar/accports.py` and `ports2.py` enumerate every nearest-pipe-legal
+attachment set.  **ACC's ports are far more flexible than mm2rooms' defaults** —
+OUT is legal on T (39 sets), B (38), L (2) as well as R (70), and PP is legal on
+T and B, not only R.  A planar assignment exists, e.g.
+
+    ACC:  CF=L@7  OUT=B@9   CR=T@4  CTL=T@3  PP=T@9
+    MUL:  BF=B@1  PP=B@6    AR=L@1  BR=L@2
+    SPL:  AP=L@1  SD=R@1
+
+with MUL north of ACC (PP drops straight down — **no wrap**), CREL/PCNT
+north-west, and OUT leaving ACC's *south* wall unobstructed.  With that port set
+the engine has an external output and the whole P=2 becomes routable.  The
+remaining work is the placement/route, not the logic: every room, both control
+generators, the demux and the merge are already written and unit-passing.

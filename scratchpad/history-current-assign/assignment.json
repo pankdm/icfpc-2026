@@ -1,0 +1,57 @@
+{
+  "proxy": [
+    75,
+    221,
+    3877,
+    54,
+    [
+      17,
+      2,
+      7,
+      11,
+      15,
+      2
+    ],
+    [
+      1,
+      5
+    ]
+  ],
+  "low": [
+    ", USA",
+    "en",
+    "an",
+    "er",
+    " \"",
+    "t ",
+    "al",
+    "on",
+    "ti",
+    "and ",
+    "in",
+    "es",
+    "\" (",
+    "or",
+    "e "
+  ],
+  "pairs": [
+    "trios Vy",
+    "ell",
+    "ed ",
+    "David ",
+    "1",
+    "Haskell",
+    "burg",
+    "Sim",
+    "'",
+    " program",
+    " of ",
+    "6",
+    "igh",
+    " Peyt",
+    "bstrac"
+  ],
+  "rows": 63,
+  "chunks": 271,
+  "max_used": 79
+}

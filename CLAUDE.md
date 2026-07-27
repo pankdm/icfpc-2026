@@ -59,10 +59,23 @@ harness cannot give you.
 
 **A Rust pass on the public cases is good enough to SUBMIT.** `node sim/difftest.js` compares
 the two engines step-by-step (runner states, pipe contents, output, end reason, parsed topology)
-and as of 2026-07-26 reports **61 passed, 0 failed** — including `fork-into-wall(copy)`, the
-fixture the old note called a known divergence (it is FIXED; the note was stale), and seven
-literal fixtures added with the fix below. Since submitting never lowers a score, the cost of a
-rare false pass is one submission slot (max 5 pending), not points. Prefer the oracle as a final
+and reports **61 passed, 0 failed** (re-verified 2026-07-27 after the `U` fix below).
+
+**REBUILD BEFORE YOU TRUST IT — a stale `lm` is the most expensive trap here.** Measured
+2026-07-27: `interp/target/release/lm` was 3.5 hours older than `interp/src/lib.rs`, so every
+`grade_fast` run that day executed an engine predating the literal fix. It presented as four
+difftest failures (`lit-cross-h-digit`, `lit-cross-v-digit`, `lit-two-rooms-same-row`,
+`lit-junk-in-col`) and led to a wrong entry in this very file claiming difftest was 57/61.
+`cargo build --release --manifest-path interp/Cargo.toml` first, every session.
+
+**`U`'s turn is the pipe's END ARROWHEAD, not its last in-path step** (fixed; `pipe_flow_dir`).
+They differ whenever a pipe TURNS on its final cell -- a 2-cell L dropping from a bottom wall
+and then pointing east has last-step *south* but arrowhead *east*. With the old rule the LIVE
+brackets champion (server 97,719 at 26/26) scored **0/9 in Rust**, crashing `wall` at tick 10,
+while the oracle passed 9/9; it now scores 9/9 at 230.22 avgTicks, matching the oracle exactly.
+So when Rust rejects a program the oracle accepts, suspect the ENGINE, not the program --
+re-check with `node tools/grade.js` before discarding a candidate. Since submitting never
+lowers a score, the cost of a rare false pass is one submission slot (max 5 pending), not points. Prefer the oracle as a final
 check when it is cheap, but do NOT block on it: it OOMs outright on LLLM (`Go program has already
 exited`) and `sim/xray.js` on a single 2M-tick pathfinder case does not finish in 10 minutes.
 The risk the Rust engine does NOT cover is the same one the oracle misses — PRIVATE cases.
@@ -157,6 +170,34 @@ There are **no unsubmitted improvements** lying around. Two traps found doing it
   ("commit every live champion, including five that existed nowhere in git") is the recovery.
   The `-history`, `-gbreflow`, `-pfbits`, `icfpc-pathfinder-opt` worktrees each hold champions
   that are **not** in the others.
+- **`git fetch --all` BEFORE STARTING ANY PROBLEM, then search `git log --all`.** Measured
+  2026-07-26: `icfpc-2026-main` was three hours and six commits behind on Grade Book because
+  origin had never been fetched. `submissions.py --match` reported the live build as "NO local
+  `.man` of these dimensions" and a full-disk `find` for recent `.man` files returned nothing —
+  it looked like the champion existed only on the server. It did not; it was commit `089b211`
+  on `origin/dualhead-reopen`. **Teammates push to branches you do not have.** Checking the
+  local tree is not enough, and an unfetched worktree makes you redo work that already shipped.
+- **Compare a candidate against the score of the build it was DERIVED FROM**, never against the
+  problem's live score. Read the sidecar `.json` next to the archived submission. A 1.074x
+  Grade Book win read as a 12x private *regression* purely because it was measured against a
+  live champion three generations newer than its own input.
+
+### LLLM: the live champion is NOT in git (measured 2026-07-26 ~21:00Z)
+
+`tools/submissions.py` reports our live LLLM entry as **142x141, box 20,164, avgTicks
+311,616, score 6,283,423,104, rank 7/60**. That build exists in **no worktree and no
+`submitted/` archive** — every LLLM `.man` on this machine has a box of 41,209 or more,
+and the best archived submission JSON is `fa4fb613` (polish-203x200) at **22,459,642,837**.
+So a teammate submitted it from another machine. Two consequences:
+
+* **Do not use `polish-203x200.man` as the LLLM baseline.** It is the best build *in git*,
+  not the best build *on the board*, and the gap is 3.6x.
+* The local:server score ratio for LLLM is **~1.07** (measured on three submissions:
+  polish 2.03e10 -> 2.25e10, lane2 1.64e10 -> 1.75e10, lane3 1.42e10 -> 1.51e10). Earlier
+  notes claiming 0.309 were reading the board score against the wrong local file.
+
+To beat 6.28e9 on the server a build needs local box x avgTicks < ~5.9e9 — at the lane
+build's 292k ticks that is a box under 20,200, i.e. **142x142**.
 
 ### Measured dead ends (2026-07-26) — do not repeat these
 
@@ -183,6 +224,13 @@ There are **no unsubmitted improvements** lying around. Two traps found doing it
   4473 digit cells ≈ 14.9 kbit encode 2810 bytes (ratio 0.66) where gzip gets 1563 B — matching
   gzip would free ~700 cells and reach 76×76, which is the leader's box. **Lesson: "at its floor"
   findings are scoped to the generator that produced them, not to the problem.**
+- **LLLM: multiple men on one relay cycle.** A ring rotates no faster than its relay lap,
+  and the lap is six cells (four of the six are forced turns, so six is the floor for a
+  directed cycle carrying both an `r` and an `s`) — two thirds of LLLM's ticks were the
+  controller stalled on that. More men would fix it and cannot be built: a room admits one
+  `@` (a second is a load error), and forking with `Y` deadlocks because **walking into a
+  stalled man HALTS BOTH** (interp `move_phase`), which a six-cell cycle guarantees within
+  a few laps. The lever that did work was fewer rotations, not faster ones.
 - **Sudoku `multi2` is not the champion** (see trap above); autotune on it found DX 16→15
   (box 1764→1681) and `DX=14` reaches 40×40 but dies with `loaderror: pipe ends without
   reaching another room`.

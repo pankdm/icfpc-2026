@@ -1192,11 +1192,16 @@ impl World {
     }
 
     fn pipe_flow_dir(&self, pi: usize) -> Pt {
-        let p = &self.pipes[pi];
-        let n = p.path.len();
-        let end = p.path[n - 1];
-        let prev = p.path[n - 2];
-        (end.0 - prev.0, end.1 - prev.1)
+        // The END ARROWHEAD, not the last step inside the path. These differ whenever a pipe
+        // TURNS on its final cell (e.g. a 2-cell L that drops from a room's bottom wall and
+        // then points east into another room's side wall): the last step is south, the
+        // arrowhead is east. Verified against the reference oracle -- computing it from
+        // `path[n-1] - path[n-2]` made `U` face the wrong way and deadlocked a relay room the
+        // oracle ran fine. It also made the LIVE brackets champion (server 97,719 at 26/26)
+        // crash `wall` at tick 10 on 0 of 9 public cases while the oracle passed 9/9.
+        // Original fix by vlad, 02e7e25 on origin/dualhead-reopen.
+        let end = self.pipes[pi].path[self.pipes[pi].path.len() - 1];
+        arrow_dir(self.at(end.0, end.1))
     }
 
     fn op_count(&mut self, i: usize) {

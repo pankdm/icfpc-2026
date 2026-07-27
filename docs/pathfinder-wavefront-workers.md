@@ -155,6 +155,22 @@ The first two have nearly identical ticks but a 19.3% box difference.  This is
 not proof of their dimensions, but it is consistent with related lane
 architectures separated mainly by strip pitch and routing.
 
+The final-board leader later moved to `2,535,477,804.67`.  Of the plausible
+integer sides, 146 gives an essentially exact 18-case decomposition:
+
+```text
+146² × 118,947.1667 = 2,535,477,804.67
+18-case tick sum = 2,141,049
+```
+
+That still is not proof of its box, but the integer tick sum and the independent
+146-column fork-hall construction make it the strongest working target.  By
+comparison, the live per-cell build is 151×174 at 768,688 server ticks.  Even
+perfectly folding it to 152 square and removing every controller glide has only
+about a `1.31× × 1.7×` optimistic ceiling, far short of the `9.18×` score gap.
+Reflow is useful for rank, but reaching the leader requires the row-bitplane
+backend.
+
 ### Delete four parent accumulators per row
 
 Parent words are updated once per layer and queried once per path step in the

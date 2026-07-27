@@ -124,7 +124,7 @@ SWAP_ROWS = 2
 # Blank rows between CTRL's tail row and the top of the 4x4 ramp ring.  Pure
 # walking cells: the man leaves the tail row heading south and the ring's `>`
 # turns him east whether he lands on it after 1 nop or 0.
-SPACER = 1
+SPACER = 0      # 0 is the champion (plotter-swar7.man); 1 reproduces swar5
 
 
 def vfixed():
@@ -217,9 +217,11 @@ def build(geom=None):
     # left bound of each row: rows 1..k must clear the branch block
     # Rows 1..k-1 share a left bound (a westward row exits where the eastward
     # row under it enters), so raising it absorbs PRE slack two cells at a time
-    # -- slack left as trailing '.' would be walked every round.
+    # -- slack left as trailing '.' would be walked every round.  The divisor is
+    # the ROW COUNT k-1, not 2*(k-1): the pairing constrains which rows may move
+    # together, but each of those rows still gives up `bump` cells of its own.
     pre_min = (W - 3) + (k - 1) * (W - BW - 3) + (W - BW - 2)
-    bump = max(0, (pre_min - len(pre)) // (2 * max(1, k - 1)))
+    bump = max(0, (pre_min - len(pre)) // max(1, k - 1))
     lb = {0: 1}
     for j in range(1, k + 1):
         lb[j] = BW + 1 + (bump if j < k else 0)

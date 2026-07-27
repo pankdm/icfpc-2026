@@ -421,7 +421,9 @@ def check_setup(verbose=True, sample=None):
                     e = run(x0, y0, x1, y1)
                     # exactly what the grid does: CTRL emits the raw ramp,
                     # MOD reduces it mod Jc, ADDRM masks off the low 10 bits.
-                    P0, Ic, BP, (Jc,) = e.A, e.B, e.BP, tuple(e.sent)
+                    # CTRL now ships mind and 4096*maxL; MOD forms Jc = mind - q
+                    mind, q = e.sent
+                    P0, Ic, BP, Jc = e.A, e.B, e.BP, mind - q
                     got = [((P0 + k * Ic) % Jc) & 1023 for k in range(BP)]
                     want = reference(x0, y0, x1, y1)
                     if got != want:

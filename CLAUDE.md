@@ -399,6 +399,64 @@ cell is a turn, a branch or a pipe op, so the superoptimizer has nearly nothing 
 It is worth a 3-minute run on any problem where the box is finished and the gap is pure ticks,
 but do not expect it to rescue a dense grid.
 
+### Snake: what actually moved it, 60,925,830 → 42,578,556 (1.43x, 2026-07-27)
+
+Champion `solutions/snake/fold20-shrunk.man`, **64x65 box 4,225, avgTicks 6,882**, generator
+`solutions/snake/build_fold7.py` (defaults reproduce `fold19.man`; the champion is
+`fold20-shrunk` = a 3-knob variant plus `tools/shrink.py`). Ranked 8/69, 2.1x off the leader.
+
+**THE GATE IS THE FIRST THING TO BUILD, not the last.** A knob search gated on the 5 public
+cases reached 35.9M and failed **78 of 386** `scratchpad/snake_fuzz.py` cases — including
+`die-immediately-left`, a 3-round case. The public set exercises exactly ONE death arm.
+`scratchpad/snake2/mkstress.py` freezes a 154-case set (all four walls, both corners, grow-50,
+self-hit) and `search4.py` gates every candidate on the 53 cheapest of them; that costs 0.6s per
+candidate instead of 0.2s and is the difference between a real 1.43x and a broken one. Never
+gate a snake search on `publicTestData`.
+
+What each step was worth (all oracle 5/5 + fuzz 381/386, the same 5 >100-round out-of-spec
+cases the previous champion also fails):
+
+| step | box | ticks | local |
+|---|---|---|---|
+| fold11 (the build we started from) | 5,329 | 7,797 | 41,550,213 |
+| gated knob search + MIN_CAP 55→51 | 5,329 | 7,266 | 38,720,514 |
+| **guard-bit address**: one wall test, ring 8→7 | 5,041 | 6,966 | 35,113,590 |
+| DIR 4 arms→2, one-crossing NO EAT tail → CW 50→48 | 4,761 | 6,929 | 32,990,873 |
+| `tools/shrink.py` | 4,489 | 6,835 | 30,680,519 |
+| state relay room WEST → CW 46 | 4,225 | 6,882 | **29,078,140** |
+
+- **GUARD-BIT ADDRESS** (the one real algorithmic win). Carry the head a second time as
+  `P = 32*hy + hx`. A legal P has bit 4 clear and bits 5..8 = hy; hx=16 sets bit 4, hx=-1 fills
+  the low five bits, hy=16 sets bit 9, hy=-1 goes negative and every negative P in range has bit
+  9 set. So **`P' & 528 == 0` iff the move is legal** — one `X`, 12 tokens, replacing two
+  `b ] ] ] ] x` range tests (24 tokens, two branch groups), and it deletes dy/hy/dx/hx from the
+  state ring for dP/P/MASK. `&` leaves B, so P' survives the test for free.
+- **ROWS BUY WIDTH.** width = CW + 21 (18 display columns + 3 routing) and height had slack, so
+  every row cut let CW fall. That is why the DIR merge and the lane-crossing reorder paid: they
+  are pure row wins.
+- **`tools/shrink.py` IS WORTH 5-6% ON EVERY CANDIDATE, and it deletes COLUMNS.** 69x64 → 67x63.
+  Shrinking the eight best search candidates gave *identical* 67x63, so it is a property of the
+  emitter, not luck — but run it, always.
+- **The knob that mattered most could not be found by coordinate descent.** `ST_X0`/`ST_OUT`/
+  `ST_IN` are tied by an assert, so moving the state relay room west is a 3-knob move; it frees
+  the columns the body-ring boustrophedon needs and took CW 48 → 46. Sweep tied knobs as groups.
+- **MIN_CAP 55 → 51 is safe and is worth a column.** 100 rounds, round 1 is the start, every
+  growth costs a spawn round PLUS the tick that eats it ⇒ at most 49 growths ⇒ K ≤ 50, and EAT
+  pushes without popping so peak ring occupancy is exactly 50.
+
+Measured floors (scoped to `build_fold7.py`): **CW=45 is the gated width floor** (CW=44 builds
+but fails the stress gate; CW=47 with the old room placement produced no build in 40,000
+samples), and **66 is the pre-shrink height floor**, i.e. box 4,225. Two ideas killed:
+- **B=1 handoff** (blocks leave 1 in B so DISPATCH is `r:I -`): −2 ticks/round but +3 GRID
+  tokens across five blocks, and the extra rows pushed the box 4,761 → 4,900. On a
+  width-bound layout, grid tokens cost more than hot-path tokens.
+- **Driver protocol v2** (a `-2` sentinel so a tick sends tail+head and the driver supplies
+  black/green) takes NO EAT's tail 16 → 10 tokens — but the display consumes one ADDR per tick
+  whether or not a DATA is ready, so ADDR/DATA must stay interleaved, which needs two more
+  driver rows, and the driver sits ABOVE the display so **every driver row lengthens the SWAP
+  pipe**. That pipe's latency is on the critical path: rounds withhold input until the frame
+  commits, and the `r:I` stall is 8.7% of all ticks. Net zero.
+
 ### Measured dead ends (2026-07-26) — do not repeat these
 
 
@@ -416,8 +474,11 @@ but do not expect it to rescue a dense grid.
 - **Replica pipes have an ordering hazard**: `R` picks among ready incoming pipes in **reading
   order, not arrival order**, so equal-length replicas preserve send order only while at most one
   replica is ready — a guarantee that gets *weaker* as the layout compacts.
-- **Snake box is at its floor**: `code_x` ∈ {10,20,40,60} × `op_slack` ∈ {0,10,40,100} ×
-  `scalar_belts` × `cell_belts` all leave `ctrlH = 200` and best box 64,009 (= the champion).
+- ~~**Snake box is at its floor** (`code_x` × `op_slack` × belts all leave `ctrlH = 200`, box
+  64,009)~~ — **REFUTED 2026-07-27**, twice over. That sweep was of the `linked` generator; the
+  box has since gone 64,009 → 5,329 (`build_fold2_tuned`) → **4,225** (`build_fold7` +
+  `tools/shrink.py`), server 60,925,830 → **42,578,556**, rank 12/65 → 8/69. See "Snake: what
+  actually moved it" below.
 - ~~**History Lesson is at its layout floor** (83×83 exact)~~ — **REFUTED 2026-07-26.** That
   claim was about `build_ring.py` only, and a different construction beat it: a folded dispatcher
   plus variable-width feeder bands reach **82×82, box 6724** (`solutions/history-lesson/best/82x82.man`,

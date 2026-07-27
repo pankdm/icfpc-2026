@@ -41,7 +41,7 @@ def outside(allowed, box=(-24, -8, 60, 92)):
 AP_LEAD = row(5, 10, 11) + col(10, 2, 5) + [(9, 2)]
 AP_EXIT = [(9, 33)] + col(10, 33, 40) + row(40, 10, 11)
 BR_LEAD = col(-13, 56, 60) + row(60, -13, -1) + col(-1, 58, 60) + [(0, 58)]
-BR_EXIT = col(0, 73, 74) + row(74, 0, 20) + col(20, 52, 74) + row(52, 15, 20)
+BR_EXIT = col(0, 69, 70) + row(70, 0, 20) + col(20, 52, 70) + row(52, 15, 20)
 
 CORR = {
     'IN':  col(13, 0, 1),
@@ -60,7 +60,7 @@ CORR = {
 }
 
 
-def build(ap_rect=(9, 2, 10, 32, False), br_rect=(0, 58, 20, 16), verbose=False):
+def build(ap_rect=(9, 2, 10, 32, False), br_rect=(0, 58, 20, 12), verbose=False):
     rt = RT.Router()
     g = RGrid(rt)
     rt.add_input_room(12, -3)

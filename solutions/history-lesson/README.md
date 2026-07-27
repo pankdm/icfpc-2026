@@ -494,6 +494,81 @@ Measured, so they are not retried.
   bounce between `<` and `>`.  Every divmod loop needs a data-dependent exit,
   so neither UNPACK nor DECODER can be a 3-row room and the stack cannot be 7.
 
+### The width/height crossover, and the one number that matters
+
+The feeder DP costs **exactly one row per column removed** — measured content
+rows are 65, 64, 63, 62, 61 at W = 79, 80, 81, 82, 83 — and the tail below it is
+a constant 18 rows (2 feeder walls + 8 service band + 8 P1).  So
+
+```text
+height(W) = feeder(W) + 18        score = max(W, height(W))^2
+
+   W:       79     80     81     82     83
+   height:  83     82    [81]    80     79
+   score: 6889   6724   6561   6724   6889
+```
+
+The champion sits exactly on the diagonal where width equals height.  Because
+the slope is exactly −1, shifting W trades one dimension against the other 1:1
+and `max` can only stay or grow — 6,561 is the floor of the *layout*.  The only
+thing that moves the curve is the encoded size, and it converts at a fixed rate:
+**every ~150 feeder cells (~77 symbols) removed drops the whole curve one row,
+and two rows buys one unit of box side.**
+
+### The unlock: 25 symbol values are being wasted
+
+`tokenize` maps a byte to symbol `b − 31`, and DISP's classifier reads
+`v <= 16` as a dictionary reference and anything above as a literal byte.  But
+only 66 of the 91 symbol values correspond to a byte that actually occurs in
+the text.  The other **25 are dead** — and today only the 9 inside `1..16`
+(`SMALL_FREE`) are recycled as dictionary slots.  The dead values fall in ten
+contiguous runs:
+
+```text
+(2) (4-7) (11-12) (16-17) (19-22) (29-31) (33) (58) (60-65) (82)
+```
+
+Recycling more of them is nearly free.  A promoted entry is *already in the
+ring*, so its P1 cost is unchanged; it just stops costing `ESC, position`
+(2 symbols) per reference and costs 1.  Each extra range test in DISP's
+classifier buys a whole run.  Measured, with `byte = v + 31` left completely
+alone and only DISP's classifier changed (`scratchpad/history-dict/ranges.py`):
+
+| extra runs recycled | direct | escaped | symbols | feeder | P1 | height | box |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| none (today) | 9 | 19 | 2042 | 64 | 6 | 82 | 6,724 |
+| `19-22` | 13 | 16 | 1980 | 62 | 7 | 81 | 6,561 |
+| `19-22`, `60-65` | 19 | 12 | 1926 | **60** | 6 | **78** | **6,400** |
+| + `4-7` | 23 | 9 | 1908 | 60 | 6 | 78 | 6,400 |
+
+The full width frontier for that 1,926-symbol encoding
+(`scratchpad/history-dict/frontier.py`):
+
+| W | feeder | P1 | height | box |
+| ---: | ---: | ---: | ---: | ---: |
+| 81 | 60 | 6 | 78 | 6,561 |
+| **80** | 60 | 6 | **78** | **6,400** |
+| 79 | 61 | 7 | 80 | 6,400 |
+| 78 | 62 | 7 | 81 | 6,561 |
+
+W=80 is the target and it lands at height 78 — **two rows of slack**, which is
+the budget for whatever the classifier change costs.  W=79 does not go further
+because P1's width cap tightens (`sum(TB) + 3*nB <= 72`) and pushes its table
+from 6 rows to 7.
+
+Two notes for whoever implements it.
+
+- The `19-22` run is reachable *without* a second test: DISP computes `A = v−17`
+  and treats `A == 0` as a fatal reserved value.  Raising the threshold to 23
+  makes `1..22` the direct range, turns symbols 17 and 18 into ordinary ring
+  slots (so `'0'` no longer needs `STOLEN`), and the `A == 0` branch merges into
+  the literal-byte path instead of crashing.  But `19-22` alone only reaches
+  6,561 — the `60-65` run is what buys 6,400, and that one does need a real
+  range test on the byte path.
+- Ring positions must stay contiguous, since a lookup rotates `position − 1`
+  times.  Symbols `19-22` and `60-65` therefore need an offset added before `b`
+  (`BP = v − 2` and `BP = v − 39` for the position layout above).
+
 ### What the remaining gap actually is
 
 It is a *packing* loss, not a compression loss.  At W=80 the feeder's 64 rows

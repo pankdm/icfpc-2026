@@ -292,6 +292,26 @@ Two blockers, both real:
   op rows averaged 20 ops over a 101-column span inside a 387-column room. Re-measure on the new
   build before designing.
 
+### LLLM is the OPPOSITE of LLM — density alone will NOT get there (2026-07-27)
+
+Champion `solutions/little-little-little-man/live-8e907387.man`, **142x141**, box 20,164,
+server 6,283,423,104 at 21/21, avgTicks 311,616, 5,952 content cells = **29.7% density**.
+
+It is already square and already 5x denser than LLM's 6.0%, so there is far less air to
+reclaim. Repacking at our CURRENT tick count:
+
+    60% density ->  99x99  -> 3.05e9      leader is 926,759,894 -- still 3.3x off
+    50% density -> 109x109 -> 3.70e9
+    40% density -> 121x121 -> 4.56e9
+
+So unlike LLM (where 40% density alone ties the leader), **LLLM needs BOTH ~60% density AND
+~3x on ticks**. Leader box is ambiguous — candidate sides 29/58/87/174 — but 58x58 (box 3,364,
+ticks 275,493) fits the board-wide pattern best: a large box gap with a tick gap near 1.
+174x174 can be dismissed; it would mean they out-compute us 10x, which no other problem shows.
+
+**Priority: LLM before LLLM.** LLM is worth 0.16 and is a pure packing problem with our ticks
+already ahead; LLLM is worth 0.12 and needs a tick breakthrough on top of a packing one.
+
 ### Brackets is at BOTH fixpoints — stop optimising it (2026-07-27)
 
 15x15, box 225, 86.2% density, server 97,719 at 26/26, 1.8x off the leader. Two independent

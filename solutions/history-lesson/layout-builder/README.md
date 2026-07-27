@@ -91,15 +91,18 @@ The occurrence-ordered catalog cannot fit all independent rooms in 80×80.
 The separate `dictionary_words_layout_gain.json` catalog instead prioritizes
 estimated feeder-cell saving minus literal-table cost. With 52 words, a
 second experimental remap converts the selected feeder stream to base-64:
-the 2,117 source symbols become 2,210 codes, but ten base-64 codes fit in a
-signed literal. The exact regenerated feeder is therefore 80×64.
+the 2,117 source symbols become 2,160 codes, but ten base-64 codes fit in a
+signed literal. The exact regenerated feeder is therefore 80×64. The remap
+uses two contiguous arithmetic ranges (raw 34..52 and 66..90), not an
+arbitrary lookup table, so its eventual unmapper only needs comparisons and
+addition.
 
 Build the resulting pipe-free geometry with:
 
 ```bash
 python3 solutions/history-lesson/layout-builder/build.py \
   --feeder-width 80 \
-  --dictionary-width 56 \
+  --dictionary-width 55 \
   --dictionary-words 52 \
   --dictionary-catalog \
     solutions/history-lesson/layout-builder/dictionary_words_layout_gain.json \
@@ -107,19 +110,39 @@ python3 solutions/history-lesson/layout-builder/build.py \
   --fold-tail
 ```
 
-This produces `layout-f80-d56-n52-folded-base64.man`, exactly 80×80:
+This produces `layout-f80-d55-n52-folded-base64.man`, exactly 80×80:
 
 - feeder: 80×64;
-- dictionary: 56×16;
-- service strip: 24×16;
-- the strip includes the compact dispatcher, decoder, unpacker, output, and a
-  reserved 21×5 unmapper room.
+- dictionary: 55×16;
+- service strip: 25×16;
+- the strip includes base-64 decoder and unpack rooms, the output room, and a
+  reserved 21×10 combined unmapper/dispatcher room;
+- columns 55..58 and rows 74..75 form explicit routing lanes.
 
-This file is a geometry prototype, not a runnable solution. The unmapper room
+This file is a geometry prototype, not a runnable solution. The combined room
 currently contains only `@H`, and pipe routing is deliberately rejected for
 `--compact-alphabet`. A functional version must replace that placeholder with
-the base-64-to-protocol decoder and route the six existing links plus the new
-decoder-to-unmapper link without leaving the 80×80 box.
+the compact-code classifier plus dictionary-ring machinery and route the six
+remaining links without leaving the 80×80 box.
+
+`sweep_compact_words.py --words 42-60` confirms that 52 is the sharp
+55-column optimum. Budgets 42..44 need 64 feeder data rows, 45..50 need 63,
+and 53..56 need an eighth dictionary band. Budgets 58 and 60 finally reach
+61 feeder rows, but their eight-band dictionaries are 18 rows high, so the
+stack is still 81 rows. The 52-word point is the only tested combination with
+62 feeder rows and a 16-row dictionary.
+
+The integration geometry merges the arithmetic unmapper with DISP in a 21×10
+room and leaves DECODER and UNPACK as separate bottom-row rooms. The output
+occupies the top of the four-column corridor. Merging removes the
+unmapper-to-DISP pipe; two full horizontal routing rows above the bottom
+rooms ensure that decoder pipes have the required length and can turn before
+entering the combined room.
+
+A forced single-character dictionary prototype does remove the raw prefix,
+but it is not competitive: its 18 identity entries displace too many phrases,
+growing the source stream to 2,356 symbols and the feeder to 68 rows. It was
+discarded; the two affine ranges plus a rare raw prefix remain smaller.
 
 Dictionary constants are packed by nested dynamic programs. The outer DP
 chooses how many sequential constants belong to each paired band. For every

@@ -30,11 +30,12 @@ import build_e1 as E                         # noqa: E402
 # a short local hop instead of a 900-cell traversal; MRG sits right of both
 # engines, collecting O1 from above and O2 from the left; the glue column stays
 # left of the FEs. Engines are 268x286, so the two FEs must be ~350 apart in y.
-E1 = (605, 311)      # engine 1 origin: bbox x[590,857] y[211,496]
-E2 = (605, 661)      # engine 2 origin: bbox x[590,857] y[561,846]
-GPOS = dict(I=(400, 460), BC=(430, 460), ADMX=(430, 400), BDUP=(430, 510),
-            MCTLA=(470, 400), MCTLC=(470, 520),
-            FE1=(560, 300), FE2=(560, 650), MRG=(880, 480), O=(910, 486))
+import os
+E1 = (0, 0)
+E2 = (0, int(os.environ.get('EY', '900')))
+GPOS = dict(I=(500, 420), BC=(430, 420), ADMX=(430, 360), BDUP=(430, 470),
+            MCTLA=(470, 360), MCTLC=(620, 360),
+            FE1=(560, 300), FE2=(560, 500), MRG=(760, 340), O=(800, 346))
 
 g = Grid()
 e1, in1, out1 = E.engine(g, *E1, io=False)
@@ -109,6 +110,9 @@ def bfs(src, dst, blocked):
     return None
 
 
+ORDER = os.environ.get('ORDER', 'long')
+if ORDER == 'long':
+    NETS.sort(key=lambda n: -(abs(n[1][0]-n[2][0]) + abs(n[1][1]-n[2][1])))
 ok = 0
 for name, s, d in NETS:
     p = bfs(s, d, blocked)

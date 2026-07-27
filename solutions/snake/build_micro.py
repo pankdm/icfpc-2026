@@ -327,8 +327,10 @@ def _lit(v):
 
 def build(save_to=None, CBOT=100, CW=40, CY0=16,
           BD_OUT=2, BD_IN=4, ST_OUT=16, ST_IN=18, IN_IN=34, DRV_OUT=36,
-          BODY_X=7, BODY_Y=13, BODY_R=10, RELAY_Y=4, DRVX=42, DISX=53,
+          BODY_X=7, BODY_Y=13, BODY_R=10, RELAY_Y=4, DRVX=None, DISX=None,
           BRX=12, BRE=26, LOOPX=9, LOOPM=7, LOOPR=5):
+    DRVX = CW + 2 if DRVX is None else DRVX
+    DISX = DRVX + 11 if DISX is None else DISX
     g = geometry(CY0=CY0, CW=CW, CBOT=CBOT, BD_OUT=BD_OUT, BD_IN=BD_IN,
                  ST_OUT=ST_OUT, ST_IN=ST_IN, IN_IN=IN_IN, DRV_OUT=DRV_OUT)
     win = lane_windows(g)
@@ -385,15 +387,18 @@ def build(save_to=None, CBOT=100, CW=40, CY0=16,
     E = Emit(L, g, win, FORBID, wrapcols=(WRAP_W, WRAP_E))
     R = Rows(g["IYLO"])
 
-    def block(hw=None):
-        """Enter a block straight off the highway: the turn-off IS the first op row."""
+    def block(hw):
+        """Enter a block straight off the highway: the turn-off IS the first op row.
+
+        Turn TOWARDS the state lane, so the first `r:S` lands on this very row
+        instead of costing a wrap."""
         y_ops = R.take()
-        if hw is not None:
+        if hw < win["S"][0]:
+            L.put(hw, y_ops, ">")
+            E.at(hw + 1, y_ops, "E")
+        else:
             L.put(hw, y_ops, "<")
             E.at(hw - 1, y_ops, "W")
-        else:
-            L.put(3, y_ops, ">")
-            E.at(4, y_ops, "E")
         return y_ops
 
     def endblock():
@@ -416,8 +421,14 @@ def build(save_to=None, CBOT=100, CW=40, CY0=16,
         raise RuntimeError("cannot face column %d heading %s" % (col, d))
 
     def goto(col, ch="v"):
-        face(col, "E")
-        glide(E, col)
+        ahead = (E.d == "E" and E.x <= col) or (E.d == "W" and E.x >= col)
+        step = 1 if E.d == "E" else -1
+        if ahead and all(_blank(L, x, E.y)
+                         for x in range(E.x, col + step, step)):
+            glide(E, col)                  # already pointing at it: no wrap
+        else:
+            face(col, "E")
+            glide(E, col)
         L.put(col, E.y, ch)
 
     def ret_dispatch():
@@ -435,19 +446,33 @@ def build(save_to=None, CBOT=100, CW=40, CY0=16,
         R.y = max(R.y, E.y + 1)
         return R.take(n)
 
-    def branch(ch, bx, arrive, head="W"):
-        """Fresh 3-row group; place `ch` at (bx, yb) with the man heading `head`."""
+    def branch(ch, bx, arrive, head="W", up_to=None):
+        """Place `ch` at (bx, yb) with the man heading `head`; return the 3 rows.
+
+        A branch needs three rows (arm, branch, arm).  When the arm that goes UP
+        can be drawn on the block's own last OP row -- its columns are free
+        there, which is the common case because ops cluster in the state lane and
+        the arms run out to the highways -- the group costs only ONE new row
+        instead of three.  Falls back to the 3-row form otherwise."""
         face(arrive, "E")
-        yprev = rows(); yb = R.take(); ynext = R.take()
+        y_ops = E.y
+        lo, hi = (min(bx, up_to), max(bx, up_to)) if up_to is not None else (0, -1)
+        tight = (up_to is not None and R.y <= y_ops + 1
+                 and all(_blank(L, x, y_ops) for x in range(lo, hi + 1)))
+        if tight:
+            yb = y_ops + 1
+            R.y = max(R.y, yb + 2)
+        else:
+            rows(); yb = R.take(); R.take()
         vjump(E, arrive, yb, head)
         glide(E, bx)
         L.put(bx, yb, ch)
-        return yprev, yb, ynext
+        return yb - 1, yb, yb + 1
 
     # ═══ DISPATCH (first: every block returns UP to it) ══════════════════
     block(HW_RET)
     E.seq(["1", "M", "r:I", "-"])
-    _, yb, _ = branch("X", 28, 36, "W")
+    _, yb, _ = branch("X", 28, 36, "W", up_to=HW_DIR)
     yextra = rows()
     arm(28, yb + 1, HW_TICK)       # A<0  (op 0)  -> tick
     arm(28, yb - 1, HW_DIR)        # A>0  (op>1)  -> direction
@@ -481,17 +506,17 @@ def build(save_to=None, CBOT=100, CW=40, CY0=16,
     # ═══ TICK ════════════════════════════════════════════════════════════
     block(HW_TICK)
     E.seq(["r:S", "s:S", "M", "r:S", "+", "s:S", "b", "]", "]", "]", "]"])
-    _, yb, _ = branch("x", BRX, BRE, "W")
+    _, yb, _ = branch("x", BRX, BRE, "W", up_to=D_HY)
     arm(BRX, yb - 1, D_HY)                                    # out of range -> death
     L.put(BRX, yb + 1, ">"); E.at(BRX + 1, yb + 1, "E")       # in range -> carry on
 
     E.seq(["r:S", "s:S", "M", "r:S", "+", "s:S", "b", "]", "]", "]", "]"])
-    _, yb, _ = branch("x", BRX, BRE, "W")
+    _, yb, _ = branch("x", BRX, BRE, "W", up_to=D_HX)
     arm(BRX, yb - 1, D_HX)
     L.put(BRX, yb + 1, ">"); E.at(BRX + 1, yb + 1, "E")
 
     E.seq(["r:S", "s:S", "M", "r:S", "+", "s:S", "M", "r:S", "W", "~"])
-    _, yb, _ = branch("X", BRE, BRX, "E")
+    _, yb, _ = branch("X", BRE, BRX, "E", up_to=D_NOEAT)
     arm(BRE, yb - 1, D_NOEAT)      # A>0  -> no eat
     arm(BRE, yb + 1, D_NOEAT)      # A<0  -> no eat (merges)
     L.put(D_EAT, yb, "v")          # A==0 -> eat (straight on, heading east)
@@ -574,7 +599,7 @@ def build(save_to=None, CBOT=100, CW=40, CY0=16,
     # ═══ DIR ═════════════════════════════════════════════════════════════
     block(HW_DIR)
     E.seq(["b"])                                     # BP = op-1 (1..4)
-    _, yb1, _ = branch("x", BRX, BRE, "W")
+    _, yb1, _ = branch("x", BRX, BRE, "W", up_to=20)
     arm_entry = {}
     for bit0, dy in ((1, -1), (0, +1)):              # bit set -> N, clear -> S
         col = 20 if bit0 else 24

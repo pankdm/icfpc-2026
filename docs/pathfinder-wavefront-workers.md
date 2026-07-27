@@ -616,12 +616,26 @@ count 24, mean 15.83, min 1, max 49
 
 Stopping when the reverse wavefront first contains the robot therefore has a
 public-case ceiling near `64 / 15.83 = 4.04x`, before any walking improvement.
-This is more valuable than shaving the demux lap or its 22 rows.  The next
-composition should keep one target mask per row, test each new frontier in
-parallel, and latch the first non-zero hit until the lane-15 sweep barrier;
-then query parents and reconstruct.  A completion token may arrive mid-sweep,
-so stopping immediately is unsafe—the existing final-pair drain remains the
-correct barrier.
+This is more valuable than shaving the demux lap or its 22 rows.
+
+`scratchpad/pathfinder_target_hit.py` proves the persistent primitive
+independently on both engines.  Its 9×10 B register accepts target replacement,
+frontier test, and clear packets; the mixed trace takes 113 ticks.  Sixteen
+copies would work, but a cheaper composition uses the canonical-order rule:
+
+1. Keep the sixteen target row masks in one FIFO ring.
+2. Use one currently blank controller glide cell per lane to send that lane's
+   frontier to a shared hit worker.
+3. Give the worker sixteen equal-length vertical input pipes.  Controller
+   sends are serial and about 48 ticks apart, while the worker cycle is under
+   ten cells, so only one input can be ready and `R` preserves row order.
+4. The hot worker loop is `R M r s & X`: receive frontier, receive and return
+   the next mask, test, and signal only on a non-zero hit.
+
+This retains the controller's cross-row B state and adds essentially one real
+operation per row.  A completion token may arrive mid-sweep, so stopping
+immediately is unsafe: latch it until lane 15 retires, then use the existing
+final-pair drain before parent queries and reconstruction.
 
 After early termination, the remaining throughput limiter is the shared
 controller sweep, about 1,250–1,300 ticks per layer.  A credible second

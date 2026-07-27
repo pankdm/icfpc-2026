@@ -347,32 +347,30 @@ def build():
     b.relay(8, -12)
     b.pipeC([(AR, -8), (AR, -1)], "S")
     # A feed: climb col 31, serp rows -37..-27 (cols 9..30), tail into west wall
-    afp = [(AF, -1), (AF, -2), (31, -2), (31, -37)]
-    afp += serp_pts((31, -37), 9, 30, -37, -27)[1:]
-    assert afp[-1] == (9, -27), afp[-1]
-    afp += [(7, -27), (7, -11)]
+    afp = [(AF, -1), (AF, -2), (45, -2), (45, -14)]
+    afp += serp_pts((45, -14), 9, 44, -14, -20)[1:]
+    assert afp[-1] == (9, -20), afp[-1]
+    afp += [(7, -20), (7, -11)]
     b.pipeC(afp, "E")                                     # -> west wall (8,-11)
 
     # b relay SOUTH-EAST (24,20..29,23)
     b.relay(24, BOT + 3)
     # hot feed bf@3: up col 2, across row -38 (above the A serp), down col 34,
     # under the room into the relay top (28,20).
-    b.pipeC([(BF, -1), (BF, -2), (2, -2), (2, -38), (34, -38), (34, 18),
+    b.pipeC([(BF, -1), (BF, -2), (2, -2), (2, -21), (46, -21), (46, 18),
              (28, 18), (28, 19)], "S")
     # bf2 (seed/marker feed, bottom@19): padded west zigzag (rows 19..33,
     # cols 15..18) so the ROWMARK cannot overtake the hot feed
     # (need len(bf2) > len(bf) - ~45), then into the west wall (24,21).
-    bf2p = [(BF2, BOT), (BF2, 19), (15, 19)]
-    bf2p += serp_pts((15, 20), 15, 19, 20, 32)
-    assert bf2p[-1] == (19, 32), bf2p[-1]
-    bf2p += [(23, 32), (23, 21)]
-    b.pipeC(bf2p, "E")                                    # -> west wall (24,21)
+    bf2p = [(BF2, BOT), (BF2, 18), (22, 18), (22, 29), (44, 29), (44, 27),
+            (24, 27), (24, 26), (43, 26), (43, 25), (26, 25), (26, 24)]
+    b.pipeC(bf2p, "N")                                    # -> bottom (26,23)
     # b return: exits the relay bottom (27,24), serp rows 34..44 (cols 8..30),
     # tail around the west side up to br@2 on the ctrl top wall.
-    brp = [(27, 24), (27, 34)]
-    brp += serp_pts((27, 34), 8, 30, 34, 44)[1:]
-    assert brp[-1] == (8, 44), brp[-1]
-    brp += [(8, 45), (-5, 45), (-5, -1), (BR, -1)]
+    brp = [(30, 21), (46, 21), (46, 30)]
+    brp += serp_pts((46, 30), 16, 45, 30, 38)[1:]
+    assert brp[-1] == (16, 38), brp[-1]
+    brp += [(16, 40), (-5, 40), (-5, -1), (BR, -1)]
     b.pipeC(brp, "S")                                     # -> ctrl top (2,0)
 
     # c relay far SOUTH (1,28..6,31): cf and cr are straight parallel columns
@@ -382,7 +380,7 @@ def build():
     # zeros keep priority over the first products.
     b.relay(1, BOT + 11)                                  # rows 28..31
     b.pipeC([(CF, BOT), (CF, BOT + 10)], "S")             # col 4 -> top (4,28)
-    b.pipeC([(CF2, BOT), (CF2, BOT + 16), (-1, BOT + 16), (-1, BOT + 10),
+    b.pipeC([(CF2, BOT), (CF2, BOT + 22), (-1, BOT + 22), (-1, BOT + 10),
              (2, BOT + 10)], "S")                         # -> top (2,28)
     b.pipeC([(5, BOT + 10), (5, BOT), (CR, BOT)], "N")    # col 5 -> ctrl (6,16)
 

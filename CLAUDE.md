@@ -257,6 +257,52 @@ Everything together is 736 -> ~667 rows, box 444,889, **1.21x**. Not worth a rew
 that matters is the WRAP row (289 of 688), and op rows average 20 ops over a 101-column span
 inside a 387-column room.
 
+### LLM: THE FOLD LOSES ON LATENCY — box is immovable at the grid level (2026-07-27)
+
+**This supersedes the 4.0x squaring plan below. Do not build it.** The plan was arithmetically
+sound on box and wrong on ticks.
+
+The deciding measurement, `lm --profile` room-0 glyph histogram on case 0 (1,892,707 ticks):
+`' ' 1,020,074 | 'r' 788,459 | 'M' 16,605 | 's' 15,521`. So the controller is
+**53.9% blank glide + 41.7% BLOCKED on `r` + ~4% real work**, doing only 15,521 sends and
+burning **~51 ticks of stall per transaction**.
+
+A horizontal fold forces slab B's replica ports 300-370 columns from the peripherals (X0>=368
+is forced -- any nearer and slab B's leftmost columns bind to slab A's port 315). That is
+**+600-740 ticks of round-trip latency per transaction**; even at half the transactions it adds
+~4.7M ticks to a 1.89M baseline. **A ~3.5x tick blowup to buy a 1.55x box cut: the fold loses by
+~2.3x.** The same arithmetic kills the balanced two-controller cut, which moves half the code
+away from the same peripherals. PIPE LENGTH IS LATENCY, and this program is latency-bound.
+
+(The replica protocol IS constructible, recorded so nobody re-derives it: OUT replicas via the
+destination switching `r`->`R`, or a 2-in/1-out merge room; the reply direction via a mux room
+using `U`, which turns away from the pipe that supplied the value, so it can distinguish
+"reply from peripheral" from "slab flag from controller". Sound, and still loses on latency.)
+
+**Everything else at the grid level is measured out:**
+- `--proved-only` (equiv-gated) yields ZERO **by construction**: it only accepts transforms that
+  preserve every man's path length exactly, and merging or deleting a line always changes one.
+  With 0 dead cells, 0 blank rows and 0 blank columns there is nothing left it can take.
+- Vertical row packing: **ZERO** consecutive row pairs have disjoint spans, so an order-preserving
+  merge cannot fire even once; the order-free bound is still 659/740 = 1.12x.
+- Relocatable blocks: the longest run holding no position-bound op (`s S r R q U`) is **13 rows**,
+  1.7% of the height.
+- Rooms 24/25 are each ONE 13x36 room with 16 wall pipes under an intra-room Voronoi -- not eight
+  stackable units. Ceiling 1.04-1.08x, and they cannot move into the free width because the
+  shortest connecting pipe is 17 cells (~15 columns of slack).
+- Deleting the 28 empty columns at x261..288 silently REBINDS ops at x247..260 from port 236 to
+  port 285, and buys zero box anyway since height binds.
+
+**And there is still no generator** -- decisively: the champion is a DIFFERENT ARCHITECTURE from
+every builder in the repo (25 men vs 6-7; `d`/`m`/`b` 46/46/34 vs 2/4/4 for BP-driven bank
+addressing; 24 `*`; 2 `S`; two 8-bank RAM ladders driven by 20 parked bank-cell men). Writing an
+emitter means re-deriving the whole banked-RAM interpreter from the grid -- days, to arrive back
+where we already are.
+
+Local baseline for anyone continuing: 14/14, box 628,849, avgTicks 4,693,220.5,
+local 2,951,327,018,204.5. A full `grade_fast --jobs 8` takes ~3 minutes, so grading is
+affordable here -- the equiv-only gate was never the constraint.
+
 ### LLM squaring: WIDTH IS FREE UP TO 793 — the two moves only pay TOGETHER (2026-07-27)
 
 Champion is 356x793: **height binds**, so width is free all the way to 793 and NARROWING THE

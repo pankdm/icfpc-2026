@@ -2,6 +2,8 @@
   "version": 2,
   "source": "../icfp-history.txt",
   "encoding": "raw ASCII bytes shifted by 31; no year mapping",
+  "selection_priority": "occurrences",
+  "table_weight": 1.0,
   "base": 92,
   "escape": 29,
   "minimum_words": 17,

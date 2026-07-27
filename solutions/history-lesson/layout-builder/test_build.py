@@ -100,6 +100,21 @@ class LayoutBuilderTest(unittest.TestCase):
         self.assertEqual(reordered_ring, ring)
         self.assertTrue(bands)
 
+    def test_compact_alphabet_uses_base64_codes_and_round_trips(self):
+        catalog = builder.raw_dictionary.load_catalog(
+            str(HERE / "dictionary_words_layout_gain.json")
+        )
+        symbols, _, _ = builder.raw_dictionary.build_encoding(
+            builder.vertical.base.TEXT,
+            52,
+            catalog,
+        )
+        codes, metadata = builder.compact_alphabet(symbols)
+        self.assertEqual(metadata["base"], 64)
+        self.assertEqual(metadata["source_symbols"], len(symbols))
+        self.assertEqual(metadata["encoded_codes"], len(codes))
+        self.assertTrue(all(1 <= code <= 63 for code in codes))
+
     def test_catalog_is_unique_and_residual_occurrence_ordered(self):
         catalog = builder.raw_dictionary.load_catalog()
         phrases = [

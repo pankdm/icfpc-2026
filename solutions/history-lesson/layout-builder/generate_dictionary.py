@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import math
 import os
+import argparse
 from collections import Counter
 
 
@@ -90,7 +91,13 @@ def candidates(stream, minimum_length: int):
     return found
 
 
-def choose_dictionary(data: bytes):
+def choose_dictionary(
+    data: bytes,
+    priority: str = "occurrences",
+    table_weight: float = 1.0,
+):
+    if priority not in {"occurrences", "layout-gain"}:
+        raise ValueError(f"unknown dictionary priority {priority!r}")
     stream = [byte - 31 for byte in data]
     # Bare 17 is reserved by DISP. Apostrophe (symbol 8) is displaced only
     # when budget >=18 so its direct slot can hold a phrase.
@@ -121,6 +128,10 @@ def choose_dictionary(data: bytes):
     # the residual stream after every choice before recounting candidates.
     for slot in DIRECT_PHRASE_SLOTS:
         if count_nonoverlap(stream, (slot,)):
+            if priority == "layout-gain":
+                # Some priorities do not consume comma before slot 13.
+                # Keep that direct identity instead of forcing an escape.
+                continue
             raise ValueError(
                 f"cannot repurpose direct slot {slot}: raw symbol remains"
             )
@@ -129,15 +140,27 @@ def choose_dictionary(data: bytes):
             word = bytes(token + 31 for token in pattern)
             table_cost = len(str(pack128(word))) + 3
             symbol_saving = (len(pattern) - 1) * occurrences
-            source_cell_gain = digit_weight * symbol_saving - table_cost
-            key = (
-                occurrences,
-                symbol_saving,
-                source_cell_gain,
-                -len(str(pack128(word))),
-                len(pattern),
-                word,
+            source_cell_gain = (
+                digit_weight * symbol_saving - table_weight * table_cost
             )
+            if priority == "occurrences":
+                key = (
+                    occurrences,
+                    symbol_saving,
+                    source_cell_gain,
+                    -len(str(pack128(word))),
+                    len(pattern),
+                    word,
+                )
+            else:
+                key = (
+                    source_cell_gain,
+                    symbol_saving,
+                    occurrences,
+                    -len(str(pack128(word))),
+                    len(pattern),
+                    word,
+                )
             if source_cell_gain > 0 and (best is None or key > best[0]):
                 best = (
                     key,
@@ -158,7 +181,11 @@ def choose_dictionary(data: bytes):
             "occurrences_at_selection": occurrences,
             "symbol_saving": symbol_saving,
             "source_cell_gain": round(source_cell_gain, 6),
-            "selection_basis": "highest residual occurrence count",
+            "selection_basis": (
+                "highest residual occurrence count"
+                if priority == "occurrences"
+                else "highest estimated source-layout gain"
+            ),
         })
         stream = replace_nonoverlap(stream, pattern, ("ref", slot))
 
@@ -174,15 +201,25 @@ def choose_dictionary(data: bytes):
                 continue
             word = bytes(token + 31 for token in pattern)
             table_cost = len(str(pack128(word))) + 3
-            source_cell_gain = digit_weight * saving - table_cost
-            key = (
-                occurrences,
-                saving,
-                source_cell_gain,
-                -len(str(pack128(word))),
-                len(pattern),
-                word,
-            )
+            source_cell_gain = digit_weight * saving - table_weight * table_cost
+            if priority == "occurrences":
+                key = (
+                    occurrences,
+                    saving,
+                    source_cell_gain,
+                    -len(str(pack128(word))),
+                    len(pattern),
+                    word,
+                )
+            else:
+                key = (
+                    source_cell_gain,
+                    saving,
+                    occurrences,
+                    -len(str(pack128(word))),
+                    len(pattern),
+                    word,
+                )
             if best is None or key > best[0]:
                 best = (
                     key,
@@ -204,7 +241,11 @@ def choose_dictionary(data: bytes):
             "occurrences_at_selection": occurrences,
             "symbol_saving": (len(pattern) - 2) * occurrences,
             "source_cell_gain": round(source_cell_gain, 6),
-            "selection_basis": "highest residual occurrence count",
+            "selection_basis": (
+                "highest residual occurrence count"
+                if priority == "occurrences"
+                else "highest estimated source-layout gain"
+            ),
         })
         stream = replace_nonoverlap(stream, pattern, ("ref", slot))
 
@@ -212,6 +253,8 @@ def choose_dictionary(data: bytes):
         "version": 2,
         "source": "../icfp-history.txt",
         "encoding": "raw ASCII bytes shifted by 31; no year mapping",
+        "selection_priority": priority,
+        "table_weight": table_weight,
         "base": B1,
         "escape": ESC,
         "minimum_words": 17,
@@ -221,15 +264,33 @@ def choose_dictionary(data: bytes):
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--priority",
+        choices=("occurrences", "layout-gain"),
+        default="occurrences",
+    )
+    parser.add_argument("--output", default=OUTPUT_PATH)
+    parser.add_argument(
+        "--table-weight",
+        type=float,
+        default=1.0,
+        help="literal-table cost multiplier used by layout-gain priority",
+    )
+    args = parser.parse_args()
     with open(TEXT_PATH, "rb") as source:
-        catalog = choose_dictionary(source.read())
-    with open(OUTPUT_PATH, "w", encoding="utf-8") as output:
+        catalog = choose_dictionary(
+            source.read(),
+            priority=args.priority,
+            table_weight=args.table_weight,
+        )
+    with open(args.output, "w", encoding="utf-8") as output:
         json.dump(catalog, output, indent=2, ensure_ascii=True)
         output.write("\n")
     direct = sum(action["kind"] == "direct" for action in catalog["actions"])
     escaped = sum(action["kind"] == "escaped" for action in catalog["actions"])
     print(
-        f"wrote {OUTPUT_PATH}: {direct} direct phrases, "
+        f"wrote {args.output}: {direct} direct phrases, "
         f"{escaped} escaped entries, budgets "
         f"{catalog['minimum_words']}..{catalog['maximum_words']}"
     )

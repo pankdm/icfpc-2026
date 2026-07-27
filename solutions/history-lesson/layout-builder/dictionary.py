@@ -17,8 +17,8 @@ def pack128(word: bytes) -> int:
     return value
 
 
-def load_catalog() -> dict:
-    with open(CATALOG_PATH, encoding="utf-8") as source:
+def load_catalog(path: str = CATALOG_PATH) -> dict:
+    with open(path, encoding="utf-8") as source:
         return json.load(source)
 
 
@@ -36,8 +36,12 @@ def _replace_nonoverlap(stream, pattern, replacement):
     return output
 
 
-def build_encoding(data: bytes, words: int) -> tuple[list[int], dict[int, int], dict]:
-    catalog = load_catalog()
+def build_encoding(
+    data: bytes,
+    words: int,
+    catalog: dict | None = None,
+) -> tuple[list[int], dict[int, int], dict]:
+    catalog = catalog or load_catalog()
     minimum = catalog["minimum_words"]
     maximum = catalog["maximum_words"]
     if not minimum <= words <= maximum:

@@ -272,6 +272,15 @@ Packing all sixteen OPEN words is therefore about 11.4k ticks.  The wall/open
 branch can also send display colors 7/0 before it rejoins the accumulator path,
 so initial painting does not require rereading the board.
 
+`pathfinder_parent_service.py` is the correctness fallback for the other
+missing interface.  It gives one canonical 64-word ring three data-driven
+commands: update a layer, query selected bits, and reset every parent word.
+The standalone service passes mixed update/query/reset sequences at 86×49.
+It is not the final hot-path architecture because it serializes sixteen rows;
+its protocol should be sharded into the sixteen four-word forked rings above.
+Keeping the central version is still useful as an executable oracle and as a
+submit-first fallback if the sharded assembly slips.
+
 The third probe deletes the separate TAKE pipes.  Each stage forwards the
 earlier TAKE prefix, applies its candidate, and appends its own TAKE plus the
 reduced state:

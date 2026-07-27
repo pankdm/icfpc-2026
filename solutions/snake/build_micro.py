@@ -334,7 +334,8 @@ def _lit(v):
 
 def build(save_to=None, CY0=8, CBOT=None, CW=60,
           ST_OUT=22, ST_IN=24, ST_X0=24, ST_W=7, BD_X0=33, BD_W=None,
-          FEED_E=None, FEED_W=31, FEED_W2=None, RET_E=None,
+          FEED_E=None, FEED_W=31, FEED_W2=None, FEED_T=None, RET_E=None,
+          D_REP=8, D_COLL=6, D_HX=4, D_HY=2,
           DRVX=None, DISX=None, **over):
     R_ = right_cols(CW)
     R_.update(over)
@@ -350,6 +351,10 @@ def build(save_to=None, CY0=8, CBOT=None, CW=60,
     FEED_W2 = FEED_W if FEED_W2 is None else FEED_W2
     RET_E = IN_IN - 2 if RET_E is None else RET_E
     BD_W = BD_IN - 1 - BD_X0 if BD_W is None else BD_W   # room right wall = BD_IN-1
+    FEED_T = BD_X0 + BD_W - 5 if FEED_T is None else FEED_T  # terminal, under the room
+    assert BD_X0 <= FEED_T <= BD_X0 + BD_W - 1, \
+        "feed terminal %d is not under the body room %d..%d" % (
+            FEED_T, BD_X0, BD_X0 + BD_W - 1)
     # The TOP BAND is rows 0..ATT.  Rows 0..3 hold the two relay rooms and the
     # input room; rows 4..ATT-1 are the horizontal pipe highways and row ATT
     # carries every controller-side pipe terminal (that is what makes the s/r
@@ -383,11 +388,32 @@ def build(save_to=None, CY0=8, CBOT=None, CW=60,
         L.put(x + 1, y + 1, "^"); L.put(x + 2, y + 1, "s"); L.put(x + 3, y + 1, "<")
 
     # ---- pipes ----------------------------------------------------------
-    p.pipe([(IN_IN, 3), (IN_IN, ATT)])                              # input -> ctrl
-    p.pipe([(ST_OUT, ATT), (ST_OUT, 4), (ST_X0 + 1, 4)],            # ctrl  -> state
-           end_direction="N")
-    p.pipe([(ST_X0 + ST_W - 2, 4), (ST_X0 + ST_W - 2, 5),           # state -> ctrl
-            (ST_IN, 5), (ST_IN, ATT)])
+    def pipe(points, **kw):
+        """lm.Program.pipe is a bare dict store: two pipes that cross overwrite
+        each other silently and the grid still loads, just wired wrong.  Check
+        every cell first -- a knob sweep WILL find such a config."""
+        for i in range(len(points) - 1):
+            (x0, y0), (x1, y1) = points[i], points[i + 1]
+            dx, dy = (x1 > x0) - (x1 < x0), (y1 > y0) - (y1 < y0)
+            for k in range(abs(x1 - x0) + abs(y1 - y0)):
+                cell = (x0 + dx * k, y0 + dy * k)
+                assert L.get(*cell) == " ", "pipe cell %s holds %r" % (cell, L.get(*cell))
+        assert L.get(*points[-1]) == " ", "pipe end %s occupied" % (points[-1],)
+        p.pipe(points, **kw)
+
+    pipe([(IN_IN, 3), (IN_IN, ATT)])                                # input -> ctrl
+    # The state ring wants to be SHORT (every block walks a whole lap of it) but
+    # not shorter than the 8 scalars it holds, so it folds along row 4 only --
+    # which also keeps row 5 clear east of ST_IN for the body ring's long leg.
+    pipe([(ST_OUT, ATT), (ST_OUT, 4), (ST_X0 + 1, 4)],              # ctrl  -> state
+         end_direction="N")
+    # The return leg drops STRAIGHT down the column next to ST_IN and only folds
+    # on row ATT-1.  Folding it on row 5 (the obvious shape) walled off row 5 for
+    # five columns, and row 5 is the body ring's longest leg -- that fold alone
+    # cost 12 cells of ring capacity, i.e. a whole band row.
+    pipe([(ST_IN + 1, 4), (ST_IN + 1, ATT - 1),                     # state -> ctrl
+          (ST_IN, ATT - 1), (ST_IN, ATT)])
+    assert ST_X0 < ST_OUT < ST_IN + 1 < ST_X0 + ST_W - 1, "state pipes leave the room"
     # The body ring: one BOUSTROPHEDON lap of the band's free rows 4..ATT-1.  It
     # has to dodge the state pipes (which chop rows 4/5 between ST_OUT and
     # ST_X0+ST_W-2) and the input pipe (column IN_IN, rows 3..ATT), so the pocket
@@ -400,23 +426,23 @@ def build(save_to=None, CY0=8, CBOT=None, CW=60,
     # to FEED_W2; rows 5 and 4 must stop at FEED_W.
     lanes = [(r, FEED_E if (r - 6) % 2 == 0 else FEED_W2)
              for r in range(ATT - 1, 5, -1)]
-    lanes += [(5, FEED_W), (4, BD_X0 + BD_W - 5)]
+    lanes += [(5, FEED_W), (4, FEED_T)]
     feed = [(BD_OUT, ATT), (BD_OUT, lanes[0][0])]
     for i, (row, xe) in enumerate(lanes):
         feed.append((xe, row))
         if i + 1 < len(lanes):
             feed.append((xe, lanes[i + 1][0]))
     ret = [(BD_X0 + BD_W, 1), (RET_E, 1), (RET_E, 3), (BD_IN, 3), (BD_IN, ATT)]
-    p.pipe(feed, end_direction="N")                                 # ctrl  -> body
-    p.pipe(ret)                                                     # body  -> ctrl
+    pipe(feed, end_direction="N")                                   # ctrl  -> body
+    pipe(ret)                                                       # body  -> ctrl
     cap = pipelen(feed) + 1 + pipelen(ret)
     # >= 50 covers the worst case a 100-round case can reach (each growth costs a
     # spawn round plus a tick round).  A bigger ring is pure safety margin but it
     # costs ticks: at snake length 1 a pushed cell has to travel cap-1 cells
     # before it can be popped again.  65 measured 90.7M against 89.6M at 55.
     assert cap >= MIN_CAP, "body ring capacity %d too small" % cap
-    p.pipe([(DRV_OUT, ATT), (DRV_OUT, 4), (DRVX - 1, 4), (DRVX - 1, 12)],
-           end_direction="E")                                       # ctrl -> driver
+    pipe([(DRV_OUT, ATT), (DRV_OUT, 4), (DRVX - 1, 4), (DRVX - 1, 12)],
+         end_direction="E")                                       # ctrl -> driver
 
     # ---- driver man -----------------------------------------------------
     off = DRVX - 38                                    # driver block was built at x=38

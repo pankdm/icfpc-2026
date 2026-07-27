@@ -161,3 +161,39 @@ loop into a throughput-bound one, so the win scales with the latency being hidde
    the next address, the handoff (measured: 10 ticks/transaction through a 2-cell relay) lands on
    the critical path and the two-man version becomes **0.90x -- a 10.7% LOSS**. A fork only pays
    when the producer can run ahead ON ITS OWN.
+
+
+## 90-degree ROTATION IS NOT SEMANTICS-PRESERVING (measured 2026-07-27)
+
+Rotating a room (or the whole grid) to swap its width and height is an obvious packing move.
+It does not work, and the blocker is not geometry.
+
+**Every man starts heading EAST, unconditionally** (`interp/src/lib.rs:467`, `dir: (1, 0)`).
+That is a property of the language, not of any glyph, so no remapping can rotate it. Tested by
+rotating an ENTIRE grid 90 degrees clockwise — cells transposed, headings remapped
+(`> v < ^` cycled) and walls swapped (`-` <-> `|`), i.e. a pure isometry with self-consistent
+pipes — on two live champions:
+
+    triangle        original 6/6 @ 832      rotated 0/6  crash: wall
+    reverse-a-list  original 8/8 @ 13,788   rotated 0/8  crash: wall
+
+Every man still sets off east into what is now the wrong axis. Fixing it means restructuring
+each man's entry path so that starting east lands him on the rotated equivalent of his first
+cell — a redesign per man, not a transform.
+
+Two further blockers even if that were solved:
+* **Displays have FIXED side semantics** — ADDR enters the top wall, DATA the left, SWAP the
+  bottom. A rotated display room is invalid by construction (this is the same rule behind the
+  `display pipe bad side` load error).
+* **Reading order is NOT rotation-invariant.** Nearest-pipe ties break top-to-bottom then
+  left-to-right, and `R` picks among ready incoming pipes in reading order. Rotation permutes
+  both, so a program relying on either changes behaviour SILENTLY.
+
+What IS rotation-invariant, for the record: Manhattan distance (so untied `r`/`s` bindings would
+survive), every register op, and the relative turns `X`/`d`/`a`/`x` plus `Y`'s perpendicular
+births.
+
+It would not have paid anyway. Rotating the biggest room and leaving the chrome in place prices
+at: snake 0.70x, LLLM 0.62x, gradebook 0.94x, subset-sum 0.43x, LLM 1.03x — and LLM's 1.03x is
+just the rigid-tail floor already proven by other means. Rotating the WHOLE grid is a transpose,
+which is a no-op on `max(w,h)^2`.

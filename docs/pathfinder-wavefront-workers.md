@@ -124,3 +124,59 @@ A layer should cost tens, not thousands, of ticks: the critical UNVIS loop is
 four seven-op updates plus short pipe latency. Even a conservative 100
 ticks/layer and 100 layers/round leaves large headroom versus the current
 ~4,853 ticks per popped cell.
+
+## Score-informed alternative: sixteen unsigned row strips
+
+The four-word design pays real physical complexity for signed cross-word
+shifts.  A sixteen-lane design stores one unsigned 16-bit word per board row:
+
+- U and D candidates are direct broadcasts from the adjacent row;
+- R and L are one-cell shifts of the local word;
+- overflow is harmless because the problem guarantees a wall border;
+- all values stay in `0..65535`, so arithmetic right-shift sign extension
+  disappears.
+
+Arrange the sixteen rows as narrow vertical strips, not sixteen square tiles.
+Each strip stacks OPEN, FRONT, the U/R/D/L priority stages, NEXT, and the
+parent-ring processor.  U/D pipes then run only to the adjacent strip.
+A strip pitch near nine cells gives a natural width near 144 cells before
+edge services.
+
+That number is independently interesting because three leading Pathfinder
+scores admit this coherent 18-case decomposition:
+
+```text
+141² × 160,382.667 = 3,188,567,796
+154² × 160,078.167 ≈ 3,796,413,801
+138² × 214,044.222 = 4,076,258,168
+```
+
+The first two have nearly identical ticks but a 19.3% box difference.  This is
+not proof of their dimensions, but it is consistent with related lane
+architectures separated mainly by strip pitch and routing.
+
+### Delete four parent accumulators per row
+
+Parent words are updated once per layer and queried once per path step in the
+same U/R/D/L order.  They therefore belong in one canonical four-word ring per
+row, not four separately routed accumulator rooms.
+
+The priority stages produce TAKE values sequentially.  A row-local collector
+can:
+
+1. receive TAKE in U/R/D/L order;
+2. OR it into NEXT;
+3. forward it to one parent-ring processor;
+4. after four values, send the completed NEXT word to FRONT.
+
+The processor rotates the matching parent word, ORs TAKE, and returns it to
+the ring.  During reconstruction it rotates the same four words, returns each
+unchanged, and tests it against the selected robot bit.  This is the
+Pathfinder analogue of Snake's scratch-ring deletion: canonical order removes
+four rooms and several broadcast pipe pairs without serializing unrelated
+rows.
+
+The remaining synchronization rule is strict: FRONT may announce a row ready
+only after both its NEXT word and that row's four parent updates have
+completed.  A global ready barrier may then release all FRONT words together;
+otherwise adjacent U/D rows can mix consecutive BFS layers.

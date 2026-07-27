@@ -257,6 +257,29 @@ Everything together is 736 -> ~667 rows, box 444,889, **1.21x**. Not worth a rew
 that matters is the WRAP row (289 of 688), and op rows average 20 ops over a 101-column span
 inside a 387-column room.
 
+### LLM squaring: WIDTH IS FREE UP TO 793 — the two moves only pay TOGETHER (2026-07-27)
+
+Champion is 356x793: **height binds**, so width is free all the way to 793 and NARROWING THE
+PORT BAND BY ITSELF BUYS NOTHING (it costs rows, since narrower lanes mean more wraps).
+Measured: controller attachments occupy columns 52,55,113,182,186,230,236,285,295,305,311,315
+= a **264-column span**, which is what drags each row out to ~318 columns wide while holding a
+median of just **13 glyphs**.
+
+    today                              356 x 793  box 628,849   1.00x
+    2-column fold alone                714 x 397  box 509,796   1.23x   (width becomes binder)
+    compress port band alone          ~250 x 793+ box >=628,849 <=1.00x  (pointless alone)
+    FOLD + compress each band to <=198 396 x 397  box 157,609   **4.0x**  -> ~785e9
+
+Port span only has to fall 264 -> 198, a 1.33x compression.
+
+**Why the naive geometric fold is NOT buildable:** Voronoi binding is Manhattan distance to the
+attach cell, so code relocated to columns 400+ silently REBINDS to whatever pipe is nearest.
+Each column band therefore needs its OWN ports => two rooms => **two men**, because a man cannot
+cross a room wall. That is the *balanced two-controller cut*, already proven feasible in this
+repo on pathfinder (`ddc9c18`, `solutions/pathfinder/plan_bitset5_modular.py`).
+
+Fallback if the cut is unbuildable: the plain 2-column fold is a known-safe 1.23x.
+
 ### LLM: OUR TICKS NOW BEAT THE LEADER'S — the whole gap is AIR (2026-07-27)
 
 Champion `solutions/little-little-man/live-2b320f4f.man`, **356x793**, box 628,849, server

@@ -565,3 +565,58 @@ is confirmed against the oracle. The ones that bite most:
   assumed non-empty, assumed positive) shows up only as a private failure.
 - Long/thin grids are the #1 score leak: a 69×130 grid is scored as 130² even though half
   the box is empty air.
+
+### Pathfinder: the mem16 controller is at ITS floor — 28.54B -> 23.27B (2026-07-27)
+
+Live build `solutions/pathfinder/pf2-memtight-151x174.man`, **151x174**, box 30,276,
+avgTicks 528,330, server **23,272,792,842** at 18/18, **rank 13/51**. Regenerate with
+`solutions/pathfinder/build_pf2.py` (a fork of `build_mem16_flow.py` that takes explicit
+`--port-cols`); the exact flags are in commit `490a05b`. `build_pf2.py --port-cols
+'Cr=12,Hs=15,Ss=32,Sr=35,Fs=49,Fr=52,Ir=80,Ds=81' --op-slack 6 --centered-hub --memory-y 45`
+reproduces the old 180x180 champion byte-for-byte.
+
+Four geometry-only wins, no logic touched (1.227x total):
+
+1. **Tight STATE relay** (1.10x, the biggest). The ring's relay hung five rows below the
+   controller and its return detoured around the relay's right wall: ~30 cells of lap.
+   Ss..Sr sit strictly between the memory trunks (which end at Hs) and the input/display
+   trunks (which start at Ir), so both legs can run straight down and straight back up.
+   Lap ~17. **Ring LENGTH is a two-sided optimum, not a minimum**: 9 pipe cells beat both
+   7 (-1.5%, too little capacity, `Ss` blocks) and 11.
+2. **FRONTIER capacity pipe moved beside the controller** (1.05x). Its ~140 cells of queue
+   were two 58-cell sweeps at rows bottom+13/+14 — the whole program's height driver. The
+   band right of the controller is empty from below the driver to the memory's bottom.
+   That ring is NOT latency critical: 136..217 cells moves ticks by 0.2%.
+3. **driver_x unclamped** (width 175 -> 152) + `frontier_drop` (one row).
+4. **MEM16 round trip** (1.01x): `memory_x` -58 -> -57 and the two trunk rows dropped from
+   bottom+3/+2 to bottom+2/+1. The controller blocks on `Cr`, so those two pipes are on the
+   critical path of every transaction.
+
+**Measured dead ends — do not repeat:**
+- **Shortening the controller costs more than it saves.** `tools/boustro` can reach 163 rows
+  (vs our 165) but only by spreading the ports out to Ds=73..77; blank travel is 45% of all
+  ticks, so those builds measured 404k-428k against our 372k. Width has 23 columns of slack
+  under the height and the search will not spend them. Height is `ctrl_bottom + 9`.
+- **Moving `Ir` left to free an apron row costs 4 controller rows** (165 -> 169) — the
+  receiver Voronoi bands re-wrap. Every apron variant that needs Ir left of the frontier
+  relay dies on this.
+- Port columns are converged: three annealing runs (~1500 graded candidates, box x ticks on
+  1 and on 2 public cases) moved 437,745 -> 371,958 and then stopped.
+
+**Two routing rules that each cost a debug cycle** (`scratchpad/pf2/pipes.py` dumps the
+parsed topology and finds both in one shot):
+- a pipe's SOURCE is the cell BEHIND its first arrow, so an exit that starts by heading
+  sideways has no source room at all — `no-pipe`, mid-run, not at load;
+- an arrow whose backward neighbour is any room border starts a pipe from THAT room, so an
+  unrelated trunk turning one column over a relay's wall silently gives the relay a second
+  outgoing pipe.
+
+`scratchpad/pathfinder_stress_pf2.py` builds 5 adversarial cases from `pf_model` (adjacent
+flag, open field = widest BFS frontier, serpentine = longest path, pillars, 12 rounds) —
+the check that matters whenever a ring's capacity changes. The spec guarantees the flag is
+never a wall and never the robot's own cell (`pf_model` asserts both), so those are not
+legal private cases.
+
+**Pathfinder is now worth nothing until 1.41x**: rank 12 needs 16.51B. `tools/marginal_rank.py`
+is the tool to check that BEFORE optimising — at 23.5B the next rank was 1.009x away and a
+0.9% win took it.

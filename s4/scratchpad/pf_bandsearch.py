@@ -163,7 +163,38 @@ def placeable(c):
             return False
     # the queue's return pipe is its capacity; keep the serpentine east of
     # everything so ``queue_rows`` can still buy cells without moving a room
-    return c["qs"] == max(c[n] for n in ("sp", "sc", "cc", "sa", "qs"))
+    if c["qs"] != max(c[n] for n in ("sp", "sc", "cc", "sa", "qs")):
+        return False
+    # ri's input ROOM hangs several rows below the band region, so its column
+    # is opaque to every horizontal feeder run; keeping it west of everything
+    # (as the shipped map does) is the only placement that crosses nothing.
+    if c["ri"] != min(c.values()) or c["ri"] + 1 >= min(lo for lo, _ in boxes):
+        return False
+    # qr's run comes back from the queue at the far east; west of the cell RAM
+    # it would have to cross every descent on the floor.
+    if c["qr"] <= c["cc"] + 69:
+        return False
+    # THE structural rule, measured by building it: a command port's pipe is a
+    # single vertical from the controller wall all the way down to its
+    # component's command cell, so its column is opaque at EVERY band row.  A
+    # reply run may therefore never span another service's command column --
+    # which is exactly why rp must stay west of sc and cr east of cc.
+    # Ops start at column opmin = nrail + 2, so a port whose whole Voronoi band
+    # lies west of that can never be placed at all ("empty band for 'r'").
+    bands = {}
+    for glyph in ("s", "r"):
+        bands.update(voronoi_bands([(n, x) for n, x in c.items()
+                                    if GLYPH[n] == glyph]))
+    if any(hi < 22 for _, hi in bands.values()):
+        return False
+    deep = [c[n] for n in ("ri", "sp", "sc", "sa", "cc", "qs", "sd", "ss")]
+    runs = [(c["sc"] + 4, c["rr"]), (c["cc"] + 24, c["cr"]),
+            (c["sp"] + 1, c["rp"]), (c["qs"] - 7, c["qr"])]
+    for a, b in runs:
+        lo, hi = min(a, b), max(a, b)
+        if any(lo < d < hi for d in deep):
+            return False
+    return True
 
 
 def report_transitions(cols):

@@ -83,6 +83,27 @@ so the balance condition is `controller_h = controller_w + 14`. The live champio
 from DENSITY, not shape. Compute the analogous relation before optimizing anything; shrinking
 the non-binding dimension moves the score by zero.
 
+## Moving ports is NECESSARY but NOT SUFFICIENT
+
+`place.py` already slides attachments — 25% of the annealer's moves, free unless `--pin-attach`.
+Its own move-set docstring says why that matters: *"with the attachment pinned, a room can only
+move on the axis its pipes already point along, and whole floorplans are unreachable."*
+
+But **a rigid room cannot be reshaped by moving it or its ports.** Measured:
+
+    LLLM  grid 142x141:  room 0 = 142w x 102h   <-- room 0's own WIDTH is the grid width
+    LLM   grid 356x793:  room 0 spans y0..742   <-- room 0's own HEIGHT is 742 of 793 rows
+
+The placer duly finds 142x138 / 142x139 / 142x140 on LLLM — it re-attaches pipes to compact the
+HEIGHT — and width 142 never moves, because no rearrangement of a rigid 142-wide block fits in
+less than 142 columns.
+
+So when one room owns the binding dimension, the answer is neither room moves nor port moves
+alone, but **both together with the ops**: `smtrows --free-ports` frees the port columns and
+derives the Voronoi bands INSIDE the model, so ports and the ops bound to them move jointly.
+That joint encoding is the only thing that can narrow the room itself — which is exactly why it
+exists, and why `liftflow` (which lets it run on a grid at all) was the unlock.
+
 ## The missing capability: LENGTH-PRESERVING FOLDED ROUTING
 
 This is why most placement proposals die. `tools/router.py` is A* minimising

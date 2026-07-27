@@ -434,9 +434,22 @@ cases the previous champion also fails):
 - **ROWS BUY WIDTH.** width = CW + 21 (18 display columns + 3 routing) and height had slack, so
   every row cut let CW fall. That is why the DIR merge and the lane-crossing reorder paid: they
   are pure row wins.
-- **`tools/shrink.py` IS WORTH 5-6% ON EVERY CANDIDATE, and it deletes COLUMNS.** 69x64 → 67x63.
-  Shrinking the eight best search candidates gave *identical* 67x63, so it is a property of the
-  emitter, not luck — but run it, always.
+- **`tools/shrink.py` IS WORTH 4-6% ON EVERY CANDIDATE, and it deletes COLUMNS.** Six for six
+  on snake builds: 69x64 → 67x63, 67x66 → 64x65, and — on the `push*` line, which was NOT being
+  shrunk — **push12 63x62/3,969 → 62x61/3,844, ticks 7,028 → 6,958, local 27,895,720 →
+  26,748,090** (`solutions/snake/push12-shrunk.man`, oracle 5/5, stress 154/154, fuzz 381/386,
+  server 39,163,576). On a width/height-balanced layout a merged column is a straight box win.
+  RUN IT BEFORE EVERY SUBMISSION. But note the next bullet: it is not a monotone post-pass you
+  can plan around.
+- **The POST-shrink score is not predicted by the PRE-shrink score.** A knob point 1% *better*
+  pre-shrink came out 66x65 after shrink where the champion came out 64x65 — shrink's win is
+  column merges and the denser build has fewer of them. Shrink the top ~10 candidates, not just
+  the best one. (A cheap disjoint-column proxy finds ZERO merges on a raw build: they only
+  appear after `dce`/`stairfold`/`reroute` have emptied cells.)
+- **A LONE backtick literal is accepted by the oracle.** `_lit` avoids backticks because two
+  literals that line up across a row or column are a load error; with exactly one in the whole
+  program there is nothing to pair with, and `` `528` `` graded 5/5 on the oracle. It is 1.1%
+  better pre-shrink — and *worse* after, because the literal's cells block two column folds.
 - **The knob that mattered most could not be found by coordinate descent.** `ST_X0`/`ST_OUT`/
   `ST_IN` are tied by an assert, so moving the state relay room west is a 3-knob move; it frees
   the columns the body-ring boustrophedon needs and took CW 48 → 46. Sweep tied knobs as groups.

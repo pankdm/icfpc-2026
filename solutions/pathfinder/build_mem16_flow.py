@@ -302,8 +302,8 @@ def build(
     driver_x=0,
     ring_shift=0,
     op_slack=6,
-    port_base=20,
-    port_percent=42,
+    port_base=15,
+    port_percent=39,
     side_apron=False,
     tight_apron=True,
 ):
@@ -406,7 +406,7 @@ def build(
         apron_y = bottom + 5
         state_x = ports["Ss"][0] - 5 + ring_shift
         frontier_x = ports["Fs"][0] - 5 + ring_shift
-        nb_x = ports["Ns"][0] - 5 + ring_shift
+        nb_x = ports["Ns"][0] - 3 + ring_shift
         _short_ring(p, ports["Ss"], ports["Sr"], state_x, apron_y, 1)
         _frontier_ring(
             p,
@@ -467,8 +467,8 @@ if __name__ == "__main__":
     parser.add_argument("--driver-x", type=int, default=0)
     parser.add_argument("--ring-shift", type=int, default=0)
     parser.add_argument("--op-slack", type=int, default=6)
-    parser.add_argument("--port-base", type=int, default=20)
-    parser.add_argument("--port-percent", type=int, default=42)
+    parser.add_argument("--port-base", type=int, default=15)
+    parser.add_argument("--port-percent", type=int, default=39)
     parser.add_argument("--side-apron", action="store_true")
     parser.add_argument("--tight-apron", dest="tight_apron", action="store_true")
     parser.add_argument("--no-tight-apron", dest="tight_apron", action="store_false")

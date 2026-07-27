@@ -208,3 +208,43 @@ grader).
 
 And keep it in proportion: 1.14x on a problem that is **15x** off the lead, where the whole
 remaining prize is 0.17 pts. Section 6 is the reason — LLM's gap is architectural.
+
+## 8. Matmul and the newer pathfinder: both certified at their floor
+
+**matmul `b53230d6`, 42x42 box 1764, 75.0% dense, box/area 1.00, 9 rooms / 12 pipes.**
+This is the well-conditioned case — small enough that Z3 answers in seconds instead of
+timing out — and the answer is unambiguous:
+
+| M | Z3 | place.py |
+|---|---|---|
+| 39 (box 1521, **1.16x**) | SAT, 4 models | all 4 `pipe 9/10 unroutable` |
+| 40 | SAT, 4 models | all 4 `pipe 3/8/9 unroutable` |
+| 41 | SAT, 4 models | all 4 `pipe 2/5/8 unroutable` |
+| >=42 | **UNSAT** | — |
+
+So the ROOMS fit in 39x39; the 12 PIPES do not. 12/12 routing failures, then an
+optimality certificate at 42. `tools/peep.py` then freed **77 cells** (24 register-run
+rewrites, each oracle-verified, identical box/ticks/score, 75.0% -> 70.6% density) and the
+re-run **still** failed on pipe 9 — so density was not the binding constraint either.
+42x42 is optimal under this router. Do not re-run this sweep.
+
+Note `place.py` needs no help from `router.py` here: it has its own `_pad` accordion
+serpentine (its comments cite gradebook 20/60 -> 2/60 from widening the fold window), so
+these are genuine geometry failures, not the missing-length-target problem.
+
+**pathfinder `0138b404`, 141x173 box 29929, 17.7% dense** — better than `637a8296`
+(151x174 / 30276) and 7/7 at 12,141,288,879 on Rust. Height binds. The floor looks like
+164 (block 0 is 51x164) but is really **165**, and the 1.11x is unreachable:
+
+* blocks 20/21/22 (7x4, 9x4, 3x3) attach to block 0's **bottom wall** at x82/x98/x101 with
+  pipes of just 2/5/4 cells;
+* block 0 spans y0..163 across x57..107, so those rooms **cannot be lifted above y164** —
+  that space is block 0;
+* routing all three along the single remaining row y164 makes them collide. A hand plan
+  moving them into the free `x111..132, y130..170` region fails `pipe 42 unroutable`
+  (and `pipe 38` even with `--pipe-len free`).
+
+Height 173 is in fact set by **pipes** at y171/y172, not by rooms (max room y = 171). A
+local-span search (`--span 8`, 6000 tries) found only **2** legal floorplans, neither
+better than baseline; `pipe 41` is the usual casualty. smtplace `--min-m 164` times out as
+before. This build is at its rigid-placement optimum.

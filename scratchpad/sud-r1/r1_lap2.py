@@ -28,7 +28,7 @@ def run(j):
 
 if __name__ == "__main__":
     import multiprocessing as mp
-    jobs = [(dw, lap) for dw in (18, 19, 20, 21, 22) for lap in (38, 40, 42, 44)]
+    jobs = [(dw, lap) for dw in (17, 18, 19, 20, 21) for lap in (34, 36, 38, 40, 42)]
     with mp.Pool(8) as pool:
         res = pool.map(run, jobs)
     ok = [r for r in res if r[1] == "6/6"]

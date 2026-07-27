@@ -81,12 +81,51 @@ def strip3(p, x, y):
                 p.put(x + i, y + j, ch)
 
 
+# ------------------------------------------------------------- dispatch ring
+# The dispatch is ONE man walking ONE straight run of ops, so it does not need a
+# serpentine at all -- a flat two-row ring holds the same 20 turn-free op cells in
+# 2 interior rows instead of 3, and its lap is 2W-2 instead of serp's 2W.  That is
+# a row off the whole program's height AND two ticks off maxloop.
+#
+#     @ > o o o o o o o v          row 0: ops run east, x = 2 .. W-2
+#       ^ . . . . . . . <          row 1: the return lane
+def ring_cells(W):
+    """(slots, glyphs, cycle) for a 2-row ring with interior width W."""
+    g = {(0, 0): "@", (1, 0): ">", (W - 1, 0): "v", (W - 1, 1): "<", (1, 1): "^"}
+    slots = [(x, 0) for x in range(2, W - 1)] + [(x, 1) for x in range(W - 2, 1, -1)]
+    cycle = {(x, 0): x - 1 for x in range(1, W)}
+    cycle.update({(x, 1): 2 * W - 2 - x for x in range(1, W)})
+    return slots, g, cycle
+
+
+def ring_capacity(W):
+    return 2 * (W - 3)
+
+
+def ring_len(W):
+    return 2 * W - 2
+
+
+def ring_segment(W, i, j):
+    slots, _, cycle = ring_cells(W)
+    return cycle[slots[j]] - cycle[slots[i]]
+
+
+def ring_place(p, x0, y0, W, ops):
+    slots, g, _ = ring_cells(W)
+    assert len(ops) <= len(slots), (len(ops), len(slots))
+    for (dx, dy), ch in g.items():
+        p.put(x0 + dx, y0 + dy, ch)
+    for i, (dx, dy) in enumerate(slots):
+        p.put(x0 + dx, y0 + dy, ops[i] if i < len(ops) else " ")
+
+
 # --------------------------------------------------------------------- timing
 def avail_times(DW, DH, pipe_in=2):
     """Tick each broadcast value becomes readable in a room, relative to the
     first broadcast."""
     S = [i for i, c in enumerate(DISPATCH9) if c == "S"]
-    return [serp.segment(DW, DH, S[0], i) + pipe_in for i in S]
+    return [ring_segment(DW, S[0], i) + pipe_in for i in S]
 
 
 def walk(ops, W, H, avail):
@@ -217,9 +256,9 @@ def solve_in(rcols, lo, hi, min_col, min_gap=2):
 
 # --------------------------------------------------------------------- layout
 def build(DW=23, DH=3, RW=8, BW=9, H=5, timer_left=1, timer_lap=0, DXfix=0,
-          lap_slack=1, HGT=29, OUTW=6):
+          lap_slack=1, HGT=28, OUTW=6):
     p = Program()
-    YA = 7
+    YA = 6                                     # dispatch is 4 rows now
     MW = 2 + BW + RW + RW                      # ONE room, three disjoint loops
     ox = {"box": 1, "row": 1 + BW, "col": 1 + BW + RW}
     wd = {"box": BW, "row": RW, "col": RW}
@@ -306,8 +345,8 @@ def build(DW=23, DH=3, RW=8, BW=9, H=5, timer_left=1, timer_lap=0, DXfix=0,
         p.put(c + 1, R0, "v"); p.put(c + 1, R1, ">")
     p.put(ox[order[-1]] + 1, R1, "v")  # survivor drops into the last loop
 
-    p.room(DX, 0, DW + 2, DH + 2)
-    serp.place(p, DX + 1, 1, DW, DH, DISPATCH9)
+    p.room(DX, 0, DW + 2, 4)
+    ring_place(p, DX + 1, 1, DW, DISPATCH9)
     # INPUT hangs off the dispatch's EAST wall and is dropped two rows, so it sits
     # in the dispatch's own rows 3..4 plus one otherwise-empty pipe-gap row.  The
     # old west placement cost 5 columns (3 room + 2 pipe) in front of the dispatch;
@@ -319,7 +358,7 @@ def build(DW=23, DH=3, RW=8, BW=9, H=5, timer_left=1, timer_lap=0, DXfix=0,
     p.pipe([(DW + 3, 2), (DW + 3, 1), (DW + 2, 1)])
     inmap = dict(zip(("box", "row", "col"), inpipe))
     for px in inpipe:
-        p.pipe([(px, DH + 2), (px, YA - 1)])
+        p.pipe([(px, 4), (px, YA - 1)])
 
     srcy = YA + H + 3
     YG = srcy + 2
@@ -368,7 +407,7 @@ def build(DW=23, DH=3, RW=8, BW=9, H=5, timer_left=1, timer_lap=0, DXfix=0,
               send={n: pick[n][2] for n in pick}, scols=scols,
               lane=dict(zip(scols, lanepipe)), inpipe=inmap, ox=ox, wd=wd, H=H,
               lap=2 * (E - L + 1), decide=decide, MW=MW, GW=GW,
-              maxloop=max([serp.loop_len(DW, DH)]
+              maxloop=max([ring_len(DW)]
                           + [serp.loop_len(wd[n], H) for n in wd]))
     return p, ck
 
@@ -414,7 +453,7 @@ if __name__ == "__main__":
     ap.add_argument("--timer-left", type=int, default=1)
     ap.add_argument("--lap", type=int, default=0)
     ap.add_argument("--slack", type=int, default=1)
-    ap.add_argument("--hgt", type=int, default=30)
+    ap.add_argument("--hgt", type=int, default=28)
     ap.add_argument("--outw", type=int, default=6)
     ap.add_argument("-o", "--out", default="/tmp/r1.man")
     a = ap.parse_args()

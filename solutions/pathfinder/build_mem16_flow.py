@@ -334,6 +334,7 @@ def build(
             port_spec,
             code_x=code_x,
             op_slack=op_slack,
+            tight_width=True,
         )
     else:
         layout = flowgrid.lay_cfg_controller(

@@ -277,10 +277,11 @@ class CodePlacer(object):
     off further west, and it crosses them on blank cells.
     """
 
-    def __init__(self, grid, cols, top_row):
+    def __init__(self, grid, cols, top_row, edge_heat=None):
         self.g = grid
         self.c = cols
         self.y = top_row
+        self.eheat = edge_heat or {}
         self.entry_row = {}
         self.joins = []
         self.lits = set()          # (row, x_open, x_close) of every REAL literal
@@ -294,11 +295,22 @@ class CodePlacer(object):
         self.cum = {}
         self.exit = {}
         self._rides_by_key = {}
+        # label -> the column a highway must glide the man EAST to.  entry_col
+        # for a block entered normally; the descend's own turn glyph for a block
+        # that is BOTH fallen into from above and entered from a lane.
+        self.entry_x = {}
 
     def place(self, blocks):
         c = self.c
         targets = set(c.hwy_targets)
         labels = [b[0] for b in blocks]
+        # heat arriving at each label from somewhere OTHER than a given edge --
+        # those are the men who have to glide east to wherever the fall lands
+        in_heat = {}
+        for lab, toks in blocks:
+            for i, tok in enumerate(toks):
+                if isinstance(tok, tuple) and tok[0] in ("br", "brbp", "go"):
+                    in_heat[tok[1]] = in_heat.get(tok[1], 0) + self.eheat.get((lab, i), 0)
         st = {"x": c.entry_col + 1, "y": self.y, "d": 1, "pend": 0, "walk": 0}
         fresh = True                     # next block must be entered at entry_col
 
@@ -321,6 +333,25 @@ class CodePlacer(object):
         def wrap():
             descend(-st["d"])
 
+        def descend_east():
+            """Fall into the next row FACING EAST, whatever we were doing.
+
+            This is what lets a block be fallen into even though it is also a
+            highway target.  A man arriving on the lane glides EAST along the
+            target's row over blank cells, steps on the descend's own '>' and
+            carries straight on -- byte for byte the state the falling man is
+            in.  Landing WESTWARD could never work: the block's own ops lie west
+            of the turn glyph, so the arriving man would run them backwards.
+
+            Heading east already, one descend would face west, so it takes two
+            -- which still costs the two rows a highway edge costs (its exit row
+            plus the target's entry row) while replacing ~100 walked cells with
+            four.
+            """
+            descend(-st["d"])
+            if st["d"] < 0:
+                descend(1)
+
         def need(n):
             if st["d"] > 0 and st["x"] + n - 1 > c.code_hi:
                 wrap()
@@ -337,11 +368,16 @@ class CodePlacer(object):
 
         for bi, (label, toks) in enumerate(blocks):
             nxt = labels[bi + 1] if bi + 1 < len(labels) else None
-            if fresh or label in targets:
-                if not fresh:
-                    raise RuntimeError("target %s reached by fall-through" % label)
+            if fresh:
                 st["x"], st["d"] = c.entry_col + 1, 1
                 self.g.put(c.entry_col, st["y"], "@" if bi == 0 else ARROW_E)
+                self.entry_x[label] = c.entry_col
+            elif label in targets:
+                # fell in from the block above AND reachable from a lane;
+                # descend_east() guarantees the heading, so the lane can deliver
+                # men onto this very cell
+                assert st["d"] == 1, ("fell westward into target %s" % label)
+                self.entry_x[label] = st["x"] - 1
             self.entry_row[label] = st["y"]
             fresh = False
             st["walk"] = 0
@@ -359,7 +395,7 @@ class CodePlacer(object):
                     # the turn glyph is the cell just walked over, i.e. one step
                     # BEHIND the cursor in the current heading
                     self._lane(st["x"] - st["d"], st["y"] + st["pend"], tok[1],
-                               False, label)
+                               label)
                     # taken arm: fall `pend` rows to the exit row, run west to
                     # the lane, ride it, glide east to the target's entry glyph.
                     self.exit[(label, ti)] = self._ride(
@@ -369,22 +405,34 @@ class CodePlacer(object):
                     self.walk[label] = st["walk"]
                     cum.append(st["walk"])
                     tgt = tok[1]
-                    if tgt == nxt and nxt not in targets:
+                    # Falling into a block that is ALSO a highway target moves
+                    # its entry cell east to wherever this ribbon happens to
+                    # end, and every OTHER man arriving on the lane then has to
+                    # glide out to it.  So it is only worth it when this edge
+                    # carries more traffic than the rest put together; weigh the
+                    # two in cells x traversals before committing.
+                    fall = tgt == nxt
+                    if fall and nxt in targets:
+                        mine = self.eheat.get((label, ti), 0)
+                        others = max(0, in_heat.get(tgt, 0) - mine)
+                        dest = c.hwy[tgt]
+                        gain = mine * (st["x"] + c.entry_col - 2 * dest - 4)
+                        loss = others * (st["x"] - 1 - c.entry_col)
+                        fall = gain > loss
+                    if fall:
                         w0 = st["walk"]
-                        descend(-st["d"])        # keep walking, no round trip
+                        if nxt in targets:
+                            descend_east()       # lanes still deliver here
+                        else:
+                            descend(-st["d"])    # keep walking, no round trip
                         self.exit[(label, ti)] = st["walk"] - w0
                     else:
                         self.g.put(st["x"], st["y"], ARROW_S)
                         row = st["y"] + st["pend"] + 1
-                        if tgt == nxt:
-                            # is_fall: west to entry_col, then one row down
-                            self.exit[(label, ti)] = (2 + st["pend"]
-                                                      + (st["x"] - c.entry_col) + 1)
-                        else:
-                            self.exit[(label, ti)] = (
-                                2 + st["pend"]
-                                + self._ride((label, ti), st["x"], row, tgt))
-                        self._lane(st["x"], row, tgt, tgt == nxt, label)
+                        self.exit[(label, ti)] = (
+                            2 + st["pend"]
+                            + self._ride((label, ti), st["x"], row, tgt))
+                        self._lane(st["x"], row, tgt, label)
                         st["y"] = row + 1
                         st["pend"] = 0
                         fresh = True
@@ -418,22 +466,23 @@ class CodePlacer(object):
         """
         dest = self.c.hwy[target]
         self._rides_by_key[key] = (x, row, target)
-        return (x - dest) + (self.c.entry_col - dest)
+        return x - dest          # the eastward glide is added by finish()
 
     def finish(self):
         """Add each highway ride's vertical leg, now that every row is known."""
         for key, (x, row, target) in self._rides_by_key.items():
-            self.exit[key] += abs(self.entry_row[target] - row)
+            dest = self.c.hwy[target]
+            self.exit[key] += (abs(self.entry_row[target] - row)
+                               + (self.entry_x[target] - dest))
         self._rides_by_key = {}
         return self
 
-    def _lane(self, x, y, target, is_fall, src=None):
-        dest = self.c.entry_col if is_fall else self.c.hwy[target]
+    def _lane(self, x, y, target, src=None):
+        """Turn this exit row west and record its join onto the target's lane."""
+        dest = self.c.hwy[target]
         self.g.put(x, y, ARROW_W)
-        if is_fall:
-            self.g.put(dest, y, ARROW_S)
-        self.joins.append((dest, y, target, is_fall))
-        self.edges.append((src, target, dest, x, y, is_fall))
+        self.joins.append((dest, y, target))
+        self.edges.append((src, target, dest, x, y))
 
 
 def break_stray_literals(g, intended=(), verbose=False):
@@ -494,7 +543,7 @@ def estimate_ticks(placer, cols, counts):
     total = 0.0
     for label, walk in placer.walk.items():
         total += counts.get(label, 0) * walk
-    for src, dst, lane, x, y, is_fall in placer.edges:
+    for src, dst, lane, x, y in placer.edges:
         trow = placer.entry_row.get(dst, y)
         cost = (x - lane) + abs(trow - y) + (cols.entry_col - lane)
         total += counts.get(dst, 0) * cost / max(1, indeg.get(dst, 1))
@@ -523,12 +572,10 @@ def plan_lanes(blocks, holder_order, rounds=6, **kw):
     for _ in range(rounds):
         cols = Columns(blocks, holder_order, lanes=lanes, **kw)
         g = lay.Layout(lm.Program())
-        placer = CodePlacer(g, cols, 1)
+        placer = CodePlacer(g, cols, 1, edge_heat=SIM.edge_heat())
         placer.place(blocks)
         spans = {}
-        for _dest, row, target, is_fall in placer.joins:
-            if is_fall:
-                continue
+        for _dest, row, target in placer.joins:
             lo, hi = spans.get(target, (row, row))
             spans[target] = (min(lo, row), max(hi, row))
         for target, row in placer.entry_row.items():
@@ -587,14 +634,12 @@ def build(holder_order=None, pitch=HOLDER_PITCH, ring_lift=RING_LIFT,
 
     # controller room: top wall row 0, interior from row 1
     ctrl_top = 0
-    placer = CodePlacer(g, cols, ctrl_top + 1)
+    placer = CodePlacer(g, cols, ctrl_top + 1, edge_heat=SIM.edge_heat())
     placer.place(blocks)
     code_bottom = placer.y + TAIL_PAD
 
     # highway turn glyphs: 'v' above the target row, '^' below it
-    for dest, row, target, is_fall in placer.joins:
-        if is_fall:
-            continue
+    for dest, row, target in placer.joins:
         trow = placer.entry_row[target]
         g.put(dest, row, ARROW_S if trow > row else ARROW_N)
         g.put(dest, trow, ARROW_E)

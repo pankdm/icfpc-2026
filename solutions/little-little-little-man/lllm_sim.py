@@ -269,6 +269,19 @@ def block_heat():
     return heat
 
 
+def edge_heat():
+    """{(source label, token index): traversals} over the public cases.
+
+    Per-EDGE counts, which block_heat cannot give: the layout has to weigh one
+    outgoing edge against all the other edges into the same target.
+    """
+    heat = {}
+    for _name, hits in all_hits():
+        for key, n in hits.items():
+            heat[key] = heat.get(key, 0) + n
+    return heat
+
+
 # ----------------------------------------------------------------------
 def run_case(rounds, flow=None, limit=40_000_000):
     """rounds: list of per-round input token lists.  Returns one frame per round."""

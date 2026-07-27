@@ -95,11 +95,12 @@ def placer_costs(holder_order=None, blocks=None, rounds=6, **kw):
     if blocks is None:
         blocks = B.split_blocks(F.build_flow())
     holder_order = holder_order or B.HOLDER_ORDER
+    kw.setdefault("flip", tuple(B.HOLDER_FLIP))     # match the builder's default
     cols = B.Columns(blocks, holder_order,
                      lanes=B.plan_lanes(blocks, holder_order, rounds=rounds, **kw),
                      **kw)
     g = lay.Layout(lm.Program())
-    placer = B.CodePlacer(g, cols, 1)
+    placer = B.CodePlacer(g, cols, 1, edge_heat=S.edge_heat())
     placer.place(blocks)
     placer.finish()
     return placer, cols

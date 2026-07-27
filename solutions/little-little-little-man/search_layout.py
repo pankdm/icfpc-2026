@@ -38,9 +38,11 @@ import cost_model as CM
 import lllm_flow as F
 import lllm_sim as SIM
 
-# rows of chrome above and below the controller (device band, pipes, display).
-# Measured: footprint height - placer.y = 32 for the two-tier band.
-CHROME_ROWS = 32
+# Rows of chrome above and below the controller (device band, ring relay,
+# input room, display, walls).  MEASURED as footprint height - placer.y; keep
+# it in step with RING_LIFT/TAIL_PAD or the search mis-weighs rows against
+# ticks -- at 32 against a real 29 it was over-paying for height.
+CHROME_ROWS = 29
 
 
 class Objective(object):

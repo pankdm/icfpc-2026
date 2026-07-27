@@ -384,6 +384,41 @@ def _side_ring(
     return pipelen(points)
 
 
+def _tight_state_ring(program, send, recv, drop=3, lift=2):
+    """Minimal STATE ring hung directly under the controller's own port columns.
+
+    `_short_ring` pays ~30 cells of lap because its relay sits five rows down and
+    its return detours around the relay's right wall.  The state ring's columns
+    (Ss..Sr) lie strictly between the memory trunks (which end at Hs) and the
+    input/display trunks (which start at Ir), so both legs can run straight down
+    and straight back up with nothing in the way.
+
+    Ring capacity = entry pipe + exit pipe cells; the one-ring protocol holds at
+    most five values, so `drop` must stay >= 3.
+    """
+    ss, bottom = send
+    sr = recv[0]
+    assert sr > ss + 1, (ss, sr)
+    y0 = bottom + drop                      # relay room top wall
+    assert drop >= lift + 2, (drop, lift)
+    # entry: straight down from the controller's bottom wall into the relay's.
+    program.pipe([send, (ss, y0 - 1)])
+    # relay: '@ > R s v' on the first interior row, '<'/'^' returning below it.
+    x0 = ss - 3
+    width = (sr - ss) + 6
+    program.room(x0, y0, width, 4)
+    program.text(x0 + 1, y0 + 1, "@>Rsv")
+    program.put(x0 + 5, y0 + 2, "<")
+    program.put(x0 + 2, y0 + 2, "^")
+    # exit: leaves beside the entry (so `s` binds to it, not to the incoming
+    # pipe), climbs to a free row and steps across to the recv column.
+    out_x = x0 + 5                          # = ss + 2
+    lane = bottom + lift
+    program.pipe([
+        (out_x, y0 - 1), (out_x, lane), (sr, lane), recv,
+    ])
+
+
 def _frontier_ring(
     program, send, recv, x, y, rows=15, left_span=2, right_span=8
 ):
@@ -468,6 +503,7 @@ def build(
     memory_y=20,
     eager_payload=False,
     port_cols=None,
+    tight_state_ring=0,
 ):
     p = lm.Program()
     flow = build_flow_one_ring(eager_payload) if merge_nb else build_flow()
@@ -588,7 +624,11 @@ def build(
         state_x = ports["Ss"][0] - 5 + ring_shift
         frontier_x = ports["Fs"][0] - 5 + ring_shift
         nb_x = ports["Ns"][0] - 3 + ring_shift if not merge_nb else None
-        _short_ring(p, ports["Ss"], ports["Sr"], state_x, apron_y, 1)
+        if tight_state_ring:
+            _tight_state_ring(p, ports["Ss"], ports["Sr"],
+                              drop=tight_state_ring, lift=2)
+        else:
+            _short_ring(p, ports["Ss"], ports["Sr"], state_x, apron_y, 1)
         _frontier_ring(
             p,
             ports["Fs"],
@@ -662,6 +702,10 @@ if __name__ == "__main__":
     parser.add_argument("--memory-y", type=int, default=20)
     parser.add_argument("--eager-payload", action="store_true")
     parser.add_argument(
+        "--tight-state-ring", type=int, default=0,
+        help="drop (rows below the controller) for the minimal STATE relay; "
+             "0 keeps the original _short_ring")
+    parser.add_argument(
         "--port-cols", default=None,
         help="explicit absolute controller port columns, e.g. "
              "'Cr=12,Hs=15,Ss=32,Sr=35,Fs=49,Fr=52,Ir=80,Ds=81'")
@@ -695,6 +739,7 @@ if __name__ == "__main__":
         args.memory_y,
         args.eager_payload,
         pcols,
+        args.tight_state_ring,
     )
     program.save(args.output)
     print("saved", args.output, "footprint", program.footprint())

@@ -85,6 +85,8 @@ for cy in range(0, H - CH + 1):
     checker = (RW, cy, 4, CH)
     north = {(RW + 1, cy), (RW + 2, cy)}
     south = {(RW + 1, cy + CH - 1), (RW + 2, cy + CH - 1)}
+    west = {(RW, y) for y in range(cy + 1, cy + CH - 1)}
+    east = {(RW + 3, y) for y in range(cy + 1, cy + CH - 1)}
     bestgot, bestwhy = -1, ''
     for iy in range(0, H - 2):
         for ix in range(RW, W - 2):
@@ -103,7 +105,11 @@ for cy in range(0, H - CH + 1):
                     # U tells pipes apart by END ARROWHEAD direction, so either
                     # assignment of {seq,drain} to {north,south} wall is legal --
                     # the checker's interior just mirrors vertically. Try both.
-                    for sqw, drw in ((north, south), (south, north)):
+                    walls4 = (('N', north), ('S', south), ('W', west), ('E', east))
+                    for (sn, sqw) in walls4:
+                      for (dn, drw) in walls4:
+                        if sn == dn:
+                            continue
                         plans = [('input', iroom, reader, None),
                                  ('seq', reader, checker, lambda n, w=sqw: n in w),
                                  ('drain', sweeper, checker, lambda n, w=drw: n in w),
@@ -111,6 +117,19 @@ for cy in range(0, H - CH + 1):
                         got, blocked = 0, blk
                         for name, a, b, filt in plans:
                             ps = route(a, b, blocked, filt, allw)
+                            if name == 'seq':
+                                # BINDING: the reader's seq `s` sits at (7,1) (one
+                                # op, `N`, after the birth cell). Its lane pipe is
+                                # directly below at (7,13), distance 12. The seq
+                                # pipe's SOURCE cell must beat that, or tie and win
+                                # the (dist,row,col) reading-order tiebreak.
+                                ok = []
+                                for q in ps:
+                                    sx, sy = q[0]
+                                    d = abs(sx - 7) + abs(sy - 1)
+                                    if d < 12 or (d == 12 and (sy, sx) < (13, 7)):
+                                        ok.append(q)
+                                ps = ok
                             if not ps:
                                 break
                             blocked = blocked | set(ps[0][:-1])
@@ -119,7 +138,7 @@ for cy in range(0, H - CH + 1):
                             bestgot = got
                             nm = ['input', 'seq', 'drain', 'output']
                             bestwhy = ('ALL 4 ROUTED' if got == 4 else f'first failure: {nm[got]}') + \
-                                      f'   (I={iroom[:2]} O={oroom[:2]} seq={"N" if sqw is north else "S"})'
+                                      f'   (I={iroom[:2]} O={oroom[:2]} seq={sn} drain={dn})'
                     if False:
                         bestgot = got
                         nm = ['input', 'seq', 'drain', 'output']

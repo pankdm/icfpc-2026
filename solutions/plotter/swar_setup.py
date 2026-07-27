@@ -178,27 +178,39 @@ class Emit:
 # the setup program
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _schedule(pop, tgt):
-    """Ops that emit `pop` (the fifo, front first) as `tgt`, using A and B as the
-    only two carry slots.  Returns None when two slots are not enough."""
-    A = B = None                    # None = register holds nothing live
-    ops, i, j = [], 0, 0
-    while j < len(tgt):
-        want = tgt[j]
-        if A == want:
-            ops.append("s"); A = None; j += 1
-        elif B == want:
-            ops.append("W"); A, B = B, A
-            ops.append("s"); A = None; j += 1
-        elif i < len(pop):
-            if A is not None:
-                if B is not None:
-                    return None
-                ops.append("M"); B = A; A = None
-            ops.append("r"); A = pop[i]; i += 1
-        else:
-            return None
-    return ops
+def route(src, dst, limit=26):
+    """Shortest r/s/M/W sequence that turns fifo `src` into fifo `dst`.
+
+    BFS over (fifo, A, B).  The old hand-rolled scheduler could only carry two
+    values and refused any permutation needing a third slot -- it produced a
+    16/20-token octant block where the optimum is 17/12, and it could not
+    permute pre's fifo at all.  The state space here is a few thousand nodes."""
+    from collections import deque
+    start = (tuple(src), None, None)
+    goal = tuple(dst)
+    seen = {start}
+    q = deque([(start, ())])
+    while q:
+        (f, A, B), ops = q.popleft()
+        if f == goal and A is None and B is None:
+            return list(ops)
+        if len(ops) >= limit:
+            continue
+        stored = set(f)
+        cand = []
+        if f and (A is None or A in stored or A == B):
+            cand.append(((f[1:], f[0], B), "r"))
+        if A is not None and A not in stored:
+            cand.append(((f + (A,), None, B), "s"))
+        if A is not None and (B is None or B in stored or B == A):
+            cand.append(((f, A, A), "M"))
+        if A != B:
+            cand.append(((f, B, A), "W"))
+        for st, op in cand:
+            if st not in seen:
+                seen.add(st)
+                q.append((st, ops + (op,)))
+    return None
 
 
 def converge(e, mapping, target):
@@ -206,30 +218,24 @@ def converge(e, mapping, target):
 
     Both octants call this; they differ only in `mapping`, so they end with the
     fifo reading the same labels in the same order and can share the tail."""
-    inv = {lb: v for v, lb in mapping.items()}
-    tgt = [inv[lb] for lb in target]
     names = [n for n, _ in e.q]
-    best = None
-    for k in range(len(names)):
-        sched = _schedule(names[k:] + names[:k], tgt)
-        if sched is not None and (best is None or len(sched) + 2 * k < best[0]):
-            best = (len(sched) + 2 * k, k, sched)
-    assert best, (names, tgt)
-    _, k, sched = best
-    for _ in range(k):
-        e.rot()
-    live = []                        # values fetched but not yet pushed
-    for op in sched:
+    ops = route([mapping[n] for n in names], list(target))
+    assert ops is not None, (names, target)
+    A = B = None                     # physical names held in the registers
+    for op in ops:
         if op == "r":
             n = e.q[0][0]
             e.fetch(n)
-            live.append(n)
+            A = n
         elif op == "s":
-            e.push(mapping[live.pop()])
-        else:
-            e.op(op)
-            if op == "W" and len(live) == 2:
-                live.reverse()
+            e.push(mapping.get(A, A)); A = None
+        elif op == "M":
+            e.op("M"); B = A
+        elif op == "W":
+            e.op("W"); A, B = B, A
+    # entries the route never popped keep their pre-branch name; renaming them
+    # costs no ops (mapping's keys and TARGET's labels are disjoint but addr0).
+    e.relabel(mapping)
     return e
 
 
@@ -263,10 +269,13 @@ def setup_pre(e):
     # make the test odd -- 2*(|DY|-|DX|)+1 is never 0, and |DX| == |DY| (which
     # then lands on the y-major side) draws the same pixels either way because a
     # 45-degree line carries on every step.
+    # Branch test.  MEASURED (scratchpad/plot2/search_order.py): the cycle this
+    # body already leaves -- adx, sx, ady, vy, addr0 -- is the cheapest of all 24
+    # for the octant block (17/12 tokens), so no re-arrangement is worth its ops.
     u("adx", keep=True); e.op("M")
-    u("ady", keep=True); e.op("-"); e.push("T")
-    e.op("1"); e.op("M")
-    e.fetch("T"); e.op("{"); e.op("|")
+    u("ady", keep=True); e.op("-")                    # A = ady - adx
+    e.op("M"); e.op("1"); e.op("W")                   # B = 1, A preserved
+    e.op("|")     # odd => X never falls through; ties (adx == ady) go y-major
     return e
 
 
@@ -274,7 +283,7 @@ def setup_pre(e):
 # trades tail length against branch-block width and both feed the box.  The
 # nominal 1%-better ("addr0","majd","S","mind","L") lands on L=8 with a WESTWARD
 # last row, a layout path that crashes -- not worth chasing for 1%.
-TARGET = ("addr0", "mind", "L", "S", "majd")
+TARGET = ("L", "addr0", "S", "majd", "mind")
 
 MAP_X = {"adx": "L", "ady": "S", "sx": "majd", "vy": "mind", "addr0": "addr0"}
 MAP_Y = {"ady": "L", "adx": "S", "vy": "majd", "sx": "mind", "addr0": "addr0"}
@@ -291,49 +300,50 @@ def setup_path_major_y(e):
 
 
 def setup_tail(e):
-    """Shared: fifo [L, S, majd, mind, addr0] -> A = P0, B = Ic, BP = cnt, Jc sent.
+    """Shared: fifo [L, addr0, S, majd, mind] -> A = P0, B = Ic, BP = cnt, and
+    (mind, 4096*maxL) sent to MOD, which forms Jc = mind - 4096*maxL.
 
         Ic = 4096*S + majd        Jc = -4096*maxL + mind
         P0 = ((1 - 2*maxL) << 10) + addr0        cnt = L + 1
-        maxL = L - ((L-1) >> 5)   -- max(L,1); L = 0 is the single-pixel case,
-        where an unclamped Jc would be tiny and `%` would mangle P0.
+        maxL = max(L, 1) -- L = 0 is the single-pixel case, where an unclamped
+        Jc would be tiny and `%` would mangle P0.
 
-    Split in two.  Everything up to the last scratch push has to sit in the half
-    of CTRL that binds `s` to ECHO; everything AFTER it is pure reads and
-    arithmetic, so it can live on the tail row in the MOD half -- which has ~40
-    free cells and costs no serpentine width.  Ic is therefore computed LAST and
-    left in B, instead of being pushed and fetched back (it was paying five fifo
-    rotations, ten ticks, purely to survive)."""
-    u = e.use
-    e.op("1"); e.op("M")
-    u("L", keep=True); e.op("-"); e.push("Lm")
-    e.op("5"); e.op("M")
-    u("Lm"); e.op("}"); e.push("sg")
-    e.op("1"); e.op("M")
-    u("L", keep=True); e.op("+"); e.op("b")           # BP = cnt = L + 1
-    u("sg"); e.op("M")
-    u("L"); e.op("-"); e.push("maxL"); e.push("maxL")
-    e.op("1"); e.op("M")
-    u("maxL"); e.op("{"); e.op("N"); e.op("+")        # f0 = 1 - 2*maxL
-    e.push("f0")
-    e.op("5"); e.op("M")
-    u("f0"); e.op("{"); e.op("{"); e.op("M")          # B = f0 << 10
-    u("addr0"); e.op("+"); e.push("P0")
-    # ---- no scratch beyond this point: it all lands on the tail row ----
-    # Jc = mind - 4096*maxL needs both terms live at once, and B is taken by the
-    # shift -- but only if CTRL forms it.  Ship the two terms instead and let
-    # MOD subtract them: MOD is parked on this read anyway and its descent
-    # column already had four idle '.' cells.  Shipping them also lets the fifo
-    # stay in its NATURAL order here, which is worth more than the op: `arrange`
-    # can only rotate, and a rotation would clobber the value in A.
-    e.arrange(["mind", "maxL", "S", "majd", "P0"])
-    e.fetch("mind"); e.out()
-    e.op("6"); e.op("M")
-    e.fetch("maxL"); e.op("{"); e.op("{"); e.out()    # 4096*maxL
+    ZERO FIFO ROTATIONS.  Two measured identities make that possible:
+
+    `M`, <literal>, `W` parks a constant in B *without losing A* (M copies A to
+    B, the literal overwrites A, W swaps them back).  Three ops, and it replaces
+    the push / literal / M / fetch / rotate-past-everything-in-front sequence
+    that used to cost 4 + 2*depth.  Setting B is what forces every spill here --
+    every literal lands in A -- so this one idiom removes all of them.
+
+    `(L-1) >> L` is the clamp test: it is -1 exactly when L = 0 and 0 for every
+    L in 1..31 (because L-1 < 2**L), so maxL = L - ((L-1) >> L) needs no B = 5
+    phase at all and reuses the B = L that the counter already parked.
+
+    The fifo is therefore consumed strictly front-to-back: L, then addr0 (P0),
+    then S and majd (Ic), then mind and 4096*maxL on their way out.  111 tokens
+    -> 51."""
+    e.fetch("L"); e.op("M")                           # B = L, for the whole run
+    e.op("1"); e.op("+"); e.op("b")                   # BP = cnt = L + 1
+    e.op("N"); e.op("+"); e.op("+")                   # A = L - cnt + L = L - 1
+    e.op("}")                                         # A = (L-1) >> L = -[L==0]
+    e.op("N"); e.op("+")                              # A = maxL = L - that
+    e.op("M"); e.op("6"); e.op("W")                   # B = 6, A still maxL
+    e.op("{"); e.op("{"); e.push("q")                 # q = 4096*maxL (-> MOD)
+    e.op("}"); e.op("}")                              # A = maxL again
+    e.op("M"); e.op("1"); e.op("W")                   # B = 1, A still maxL
+    e.op("{"); e.op("N"); e.op("+")                   # A = f0 = 1 - 2*maxL
+    e.op("M"); e.op("5"); e.op("W")                   # B = 5, A still f0
+    e.op("{"); e.op("{"); e.op("M")                   # B = f0 << 10
+    e.fetch("addr0"); e.op("+"); e.push("P0")
     e.op("6"); e.op("M")
     e.fetch("S"); e.op("{"); e.op("{"); e.op("M")     # B = 4096*S
-    e.fetch("majd"); e.op("+"); e.op("M")             # B = Ic
-    e.fetch("P0")                                     # A = P0
+    e.fetch("majd"); e.op("+"); e.push("Ic")
+    # ---- no scratch beyond this point: it all lands on the tail row ----
+    e.fetch("mind"); e.out()
+    e.fetch("q"); e.out()
+    e.fetch("P0"); e.op("M")
+    e.fetch("Ic"); e.op("W")                          # A = P0, B = Ic
     return e
 
 

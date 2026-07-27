@@ -154,7 +154,7 @@ def geometry(npre, ntail, bw):
         IH = ih_of(L)
         if IH > 2 * L + 2:
             continue
-        for k in range(1, L - 1):
+        for k in range(1, L - 1, 2):        # branch row heads west => k odd
             trows = L - k - 1
             if trows < 1:
                 continue

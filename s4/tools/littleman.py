@@ -55,6 +55,17 @@ class Program:
         # Program's cells never go through `room` at all, so "is this a wall?"
         # is answered as "wall glyph that no pipe wrote".
         self.pipe_cells = set()
+        # Cells written by `room` (walls and corners).  A room stamped ON TOP of
+        # a pipe writes the same '-'/'|' the pipe already had, so neither the
+        # glyph pair nor `overwrites` (which ignores same-glyph writes) shows
+        # anything -- the only symptom is the loader's "wrong pipe body glyph".
+        # Intersecting this with `pipe_cells` is the cheap detector.
+        self.room_cells = set()
+        # What each pipe cell WANTED to hold.  Anything that later writes a
+        # different glyph there breaks the walk; comparing this map against the
+        # final grid catches every such writer, including component stamps that
+        # bypass `room` and `put` alike.
+        self.pipe_glyphs = {}
 
     # ---- primitives ----
     def put(self, x, y, ch, kind="cell"):
@@ -65,6 +76,8 @@ class Program:
             # crossing a wall or another pipe writes exactly the same pair of
             # glyphs and is fatal ("pipe interrupted" at load time).
             self.overwrites.append((x, y, old, ch, kind))
+        if kind == "room":
+            self.room_cells.add((x, y))
         self.cells[(x, y)] = ch
         return self
 
@@ -128,9 +141,11 @@ class Program:
             bend = idx > 0 and (cells[idx - 1][2], cells[idx - 1][3]) != (dx, dy)
             self.pipe_cells.add((x, y))
             if idx == 0 or idx == len(cells) - 1 or bend:
-                self.put(x, y, VEC2ARROW[(dx, dy)], "pipe")
+                glyph = VEC2ARROW[(dx, dy)]
             else:
-                self.put(x, y, "-" if dx != 0 else "|", "pipe")
+                glyph = "-" if dx != 0 else "|"
+            self.pipe_glyphs[(x, y)] = glyph
+            self.put(x, y, glyph, "pipe")
         fx, fy, fdx, fdy = cells[0]
         lx2, ly2, ldx, ldy = cells[-1]
         self.pipes.append((points[0], points[-1], len(cells),

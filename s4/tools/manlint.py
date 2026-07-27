@@ -28,8 +28,25 @@ def bad_overwrites(program):
     two pipes crossing, or a pipe cutting a wall, which the loader rejects with
     "pipe interrupted".  Judging the glyph pair alone silently accepts both.
     """
+    pipe_cells = getattr(program, "pipe_cells", ())
     return [o for o in program.overwrites
-            if not (o[4] == "room" and o[2] in WALL and o[3] in WALL)]
+            if not (o[4] == "room" and o[2] in WALL and o[3] in WALL
+                    and (o[0], o[1]) not in pipe_cells)]
+
+
+def room_over_pipe(program):
+    """Cells a room wall and a pipe body both claim.
+
+    ``bad_overwrites`` cannot see this pair: a horizontal wall stamped over a
+    horizontal pipe writes the SAME '-' the pipe already had, and ``put`` only
+    records a clobber when the glyph actually changes.  The grid then loads
+    right up to the moment the runner walks the pipe and finds "wrong pipe body
+    glyph at (x,y): '-' while moving (0,-1)".  A floorplan search that moves a
+    component under an existing pipe hits this constantly, so it is worth the
+    one set intersection.
+    """
+    return sorted(set(getattr(program, "pipe_cells", ()))
+                  & set(getattr(program, "room_cells", ())))
 
 
 def literal_faults(rows):
@@ -102,6 +119,9 @@ def check(program, allow_dangling=None):
     bad = bad_overwrites(program)
     if bad:
         return f"{len(bad)} collisions, first {bad[0]}"
+    buried = room_over_pipe(program)
+    if buried:
+        return f"{len(buried)} pipe cells buried under a room wall, first {buried[0]}"
     loose = dangling_signature(program)
     if allow_dangling is not None and loose != allow_dangling:
         return (f"dangling pipe ends {sorted(loose)} differ from the expected "

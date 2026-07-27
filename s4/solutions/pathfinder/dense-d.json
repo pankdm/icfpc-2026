@@ -1,0 +1,37 @@
+{
+ "ports": {
+  "ri": 17,
+  "sp": 19,
+  "rp": 29,
+  "sc": 52,
+  "rr": 69,
+  "sd": 92,
+  "sa": 119,
+  "cc": 149,
+  "cr": 173,
+  "ss": 218,
+  "qs": 275,
+  "qr": 264
+ },
+ "floor": {
+  "scalar_off": 60,
+  "cell_off": 166,
+  "ctop": 4,
+  "scratch_off": 17,
+  "scratch_row": 6,
+  "ri_row": 2,
+  "display_off": 111,
+  "cc_band": 1,
+  "cr_band": 0,
+  "queue_off": 272,
+  "queue_row": 3,
+  "queue_left": 271,
+  "queue_tail": 264,
+  "sd_band": 7,
+  "sa_band": -16,
+  "ss_band": 19,
+  "queue_rows": 1,
+  "queue_right_off": 281,
+  "display_row": 38
+ }
+}

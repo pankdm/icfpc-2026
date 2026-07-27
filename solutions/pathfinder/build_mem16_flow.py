@@ -227,12 +227,14 @@ def _side_ring(
     return pipelen(points)
 
 
-def _frontier_ring(program, send, recv, x, y, rows=15):
+def _frontier_ring(
+    program, send, recv, x, y, rows=15, left_span=2, right_span=8
+):
     """A narrow folded return pipe; depth is paid vertically, not in lanes."""
     assert rows >= 1 and rows % 2 == 1
     _relay(program, x, y)
     program.pipe([send, (send[0], y - 2), (x + 3, y - 2), (x + 3, y - 1)])
-    left, right = x - 2, x + 8
+    left, right = x - left_span, x + right_span
     points = [(x + 4, y + 6), (x + 4, y + 8), (left, y + 8)]
     at = left
     last_y = y + 8 + rows
@@ -294,7 +296,7 @@ def build(
     code_x=65,
     boustrophedon=True,
     dense=True,
-    frontier_rows=3,
+    frontier_rows=1,
     display_col=None,
     memory_send_col=None,
     driver_x=0,
@@ -323,14 +325,15 @@ def build(
         # controller port there makes the exterior matching planar.
         port_spec["Ds"] = (75 - code_x, "s", 1, 10**9)
     if tight_apron:
-        port_spec["Ds"] = (75 - code_x, "s", 1, 10**9)
+        tight_display_col = 77 if display_col is None else display_col
+        port_spec["Ds"] = (tight_display_col - code_x, "s", 1, 10**9)
     if dense:
         layout = boustro.lay_cfg_boustrophedon(
             p,
             build_flow(),
             port_spec,
             code_x=code_x,
-            op_slack=op_slack + (2 if tight_apron else 0),
+            op_slack=op_slack,
         )
     else:
         layout = flowgrid.lay_cfg_controller(
@@ -404,14 +407,20 @@ def build(
         state_x = ports["Ss"][0] - 5 + ring_shift
         frontier_x = ports["Fs"][0] - 5 + ring_shift
         nb_x = ports["Ns"][0] - 5 + ring_shift
-        _short_ring(p, ports["Ss"], ports["Sr"], state_x, apron_y, 5)
+        _short_ring(p, ports["Ss"], ports["Sr"], state_x, apron_y, 1)
         _frontier_ring(
-            p, ports["Fs"], ports["Fr"], frontier_x, apron_y, frontier_rows
+            p,
+            ports["Fs"],
+            ports["Fr"],
+            frontier_x,
+            apron_y,
+            frontier_rows,
+            left_span=50,
         )
-        _short_ring(p, ports["Ns"], ports["Nr"], nb_x, apron_y, 3)
+        _short_ring(p, ports["Ns"], ports["Nr"], nb_x, apron_y, 1)
 
-        p.input_room(ports["Ir"][0] - 1, bottom + 12)
-        p.pipe([(ports["Ir"][0], bottom + 11), ports["Ir"]])
+        p.input_room(ports["Ir"][0] - 1, bottom + 4)
+        p.pipe([(ports["Ir"][0], bottom + 3), ports["Ir"]])
         driver_x, driver_y = 88, 20
         _add_driver(
             p,
@@ -452,7 +461,7 @@ if __name__ == "__main__":
     parser.add_argument("--code-x", type=int, default=65)
     parser.add_argument("--no-boustrophedon", action="store_true")
     parser.add_argument("--no-dense", action="store_true")
-    parser.add_argument("--frontier-rows", type=int, default=3)
+    parser.add_argument("--frontier-rows", type=int, default=1)
     parser.add_argument("--display-col", type=int)
     parser.add_argument("--memory-send-col", type=int)
     parser.add_argument("--driver-x", type=int, default=0)

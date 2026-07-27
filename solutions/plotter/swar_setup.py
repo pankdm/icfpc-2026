@@ -24,6 +24,7 @@ KERNEL CHANGE VS swar_ops.py
   does one `%`.  Two men, one constant each, no branch anywhere in the loop.
   check_kernel() verifies both claims exhaustively.
 """
+import functools
 import os
 import sys
 
@@ -50,7 +51,11 @@ class Emit:
         self.A = 0
         self.B = 0
         self.BP = 0
-        self.q = [("x0", x0), ("y0", y0), ("x1", x1), ("y1", y1)]
+        DX = x1 - x0
+        sx = ((DX >> 5) << 1) | 1
+        # what RELAY hands over, in RELAY_OUT order
+        self.q = [("y0", y0), ("x0", x0), ("y0b", y0), ("DX", DX),
+                  ("sx", sx), ("y1", y1)]
         self.sent = []          # values pushed to MOD
         self.npush = 0          # scratch pushes (BRAIN echo count)
         self.maxq = len(self.q)
@@ -135,6 +140,12 @@ class Emit:
         self._t("r", READ)
         return self
 
+    def nop(self, n=1):
+        """Emit n '.' cells: pure delay on CTRL's walk, no state change."""
+        for _ in range(n):
+            self._t(".", OP)
+        return self
+
     def out(self):
         """send A to MOD."""
         self.sent.append(self.A)
@@ -178,6 +189,7 @@ class Emit:
 # the setup program
 # ─────────────────────────────────────────────────────────────────────────────
 
+@functools.lru_cache(maxsize=None)
 def route(src, dst, limit=26):
     """Shortest r/s/M/W sequence that turns fifo `src` into fifo `dst`.
 
@@ -219,7 +231,7 @@ def converge(e, mapping, target):
     Both octants call this; they differ only in `mapping`, so they end with the
     fifo reading the same labels in the same order and can share the tail."""
     names = [n for n, _ in e.q]
-    ops = route([mapping[n] for n in names], list(target))
+    ops = route(tuple(mapping[n] for n in names), tuple(target))
     assert ops is not None, (names, target)
     A = B = None                     # physical names held in the registers
     for op in ops:
@@ -239,43 +251,63 @@ def converge(e, mapping, target):
     return e
 
 
+# RELAY's op stream (see setup_pre).  RELAY is a pure forwarder that stalls ~90%
+# of every round, so work moved onto it is FREE -- it is never the critical man.
+# It reads x0, y0, x1, y1 and emits RELAY_OUT.
+RELAY_OPS = "rMrsWsWsr-sM5W}M1W{|srs"
+RELAY_OUT = ("y0", "x0", "y0b", "DX", "sx", "y1")
+
+
+PRE_DELAY = 6     # MEASURED FLOOR.  RELAY now computes between its sends, so its
+                  # pipe DRAINS; ECHO's `R` then takes CTRL's scratch push out of
+                  # turn and the fifo order is corrupted (grades 0/6, display-addr).
+                  # Four nops before CTRL's first push cover RELAY's gap; 2 still
+                  # fails, 3 and up all pass (scratchpad/plot2/delay3.py -- clear
+                  # __pycache__ between runs or the .pyc goes stale and the whole
+                  # sweep reads off by one).  6 is both the cheapest (its nops land
+                  # in cells the serpentine would pad anyway) and 4 clear of the
+                  # failure.  A 20-round stress case passes (scratchpad/plot2/stress.py).
+
+
 def setup_pre(e):
     """Everything both octants share, ending with A = ady - adx (the branch test)
-    and the fifo holding exactly [adx, ady, sx, vy, addr0]."""
-    u = e.use
-    # inputs -> DX, DY, addr0
-    e.fetch("x0"); e.push("x0"); e.op("M")            # B = x0, keep x0 for addr0
-    e.fetch("y0"); e.push("y0"); e.push("y0")         # y0 for addr0 and for DY
-    e.fetch("x1"); e.op("-"); e.push("DX")            # DX = x1 - x0
-    u("y0"); e.op("M")
-    e.fetch("y1"); e.op("-"); e.push("DY")            # DY = y1 - y0
-    e.op("5"); e.op("M")
-    u("y0"); e.op("{"); e.op("M")                     # B = 32*y0
-    u("x0"); e.op("+"); e.push("addr0")               # addr0 = 32*y0 + x0
-    # |DX|, |DY| and the two unit steps.  Coordinates are < 32, so `>>5` is a
-    # sign test and every constant in this program is a single digit.
-    e.op("5"); e.op("M")
-    u("DX", keep=True); e.op("}"); e.op("M"); e.push("gx")
-    u("DX"); e.op("~"); e.op("-"); e.push("adx")
-    e.op("5"); e.op("M")
-    u("DY", keep=True); e.op("}"); e.op("M"); e.push("gy")
-    u("DY"); e.op("~"); e.op("-"); e.push("ady")
-    e.op("1"); e.op("M")
-    u("gx"); e.op("{"); e.op("|"); e.push("sx")       # sx  = +-1
-    u("gy"); e.op("{"); e.op("|"); e.push("uy")
-    e.op("5"); e.op("M")
-    u("uy"); e.op("{"); e.push("vy")                  # vy  = +-32
+    and the fifo holding [adx, ady, sx, vy, addr0] (in some rotation).
+
+    CTRL is the ONLY man on the critical path -- measured, `lm --profile` with the
+    input actually supplied puts 264 of `one pixel`'s 264 ticks on CTRL's walk
+    with 10 ticks of stall, while the other five men sit blocked (and blocked men
+    park for free).  So the lever is to delete CTRL ops, and the cheapest way to
+    delete one is to hand it to a man that is already idle.
+
+    RELAY does DX = x1 - x0 and sx = sign(DX) on its way past, and reorders its
+    output so CTRL consumes the fifo almost strictly front-to-back.  That alone
+    took pre from 115 tokens to ~60: CTRL no longer has to park DX in the fifo
+    and rotate the whole fifo to get it back for |DX| = DX * sx."""
+    e.fetch("y0"); e.op("M"); e.op("5"); e.op("W")     # B = 5, A = y0
+    e.op("{"); e.op("M")                               # B = 32*y0
+    e.fetch("x0"); e.op("+")
+    e.nop(PRE_DELAY); e.push("addr0")                  # addr0 = 32*y0 + x0
+    e.fetch("y0b"); e.op("M")                          # B = y0
+    e.fetch("y1"); e.op("-"); e.push("DY")             # DY = y1 - y0
+    e.op("M"); e.op("5"); e.op("W"); e.op("}")         # A = gy = DY >> 5
+    e.op("M"); e.op("1"); e.op("W")                    # B = 1, A = gy
+    e.op("{"); e.op("|")                               # A = uy = +-1
+    e.op("M")                                          # B = uy
+    e.fetch("DY"); e.op("*"); e.push("ady")            # ady = |DY| = DY * uy
+    e.op("W")                                          # A = uy, B = ady
+    e.op("M"); e.op("5"); e.op("W"); e.op("{")         # A = vy = uy << 5
+    e.push("vy")
+    e.fetch("DX"); e.op("M")                           # B = DX
+    e.fetch("sx"); e.push("sx"); e.op("*")             # adx = |DX| = sx * DX
+    e.push("adx"); e.op("M")                           # B = adx
     # Branch test.  `X` has THREE outcomes and a three-way merge costs cells, so
-    # make the test odd -- 2*(|DY|-|DX|)+1 is never 0, and |DX| == |DY| (which
-    # then lands on the y-major side) draws the same pixels either way because a
-    # 45-degree line carries on every step.
-    # Branch test.  MEASURED (scratchpad/plot2/search_order.py): the cycle this
-    # body already leaves -- adx, sx, ady, vy, addr0 -- is the cheapest of all 24
-    # for the octant block (17/12 tokens), so no re-arrangement is worth its ops.
-    u("adx", keep=True); e.op("M")
-    u("ady", keep=True); e.op("-")                    # A = ady - adx
-    e.op("M"); e.op("1"); e.op("W")                   # B = 1, A preserved
-    e.op("|")     # odd => X never falls through; ties (adx == ady) go y-major
+    # make the test odd.  `| 1` suffices -- for even n it is n + 1, which keeps
+    # the sign for every n <= -2 and for every n >= 0 -- so the old `<< 1` is
+    # gone.  A tie (adx == ady) gives +1 and lands y-major, which draws the same
+    # pixels either way because a 45-degree line carries on every step.
+    e.fetch("ady"); e.push("ady"); e.op("-")           # A = ady - adx
+    e.op("M"); e.op("1"); e.op("W")                    # B = 1, A preserved
+    e.op("|")
     return e
 
 
@@ -283,7 +315,7 @@ def setup_pre(e):
 # trades tail length against branch-block width and both feed the box.  The
 # nominal 1%-better ("addr0","majd","S","mind","L") lands on L=8 with a WESTWARD
 # last row, a layout path that crashes -- not worth chasing for 1%.
-TARGET = ("L", "addr0", "S", "majd", "mind")
+TARGET = ("L", "addr0", "mind", "S", "majd")
 
 MAP_X = {"adx": "L", "ady": "S", "sx": "majd", "vy": "mind", "addr0": "addr0"}
 MAP_Y = {"ady": "L", "adx": "S", "vy": "majd", "sx": "mind", "addr0": "addr0"}
@@ -336,14 +368,19 @@ def setup_tail(e):
     e.op("M"); e.op("5"); e.op("W")                   # B = 5, A still f0
     e.op("{"); e.op("{"); e.op("M")                   # B = f0 << 10
     e.fetch("addr0"); e.op("+"); e.push("P0")
+    # ---- no scratch beyond this point: it all lands on the tail row ----
+    # Parking P0 instead of Ic moves Ic's whole B = 6 phase past the last scratch
+    # push, so it lands on the TAIL ROW -- which the man walks anyway on his way
+    # to the ramp ring.  fin 8 -> 14, tail_body 43 -> 34, and since tail_body is
+    # what forces W (it has to fit ONE serpentine row), W drops 46 -> 37 and the
+    # return row shortens with it.  It also happens to give the octant block a
+    # cheaper fifo order here (BW 22 -> 19).  MEASURED: 1226 -> 1215 ticks.
+    e.fetch("mind"); e.out()
     e.op("6"); e.op("M")
     e.fetch("S"); e.op("{"); e.op("{"); e.op("M")     # B = 4096*S
-    e.fetch("majd"); e.op("+"); e.push("Ic")
-    # ---- no scratch beyond this point: it all lands on the tail row ----
-    e.fetch("mind"); e.out()
-    e.fetch("q"); e.out()
-    e.fetch("P0"); e.op("M")
-    e.fetch("Ic"); e.op("W")                          # A = P0, B = Ic
+    e.fetch("majd"); e.op("+"); e.op("M")             # B = Ic
+    e.fetch("q"); e.out()                             # 4096*maxL -> MOD
+    e.fetch("P0")                                     # A = P0
     return e
 
 

@@ -4,7 +4,7 @@ sys.path.insert(0, "solutions/plotter")
 from router_test import route
 import swar_setup as SS
 
-NATURAL = ("addr0", "adx", "sx", "ady", "vy")   # cycle pre's body leaves
+NATURAL = ("vy", "addr0", "sx", "adx", "ady")   # cycle pre's body leaves
 TARGET = SS.TARGET
 MAPX, MAPY = SS.MAP_X, SS.MAP_Y
 

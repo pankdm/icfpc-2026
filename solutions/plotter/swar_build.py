@@ -112,6 +112,7 @@ def lay_ring(g, x, y, w, h, glyphs):
 LOOP = 2              # scratch-loop horizontal legs; capacity must exceed the fifo
 SWCOL = 1             # SWAP entry column, offset into the display's bottom wall
 ZIG = 7               # ADDRM->DATAM zigzag width; pipe is 2*ZIG+2 cells
+ATOFF = 2             # ADDR turn row, rows below CTRL's bottom wall (>= 2)
 BASE_TICKS = 505      # measured: fixed overhead + 8 ticks x 18 pixels a round
 
 # Fixed vertical overhead, split so the two compressible parts are knobs:
@@ -140,8 +141,35 @@ def vfixed():
 
 def ih_of(L):
     """CTRL interior height actually consumed: L+1 serpentine rows, the tail
-    row, SPACER, the 4-row ramp ring and the return row."""
-    return L + 7 + SPACER
+    row, SPACER, the 3-row ramp ring and the return row.
+
+    The ring used to be 4x4 = 12 cells.  That size came from swar_ops' ORIGINAL
+    kernel, whose per-pixel work was `X ; s ; m ; d ; +` -- five ops, so two
+    pixels needed 10 op cells plus 2 direction fillers.  swar_setup's kernel
+    dropped the `X` (the reduction moved to MOD), so a pixel is only `s ; m ;
+    d ; +` and 2 pixels fit a 4x3 ring EXACTLY: 10 cells, 4 corners, no filler.
+    That is one CTRL row less (box 2601 -> 2500) and 5 ticks/pixel instead of 6.
+
+    A 5x2 ring is also 10 cells but does NOT work: `s` splits CTRL into halves
+    by row (both outgoing pipes share a column, so only |y - cy| decides), and
+    at IH = L+5 the split lands ABOVE the tail_body row, which needs ECHO."""
+    return L + 6 + SPACER
+
+
+# MEASURED (scratchpad/plot2/geom2.py, 107 candidates built and graded): the
+# best (L, k, W).  geometry()'s pad-based estimate prefers a taller CTRL, which
+# is 2601 vs 2500 -- it does not know that h = IH + 38 is the box driver, so the
+# smaller CTRL height wins even when it needs more columns.  Kept as a fallback
+# for when the op counts move out of this geometry's capacity.
+DEFAULT_GEOM = (5, 3, 37, 11)
+
+
+def fits(geom, npre, ntail, bw):
+    L, k, W, IH = geom
+    if IH != ih_of(L) or k % 2 == 0 or k < 3 or L - k - 1 < 1:
+        return False
+    pre_cap = (W - 3) + (k - 1) * (W - bw - 3) + (W - bw - 2)
+    return pre_cap >= npre and (L - k - 1) * (W - 3) >= ntail
 
 
 def geometry(npre, ntail, bw):
@@ -154,7 +182,9 @@ def geometry(npre, ntail, bw):
         IH = ih_of(L)
         if IH > 2 * L + 2:
             continue
-        for k in range(1, L - 1, 2):        # branch row heads west => k odd
+        # k odd (the branch row heads west) and k >= 3: rows k-1 and k+1 are
+        # dedicated branch rows, so k-1 must not be row 0, which carries the man.
+        for k in range(3, L - 1, 2):
             trows = L - k - 1
             if trows < 1:
                 continue
@@ -177,15 +207,21 @@ def build(geom=None):
     assert not any(k == SS.SCRATCH for _, k in tail_fin)
     assert all(len(t) == 1 for t, _ in pre + px + py + tail_body + tail_fin)
     BW = max(len(px), len(py)) + 2               # X column + ops + merge column
-    L, k, W, IH = geom or geometry(len(pre), len(tail_body), BW)
+    if geom is None:
+        geom = (DEFAULT_GEOM if fits(DEFAULT_GEOM, len(pre), len(tail_body), BW)
+                else geometry(len(pre), len(tail_body), BW))
+    L, k, W, IH = geom
     assert k % 2 == 1, "branch row heads west, so the block sits on the left"
 
     g = G()
     # ---------------- top band ----------------
     ECHO_W = 24                                  # interior 22 x 2
+    # RELAY is a 2-row ring: 4 corners + the man's cell + one filler are fixed,
+    # so an interior RW-2 wide holds 2*(RW-2) - 6 ops.
+    RW = max(9, ((len(SS.RELAY_OPS) + 6 + 1) // 2) + 2)
     ech = g.p.room(0, 0, ECHO_W, 4)
-    rel = g.p.room(ECHO_W + 2, 0, 9, 4)          # interior 7 x 2: four r/s pairs
-    inp = g.p.input_room(ECHO_W + 13, 0)
+    rel = g.p.room(ECHO_W + 2, 0, RW, 4)
+    inp = g.p.input_room(ECHO_W + RW + 4, 0)
 
     ex, ey = ech.ix0, ech.iy0
     cells = ring_cells(ex, ey, ECHO_W - 2, 2)
@@ -205,9 +241,15 @@ def build(geom=None):
     assert kk % 2 == 0
     lay_ring(g, ex, ey, ECHO_W - 2, 2, gl)
 
-    rx, ry = rel.ix0, rel.iy0
-    lay_ring(g, rx, ry, 7, 2,
-             [">", "@", ".", "r", "s", "r", "v", "<", "s", "r", "s", "r", "s", "^"])
+    rx, ry, rw = rel.ix0, rel.iy0, RW - 2
+    gl = ["."] * (2 * rw)
+    gl[0], gl[rw - 1], gl[rw], gl[2 * rw - 1] = ">", "v", "<", "^"
+    gl[1] = "@"
+    slots = list(range(2, rw - 1)) + list(range(rw + 1, 2 * rw - 1))
+    assert len(slots) >= len(SS.RELAY_OPS), (len(slots), len(SS.RELAY_OPS))
+    for i, ch in zip(slots, SS.RELAY_OPS):       # trailing slots stay '.'
+        gl[i] = ch
+    lay_ring(g, rx, ry, rw, 2, gl)
 
     # ---------------- CTRL ----------------
     CT = 6
@@ -228,7 +270,10 @@ def build(geom=None):
     # the ROW COUNT k-1, not 2*(k-1): the pairing constrains which rows may move
     # together, but each of those rows still gives up `bump` cells of its own.
     pre_min = (W - 3) + (k - 1) * (W - BW - 3) + (W - BW - 2)
+    # Clamp: a left bound past W-2 would put the row's entry arrow outside the
+    # room (it wrote at column W+1 and produced a dangling pipe).
     bump = max(0, (pre_min - len(pre)) // max(1, k - 1))
+    bump = min(bump, max(0, W - 2 - (BW + 1)))
     lb = {0: 1}
     for j in range(1, k + 1):
         lb[j] = BW + 1 + (bump if j < k else 0)
@@ -302,16 +347,16 @@ def build(geom=None):
     for j in range(1, SPACER + 1):
         g.put(*C(rrx, R + j), ".")
     rry = R + 1 + SPACER
-    lay_ring(g, *C(rrx, rry), 4, 4,
-             [">", "s", "m", "d", "+", ".", "<", "s", "m", "d", "+", "."])
-    ret = rry + 4
+    lay_ring(g, *C(rrx, rry), 4, 3,
+             [">", "s", "m", "d", "+", "<", "s", "m", "d", "+"])
+    ret = rry + 3
     g.put(*C(rrx + 4, rry), "v")                 # east exit
     for j in range(rry + 1, ret):
         g.put(*C(rrx + 4, j), ".")
     g.put(*C(rrx + 4, ret), "<")
     for c in range(rrx, rrx + 4):
         g.put(*C(c, ret), ".")
-    g.put(*C(rrx - 1, rry + 3), "v")             # west exit
+    g.put(*C(rrx - 1, rry + 2), "v")             # west exit
     g.put(*C(rrx - 1, ret), "<")                 # merge
     g.put(*C(rrx - 2, ret), "0")
     g.put(*C(rrx - 3, ret), "s")
@@ -392,11 +437,18 @@ def build(geom=None):
     # ADDR before DATA only if they ARRIVE in that order, so the two pipe lengths
     # have to be balanced against the 4-tick head start ADDR gets in ADDRM's ring
     # and the 8-tick pixel cadence.  ADDR = 19 cells, DATA = 17.
-    AT = DY - min(GAP, 2)                     # ADDR's turn row (keeps LA at 19)
+    # ADDR's turn row.  MEASURED: it must NOT sit directly under CTRL's bottom
+    # wall -- the eastward arrow's backward neighbour is then a room border and
+    # the loader reads it as a second pipe SOURCE, which lands a second pipe on
+    # the display's top side ("display multiple pipes on a side").  That is what
+    # blocked GAP = 2.  ATOFF is the row offset below CTRL's wall.
+    AT = min(DY - 1, CT + IH + 1 + ATOFF)
     ap = [(ax + 8, adr.y0 - 1), (ax + 8, AT), (disp.x0 + 1, AT)]
     if AT != DY - 1:
         ap.append((disp.x0 + 1, DY - 1))
-    P(ap)                                                            # ADDR
+        P(ap)
+    else:                       # last leg is the row above the display's wall
+        P(ap, end_direction="S")                                     # ADDR
 
     # ADDRM -> DATAM is deliberately 18 cells long.  The display sees ADDR_k,
     # DATA_k, ADDR_{k+1} in that order only if
@@ -430,12 +482,21 @@ if __name__ == "__main__":
     ap_.add_argument("--gap", type=int, default=GAP)
     ap_.add_argument("--swap-rows", type=int, default=SWAP_ROWS)
     ap_.add_argument("--spacer", type=int, default=SPACER)
+    ap_.add_argument("--zig", type=int, default=ZIG)
+    ap_.add_argument("--atoff", type=int, default=ATOFF)
+    ap_.add_argument("--swcol", type=int, default=SWCOL)
+    ap_.add_argument("--quiet", action="store_true")
+    ap_.add_argument("--geom", default="")
     ap_.add_argument("--out", default="plotter-swar3.man")
     a_ = ap_.parse_args()
     GAP, SWAP_ROWS, SPACER = a_.gap, a_.swap_rows, a_.spacer
-    p, info = build()
+    ZIG, ATOFF, SWCOL = a_.zig, a_.atoff, a_.swcol
+    p, info = build(tuple(int(v) for v in a_.geom.split(",")) if a_.geom else None)
     out = os.path.join(HERE, a_.out)
     p.save(out)
+    if a_.quiet:
+        print(info, p.footprint())
+        raise SystemExit
     print(info, p.footprint())
     print(subprocess.run([sys.executable, os.path.join(HERE, "..", "..", "tools",
                                                        "grade_fast.py"), "plotter", out],

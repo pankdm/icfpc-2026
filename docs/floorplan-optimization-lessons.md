@@ -100,6 +100,29 @@ Put the receive/return merge near the geometric median of hot operations.
 Bidirectional returns need separate columns or direction-neutral crossings;
 one arrow column cannot safely carry men both up and down.
 
+## Align modules by hot endpoints, not by their top walls
+
+Two rooms can overlap perfectly in height while their communicating endpoints
+are still far apart.  Pathfinder originally placed MEM16 near the controller's
+top, but both controller ports were on its bottom wall.  Every dependent access
+therefore traversed two unnecessary vertical pipe legs.
+
+Sliding MEM16 down until its command and reply endpoints nearly aligned with
+the controller ports changed neither module and stayed inside the same box:
+
+```text
+183×184, 764,008 average ticks
+183×184, 642,791 average ticks
+```
+
+Align the endpoints on the critical request/reply cycle, not room origins or
+visual centers.  Sweep the last few cells: command and reply endpoints may sit
+at different offsets inside a module, so their individual optima differ.
+
+The validity boundary is useful information.  Moving Pathfinder's memory one
+more row made its endpoint touch an apron route and changed the parsed pipe
+topology.  The best valid placement was exactly one row before that boundary.
+
 ## Profile blocked cells separately from glide cells
 
 Whole-program glyph totals are misleading because parked relay and memory men

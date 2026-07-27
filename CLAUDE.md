@@ -319,6 +319,17 @@ is confirmed against the oracle. The ones that bite most:
 
 ## Traps
 
+- **The local:server RATIO IS PER-BUILD, so a local win can be a server loss.** Measured
+  2026-07-27 on LLLM: `lane3-178x220` scores **14.16e9 local vs the live `polish-203x200`'s
+  20.33e9 — a 1.44x WIN** on all 10 public cases, and on the server it returned
+  **15.09e9 against the live 6.28e9, a 2.40x LOSS** (21/21, nothing broken). The ratios:
+  polish server/local = **0.309**, lane3 = **1.066**. LLLM's 11 private cases are far cheaper
+  than its public ones *for polish* and are not for lane3 — a 3.45x relative penalty. This is
+  NOT the stale-baseline mistake (the comparison was like-for-like on one case set); it is
+  that public ticks do not predict private ticks ACROSS ARCHITECTURES. So: a local improvement
+  over a build with a DIFFERENT structure is a hypothesis, not a result. Comparing two
+  variants of the same design is still sound. Submit to find out — it never lowers a score.
+
 - **Private cases exist** (~2–3× the public count; the per-problem API reports 0 — trust
   `status.py`'s `cases` column). You need ≥1 private pass to score at all, so never hardcode
   public answers, and stress the shape of the input, not the values.

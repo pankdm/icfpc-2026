@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Route-B dispatcher: worked-out arithmetic, and a partial floor plan.
 
-*** STATUS: the arithmetic below is verified.  The floor plan is NOT -- three
-*** routing conflicts are still open, listed at the bottom.  The shipped
-*** dispatcher remains build_ring.disp_compact_rows() (21x5).
+*** STATUS: the arithmetic below is verified exhaustively.  The floor plan is
+*** NOT -- one routing conflict is still open, described at the bottom.  The
+*** shipped dispatcher remains build_ring.disp_compact_rows() (21x5).
 
 Run this file to print the register trace and the open issues.
 
@@ -118,35 +118,45 @@ def expected(v):
 
 
 OPEN = """
-OPEN ROUTING CONFLICTS  (the arithmetic is done; the floor plan is not)
+FLOOR PLAN: two of three conflicts resolved, one left
 
-The logic needs about 40 cells more than the 19 free interior cells of the
-current 21x5 grid, so DISP grows to 8 content rows, and the ring machinery has
-to move from rows 3/4 down to rows 6/7 -- today row 3 is full from x0 to x20,
-so no column passes through it and the byte path cannot reach a new row at all.
+The logic needs ~40 cells more than the 19 free interior cells of the current
+21x5, so DISP grows to 8 content rows and 24 interior columns.  24 is the cap:
+the band is 1 + 12 + 3 + 3 + 29 + 2 = 50 columns of other rooms and gaps, so
+DISP's room plus the ring strip get 30, and the strip needs 4 columns to carry
+38 cells over a 10-row band.
 
-Three placements are still unresolved.  All three are the same shape: an `X`
-branches north or south into a cell that is already spoken for.
+Resolved
+--------
+* The ring machinery moves from rows 3/4 to rows 6/7.  Today row 3 is full from
+  x0 to x20, so no column passes through it and the byte path cannot reach any
+  new row at all.
+* The ESC lane moves to row 7, alongside the ring underside.  It then walks
+  east straight into the rotate entry with no riser of its own -- the machinery
+  is on the same pair of rows.  That frees row 5 completely, which is where
+  test B goes, and it removes the old row-5 contention entirely.
+* With the ESC lane gone from row 5, test B fits exactly: entering westward at
+  x14 it is W, M, `14`(west -> 41), +, M, 7, +, *, X across x13..x2 -- 12 cells,
+  and its X at x2 branches north into row 4 (free) and south into row 6 (free,
+  since the ESC lane is now on row 7).
 
-1. Test B needs 12 consecutive cells (W, M, 4-cell literal, +, M, 7, +, *, X).
-   Entering from the east at x22 puts its `X` at x10 -- exactly the v<=16
-   descent column.  Moving the descent to x11 only pushes the collision into
-   the classify chain on row 3.
+Still open
+----------
+The `v <= 16` descent.  It leaves the 3-way X at row 3 x9 travelling east and
+has to reach the rotate entry on row 6, so it must cross rows 4 and 5 in some
+column -- and every column of row 5 between x2 and x13 is now test B, while the
+rotate entry itself sits in the ring machinery's 11-column span on rows 6/7.
+Putting the descent right of test B collides with the machinery; putting it
+left collides with test B's literal.
 
-2. Test B's A>0 branch (the literal-byte case) turns north off its row.  On
-   row 4 that lands in the classify chain (row 3, x0..x9) or the descent; on
-   row 5 it lands in test A's tail on row 2.
-
-3. The ESC lane (`>` `r` `b` plus its eastward corridor) and test B want the
-   same span of row 5, and the ESC riser column wants the same x as test B's
-   branch column.
-
-Widening DISP is the obvious lever and it is affordable -- at 24 interior
-columns the ring strip is still 4 columns x 10 band rows = 40 cells against the
-38 the ring needs -- but each extra column also shifts every branch column, so
-this wants to be done against simtest rather than on paper.  That is the next
-step.
+The machinery span, the descent column and test B's 12 cells are three
+constraints on 24 columns and they do not currently co-exist.  Options not yet
+tried: shorten the drain loop, split the descent so it crosses row 5 outside
+x2..x13 and walks back along row 6, or give test B a 1-digit constant by
+re-choosing the recycled runs (runs 19-22 + 29-31 need constants 10 and 4
+instead of 41 and 7, but 10 is still two digits, so this saves nothing).
 """
+
 
 if __name__ == "__main__":
     bad = [(v, classify(v), expected(v))

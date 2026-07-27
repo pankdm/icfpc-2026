@@ -141,9 +141,9 @@ def hw_columns(g, win, nhw, bias, pocket=8):
     return sorted(cols)
 
 
-def build(CW=165, CY0=20, CBOT=900, save_to=None, verbose=False,
-          NHW=62, HWBIAS=1.0, SPC=50, TPC=85, PPC=20, LAZY=True,
-          POCKET=8, MEN=1, SPAD=6, TPAD=0, PPAD=14, AHEAD=True):
+def build(CW=156, CY0=20, CBOT=900, save_to=None, verbose=False,
+          NHW=58, HWBIAS=1.0, SPC=45, TPC=80, PPC=12, LAZY=True,
+          POCKET=6, MEN=1, SPAD=6, TPAD=0, PPAD=14, AHEAD=True):
     g = mc.geometry(CW=CW, CY0=CY0, CBOT=CBOT, SPC=SPC, TPC=TPC, PPC=PPC, MEN=MEN,
                     SPAD=SPAD, TPAD=TPAD, PPAD=PPAD)
     win = mc.lane_windows(g)
@@ -384,19 +384,22 @@ def build(CW=165, CY0=20, CBOT=900, save_to=None, verbose=False,
 
     # ═══ MANDRAW: (re)read the colour under the man, draw him, commit ════
     A.block("MANDRAW")
+    # Same shape as TICK: shift first, so the plane word is masked the moment it
+    # comes off the ring and never crosses the interior in scratch.
+    K(4); op("M"); S.get("x"); S.put(); op("*"); op("N")
+    T.push("n4"); K(60); op("M"); T.pop("n4"); op("+")   # A = sh = 60 - 4x
+    T.push("sh1")
     K(2); op("M"); S.get("y"); S.put(); op("*"); op("b")
     A.tight(["r:P", "s:P"])
-    tok("r:P"); T.push("C"); tok("s:P")
+    tok("r:P"); tok("s:P"); op("M")              # B = C[y]
+    T.pop("sh1"); op("W"); op("}")               # A = C >> sh
+    MASK4()
+    op("M"); S.get("pc"); op("W"); S.put()       # pc := colour under the man
     K(2); op("M"); S.get("y"); S.put(); op("*"); op("N")
     T.push("n2"); K(31); op("M"); T.pop("n2"); op("+")   # A = 31 - 2y
     op("b")
     A.tight(["r:P", "s:P"])
     HOME()
-    K(4); op("M"); S.get("x"); S.put(); op("*"); op("N")
-    T.push("n4"); K(60); op("M"); T.pop("n4"); op("+")   # A = sh = 60 - 4x
-    op("M"); T.pop("C"); op("}")
-    MASK4()
-    op("M"); S.get("pc"); op("W"); S.put()       # pc := colour under the man
     K(16); op("M"); S.get("y"); S.put(); op("*")
     op("M"); S.get("x"); S.put(); op("+")        # A = 16y + x
     op("M"); S.get("pa"); op("W"); S.put()       # pa := addr, A = addr
@@ -421,25 +424,30 @@ def build(CW=165, CY0=20, CBOT=900, save_to=None, verbose=False,
 
     # ═══ one LLLM tick ═══════════════════════════════════════════════════
     A.block("TICK")
+    # THE TWO PLANE WORDS NEVER TOUCH SCRATCH.  Reading C[y] into a temp, walking
+    # back for V[y], and only then computing the shift meant both 64-bit words
+    # crossed the whole interior twice.  Compute the shift FIRST, park the two
+    # copies it needs, and then each word is masked the instant it comes off the
+    # ring: `r,s` leaves it in A, `M` puts it in B, the scratch pop brings sh back
+    # into A and `W` turns them the right way round.
+    K(4); op("M"); S.get("x"); S.put(); op("*"); op("N")
+    T.push("n4"); K(60); op("M"); T.pop("n4"); op("+")   # A = sh = 60 - 4x
+    T.push("sh1"); T.push("sh2")
     K(2); op("M"); S.get("y"); S.put(); op("*")  # A = 2y
     op("b")
     A.tight(["r:P", "s:P"])
-    tok("r:P"); T.push("C"); tok("s:P")
-    tok("r:P"); T.push("V"); tok("s:P")
+    tok("r:P"); tok("s:P"); op("M")              # B = C[y]
+    T.pop("sh1"); op("W"); op("}")               # A = C >> sh
+    MASK4()
+    T.push("cA"); T.push("cB")                   # two copies of the colour
+    tok("r:P"); tok("s:P"); op("M")              # B = V[y]
+    T.pop("sh2"); op("W"); op("}")
+    MASK4()
+    op("M"); S.get("val"); op("W"); S.put()
     K(2); op("M"); S.get("y"); S.put(); op("*"); op("N")
     T.push("n2"); K(30); op("M"); T.pop("n2"); op("+")   # A = 30 - 2y
     op("b")
     A.tight(["r:P", "s:P"])
-    HOME()
-    K(4); op("M"); S.get("x"); S.put(); op("*"); op("N")
-    T.push("n4"); K(60); op("M"); T.pop("n4"); op("+")   # A = sh = 60 - 4x
-    T.push("sB"); op("M")
-    T.pop("C"); op("}")
-    MASK4()
-    T.push("cA"); T.push("cB")                   # two copies of the colour
-    T.pop("sB"); op("M"); T.pop("V"); op("}")
-    MASK4()
-    op("M"); S.get("val"); op("W"); S.put()
     HOME()
     K(8); op("M"); T.pop("cA"); op("-")          # A = col - 8
     A.branch("X", up="D_LOW", down="D_HIGH", straight="D_DIGIT")
@@ -583,7 +591,7 @@ def build(CW=165, CY0=20, CBOT=900, save_to=None, verbose=False,
     return p, A, caps, used
 
 
-def autobuild(CW=165, CY0=20, save_to=None, verbose=False, **kw):
+def autobuild(CW=156, CY0=20, save_to=None, verbose=False, **kw):
     """Build once to learn the row count, then again with the room trimmed."""
     _, _, _, rows = build(CW=CW, CY0=CY0, CBOT=2000, **kw)
     return build(CW=CW, CY0=CY0, CBOT=CY0 + 1 + rows,

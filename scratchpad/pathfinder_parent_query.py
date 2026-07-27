@@ -7,7 +7,7 @@ packet is unchanged except for a leading positive mode token:
     [1, U, R, D, L, state]
 
 Each room forwards the packet and ORs only its own TAKE into B.  Reconstruction
-uses a negative mode and four copies of the selected row mask:
+uses mode -1 and four copies of the selected row mask:
 
     [-1, mask, mask, mask, mask]
 
@@ -16,9 +16,14 @@ forwards the remaining masks.  The final reply is:
 
     [-1, hitU, hitR, hitD, hitL]
 
-The sign tag makes a single X split sufficient: positive takes the update
-half-loop and negative takes the query half-loop.  This probe deliberately
-uses spacious 7x18 rooms; it establishes semantics before folding the branch.
+Mode 0 clears all four persistent words and carries no payload:
+
+    [0]
+
+One X dispatches all three cases without touching persistent B: positive turns
+south into update, negative turns north into query, and zero continues east
+through a short ``0 M`` reset chord.  This probe deliberately uses spacious
+10x18 rooms; it establishes semantics before folding the branch.
 """
 
 import os
@@ -44,10 +49,11 @@ def _put_ops(program, positions, ops):
 
 def parent_room(program, x, y, direction):
     """Build one persistent, mode-tagged parent service."""
-    width, height = 7, 18
+    width, height = 10, 18
     right = x + width - 2
     bottom = y + height - 2
     mid = y + 8
+    branch_x = x + 5
     program.room(x, y, width, height)
 
     # Shared mode receive/forward and sign branch.
@@ -55,15 +61,23 @@ def parent_room(program, x, y, direction):
     program.put(x + 2, mid, "@")
     program.put(x + 3, mid, "r")
     program.put(x + 4, mid, "s")
-    program.put(right, mid, "X")
+    program.put(branch_x, mid, "X")
 
     # Positive/update half-loop: down, west, then north to the shared entry.
-    program.put(right, bottom, "<")
+    program.put(branch_x, bottom, "<")
     program.put(x + 1, bottom, "^")
     update_positions = []
-    update_positions.extend((right, row) for row in range(mid + 1, bottom))
-    update_positions.extend((col, bottom) for col in range(right - 1, x + 1, -1))
+    update_positions.extend((branch_x, row) for row in range(mid + 1, bottom))
+    update_positions.extend((col, bottom) for col in range(branch_x - 1, x + 1, -1))
     update_positions.extend((x + 1, row) for row in range(bottom - 1, mid, -1))
+    # The zero/reset chord shares this upward column at one direction-neutral
+    # turn.  It is routing, not an operation slot.
+    reset_row = mid + 2
+    reset_left = (x + 1, reset_row)
+    update_positions = [
+        position for position in update_positions
+        if position[1] != reset_row
+    ]
     update_ops = ["r", "s"] * direction
     update_ops += ["r", "s", "|", "M"]
     update_ops += ["r", "s"] * (4 - direction)
@@ -71,11 +85,11 @@ def parent_room(program, x, y, direction):
     _put_ops(program, update_positions, update_ops)
 
     # Negative/query half-loop: up, west, then south to the shared entry.
-    program.put(right, y + 1, "<")
+    program.put(branch_x, y + 1, "<")
     program.put(x + 1, y + 1, "v")
     query_positions = []
-    query_positions.extend((right, row) for row in range(mid - 1, y + 1, -1))
-    query_positions.extend((col, y + 1) for col in range(right - 1, x + 1, -1))
+    query_positions.extend((branch_x, row) for row in range(mid - 1, y + 1, -1))
+    query_positions.extend((col, y + 1) for col in range(branch_x - 1, x + 1, -1))
     query_positions.extend((x + 1, row) for row in range(y + 2, mid))
     query_ops = ["r", "s"] * direction
     query_ops += ["r", "&", "s"]
@@ -83,11 +97,19 @@ def parent_room(program, x, y, direction):
     assert len(query_ops) == 9
     _put_ops(program, query_positions, query_ops)
 
+    # Zero continues straight through X.  Clear B, turn south, cross the
+    # update column without steering it, then rejoin the shared entry.
+    program.put(branch_x + 1, mid, "0")
+    program.put(branch_x + 2, mid, "M")
+    program.put(branch_x + 3, mid, "v")
+    program.put(branch_x + 3, reset_row, "<")
+    program.put(*reset_left, "^")
+
 
 def build():
     program = lm.Program()
     y = 5
-    room_x = [5 + 9 * index for index in range(4)]
+    room_x = [5 + 12 * index for index in range(4)]
     for direction, x in enumerate(room_x):
         parent_room(program, x, y, direction)
 
@@ -95,12 +117,12 @@ def build():
     program.input_room(0, y + 7)
     program.pipe([(3, y + 8), (4, y + 8)])
     for left, right in zip(room_x, room_x[1:]):
-        program.pipe([(left + 7, y + 8), (right - 1, y + 8)])
+        program.pipe([(left + 10, y + 8), (right - 1, y + 8)])
 
-    program.output_room(room_x[-1] + 11, y + 7)
+    program.output_room(room_x[-1] + 14, y + 7)
     program.pipe([
-        (room_x[-1] + 7, y + 8),
         (room_x[-1] + 10, y + 8),
+        (room_x[-1] + 13, y + 8),
     ])
     return program
 
@@ -114,11 +136,15 @@ def reference(packets):
             for direction in range(4):
                 parents[direction] |= packet[direction + 1]
             output.extend(packet)
-        else:
-            assert packet[0] < 0 and len(packet) == 5
+        elif packet[0] == -1:
+            assert len(packet) == 5
             mask = packet[1]
             assert packet[1:] == [mask] * 4
             output.extend([-1] + [word & mask for word in parents])
+        else:
+            assert packet == [0]
+            parents = [0, 0, 0, 0]
+            output.append(0)
     return output, parents
 
 
@@ -154,6 +180,9 @@ def main():
             [1, 3, 5, 9, 17, 123],
             [1, 4, 8, 16, 32, 456],
             [-1, 12, 12, 12, 12],
+            [0],
+            [-1, 12, 12, 12, 12],
+            [1, 8, 4, 2, 1, 789],
             [-1, 33, 33, 33, 33],
         ],
     ]
@@ -162,6 +191,10 @@ def main():
         packets = []
         for _ in range(rng.randrange(1, 8)):
             packets.append([1] + [rng.randrange(65536) for _ in range(5)])
+        if rng.randrange(2):
+            packets.append([0])
+            for _ in range(rng.randrange(1, 4)):
+                packets.append([1] + [rng.randrange(65536) for _ in range(5)])
         for _ in range(rng.randrange(1, 5)):
             mask = 1 << rng.randrange(16)
             packets.append([-1, mask, mask, mask, mask])

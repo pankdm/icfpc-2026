@@ -113,7 +113,30 @@ class LayoutBuilderTest(unittest.TestCase):
         self.assertEqual(metadata["base"], 64)
         self.assertEqual(metadata["source_symbols"], len(symbols))
         self.assertEqual(metadata["encoded_codes"], len(codes))
+        self.assertEqual(len(codes), 2160)
         self.assertTrue(all(1 <= code <= 63 for code in codes))
+
+    def test_folded_dictionary_exactly_fits_55_by_16(self):
+        catalog = builder.raw_dictionary.load_catalog(
+            str(HERE / "dictionary_words_layout_gain.json")
+        )
+        symbols, ring, _ = builder.raw_dictionary.build_encoding(
+            builder.vertical.base.TEXT,
+            52,
+            catalog,
+        )
+        rewritten, packed_ring, order, bands = (
+            builder.repack_physical_dictionary(
+                symbols,
+                ring,
+                55,
+                preload_bp2=True,
+            )
+        )
+        self.assertEqual(len(order), 52)
+        self.assertEqual(len(bands), 7)
+        usage = builder.dictionary_usage(rewritten, packed_ring)
+        self.assertEqual(usage[16], (17, "0", 40))
 
     def test_catalog_is_unique_and_residual_occurrence_ordered(self):
         catalog = builder.raw_dictionary.load_catalog()

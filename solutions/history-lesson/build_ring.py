@@ -19,6 +19,7 @@ Usage:
   python3 build_ring.py --narrow                # build candidates/81x82.man
   python3 build_ring.py --legacy                # reproduce history-ring.man
   python3 build_ring.py --legacy 82 --variable  # reproduce 82x83 intermediate
+  python3 build_ring.py --feeder79               # 79-wide feeder checkpoint
 """
 from __future__ import annotations
 
@@ -1055,9 +1056,11 @@ def audit_vertical_ticks(program):
 
 
 def build(W=83, variable=False, compact_tail=False, narrow=False,
-          west_first=False, bottom_up=False):
+          west_first=False, bottom_up=False, feeder_width=None):
     assert not (west_first and bottom_up)
     compact_p1 = west_first or bottom_up
+    feeder_width = W if feeder_width is None else feeder_width
+    assert feeder_width <= W
     assert W >= (80 if compact_p1 else 81 if narrow else 82 if variable else 83)
     if narrow or compact_p1:
         allowed = (80, 81) if compact_p1 else (81,)
@@ -1077,7 +1080,7 @@ def build(W=83, variable=False, compact_tail=False, narrow=False,
         bottom_up=bottom_up,
     )
     if variable:
-        bands = optimize_feeder(symbols, W)
+        bands = optimize_feeder(symbols, feeder_width)
         chunks = [chunk.value for band in bands for chunk in band.chunks]
         dw = None
     else:
@@ -1089,7 +1092,7 @@ def build(W=83, variable=False, compact_tail=False, narrow=False,
     if compact_tail:
         program = build_compact_once(
             W, chunks, ring, layout, bands, narrow=narrow,
-            west_first=compact_p1,
+            west_first=compact_p1, feeder_width=feeder_width,
         )
     else:
         program = build_once(W, chunks, dw, ring, layout, bands=bands)
@@ -1163,6 +1166,31 @@ def build_80x80():
     return program
 
 
+def build_feeder79():
+    """Regenerate the 80x80 encoding in a 79-column feeder.
+
+    The proven service and seven-row dictionary tail deliberately remain
+    80 columns wide.  This is the working geometry checkpoint for the 79x79
+    search: only feeder packing changes.  The exact DP jumps from 61 to 63
+    feeder rows at this width, so the expected footprint is 80x82.
+    """
+    global THRESHOLD, ESC, SMALL_FREE, STOLEN
+    old = (THRESHOLD, ESC, SMALL_FREE, STOLEN)
+    THRESHOLD = 23
+    ESC = 29
+    SMALL_FREE = [2, 4, 5, 6, 7, 8, 11, 12, 16, 17, 18, 19, 20, 21, 22]
+    STOLEN = (8, 18, 23)
+    try:
+        program = build(
+            80, variable=True, compact_tail=True, bottom_up=True,
+            feeder_width=79,
+        )
+    finally:
+        THRESHOLD, ESC, SMALL_FREE, STOLEN = old
+    assert program.footprint() == (80, 82, 6724)
+    return program
+
+
 def build_champion():
     """Build the checked-in 81x81 champion."""
     program = build(81, variable=True, compact_tail=True, west_first=True)
@@ -1198,7 +1226,7 @@ def build_narrow():
 
 
 def build_compact_once(W, chunks, ring, layout, bands, narrow=False,
-                       west_first=False):
+                       west_first=False, feeder_width=None):
     """Place the optimized feeder and the hand-folded service tail.
 
     ``west_first`` is the 81x81 tail.  P1 needs 80 columns once its pump moves
@@ -1209,7 +1237,8 @@ def build_compact_once(W, chunks, ring, layout, bands, narrow=False,
     Each room keeps its position *relative* to its own pipe attachments, so
     DISP's nearest-pipe bindings are unchanged."""
     program = Program()
-    feeder_rows = variable_feeder(program, bands, W)
+    feeder_width = W if feeder_width is None else feeder_width
+    feeder_rows = variable_feeder(program, bands, feeder_width)
     if THRESHOLD == 17:          # the shipped alphabet; pins the known builds
         assert feeder_rows == ((63 if W == 81 else 64) if west_first else 62)
     tail_top = feeder_rows + 2
@@ -1420,11 +1449,20 @@ def main():
     narrow = "--narrow" in sys.argv
     w80 = "--w80" in sys.argv
     best80 = "--80x80" in sys.argv
+    feeder79 = "--feeder79" in sys.argv
     positional = [
         arg for arg in sys.argv[1:]
-        if arg not in ("--legacy", "--variable", "--narrow", "--w80", "--80x80")
+        if arg not in (
+            "--legacy", "--variable", "--narrow", "--w80", "--80x80",
+            "--feeder79",
+        )
     ]
-    if best80:
+    if feeder79:
+        if legacy or variable or narrow or w80 or best80 or positional:
+            raise SystemExit("--feeder79 does not accept other modes or a width")
+        program = build_feeder79()
+        name = os.path.join("candidates", "feeder79-v1.man")
+    elif best80:
         if legacy or variable or narrow or w80 or positional:
             raise SystemExit("--80x80 does not accept other modes or a width")
         program = build_80x80()
@@ -1453,6 +1491,7 @@ def main():
             raise SystemExit(
                 "default build is best/81x81.man; use --legacy 82 for the "
                 "previous champion, --80x80 for the stolen-threshold champion, "
+                "--feeder79 for the 79-column feeder checkpoint, "
                 "--narrow for the constant-tail candidate, "
                 "or --legacy [W] [--variable] for an older layout"
             )

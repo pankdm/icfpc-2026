@@ -22,7 +22,25 @@ ARCHITECTURE
 
   BODY RING    a FIFO ring holding the K body cells as display addresses,
                oldest (tail) first.  Sized for the worst case: at most 100
-               rounds per case => at most 49 growths => K <= 50.
+               rounds per case => at most 49 growths => K <= 50.  It is routed
+               as a BOUSTROPHEDON lap of the top band's free rows, because
+               capacity is what forces the band's depth and the band's depth is
+               a row of the box (see GEOMETRY).
+
+GEOMETRY -- what the box is made of.
+       height = CY0 + <controller rows> + 2      width = CW + 31
+The controller is 76 rows for every CW in 54..74 and 77+ below that, so the
+only two levers are CY0 (the top band) and CW.  CW=55 makes width 86 and
+CY0=8 makes height 86: the grid is square and both dimensions sit on a floor.
+  * The band cannot go below 8 rows: rows 0..3 are the three rooms (a relay
+    needs two interior rows) and the pipe terminal geometry needs ATT >= 5, so
+    rows 4..ATT-1 are all the body ring gets.  At CY0=7 that is two rows and
+    the longest ring they can hold is 49 cells -- below the 55 the worst-case
+    snake needs.  Every attempt to borrow space east of the band is blocked by
+    the input and driver pipes, which have to cross it to reach the strip.
+  * CW cannot go below 54: at 53 the emitter needs a 77th row.
+A 30,000-sample random sweep of the thirteen highway columns found no 75-row
+fold at any CW <= 55, so 7396 is this architecture's box floor.
 
   DRIVER       owns the display's ADDR/DATA/SWAP pipes.  Protocol on its single
                incoming pipe:   addr (>=0) then colour     -> write one pixel
@@ -332,11 +350,17 @@ def _lit(v):
     return ["8", "M", "+"] + (["N"] if v < 0 else [])
 
 
-def build(save_to=None, CY0=8, CBOT=None, CW=60,
-          ST_OUT=22, ST_IN=24, ST_X0=24, ST_W=7, BD_X0=33, BD_W=None,
-          FEED_E=None, FEED_W=31, FEED_W2=None, FEED_T=None, RET_E=None,
-          D_REP=8, D_COLL=6, D_HX=4, D_HY=2,
+def build(save_to=None, CY0=8, CBOT=85, CW=55,
+          ST_OUT=22, ST_IN=24, ST_X0=18, ST_W=9, BD_X0=33, BD_W=None,
+          FEED_E=None, FEED_W=26, FEED_W2=None, FEED_T=43, RET_E=49,
+          D_REP=9, D_COLL=7, D_HX=5, D_HY=2,
           DRVX=None, DISX=None, **over):
+    # DEFAULTS = the champion (micro9.man): 86x86, box 7396, ring capacity 61.
+    # CBOT=85 is the tightest that fits; CW=55 is the narrowest room the emitter
+    # still folds into 76 rows, and 55+31 = 86 = the height, so the grid is
+    # square and BOTH dimensions are on their floor.  A 30k-sample sweep of the
+    # highway columns found no 75-row fold at any CW <= 55.
+    over = dict(HW_SPAWN=43, D_EAT=31, D_NOEAT=34, DEC1=45, **over)
     R_ = right_cols(CW)
     R_.update(over)
     HW_RET, HW_TICK, HW_SPAWN = R_["HW_RET"], R_["HW_TICK"], R_["HW_SPAWN"]
@@ -767,7 +791,7 @@ def _assert_bindings(L, g, ops):
 
 
 if __name__ == "__main__":
-    path = sys.argv[1] if len(sys.argv) > 1 else os.path.join(HERE, "micro4.man")
+    path = sys.argv[1] if len(sys.argv) > 1 else os.path.join(HERE, "micro9.man")
     prog, cap, nrows = build(save_to=path)
     print("saved", path)
     print("footprint", prog.footprint(), "body-ring capacity", cap, "ctrl rows", nrows)

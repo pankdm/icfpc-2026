@@ -503,3 +503,26 @@ Two ownership bugs appeared only after composition:
 The dense seed hid the second bug for many layers; the sparse seed deadlocked
 on layer three.  Always include a sparse wavefront when changing port pitch or
 adding even one operation before a multi-pipe send.
+
+### Persistent OPEN words without scalar RAM
+
+`scratchpad/pathfinder_seed_store.py` closes the setup/round boundary for one
+row.  One B register retains the immutable 16-bit OPEN mask and a sign-tagged
+input stream selects all later behavior:
+
+```text
+[0, open]             setup: B := open
+[-1, flag]            seed:  emit [open XOR flag, flag]
+[1, state, frontier]  return: emit [state, frontier]
+```
+
+The negative branch uses two XORs around the first send.  With `A=flag` and
+`B=OPEN`, the first `~` emits initial state and the second recovers the flag;
+B is never modified.  The positive branch relays the two NEXT words, and the
+zero branch is the only path containing `M`.  The Rust probe covers repeated
+seeds, BFS returns, and re-setup in one run: 138 ticks, 22×18.
+
+This means full-round integration does not need a 256-cell RAM or even a
+mutable bitplane reset.  Setup packs sixteen canonical OPEN words once; every
+round injects sixteen flag masks (fifteen zero, one selected column bit), and
+the existing feedback loop supplies all later state/frontier pairs.

@@ -63,7 +63,10 @@ K_MASK = 0x4444444444444444
 
 
 # ═══════════════════════════════════════════════════════════ MEM16 device ══
-def mem16(L, X0, Y0, NW=16, WROW=6, WY0=6, HUBW=30, WW=14, T=8, RC=20):
+def mem16(
+    L, X0, Y0, NW=16, WROW=6, WY0=6, HUBW=30, WW=14, T=8, RC=20,
+    centered=False,
+):
     p = L.p
     WX = X0 + HUBW + 4
     CX = WX + WW + 2
@@ -75,26 +78,6 @@ def mem16(L, X0, Y0, NW=16, WROW=6, WY0=6, HUBW=30, WW=14, T=8, RC=20):
         return Y0 + WY0 + WROW * i + 3
     hub_h = WY0 + WROW * NW + 4
     p.room(X0, Y0, HUBW, hub_h)
-
-    def h(dx, dy, ch):
-        L.put(X0 + dx, Y0 + dy, ch)
-    for dx, ch in enumerate(">@rX", start=1):
-        h(dx, 2, ch)
-    h(1, 4, "^")
-    h(5, 2, "v")
-    h(4, 1, ">")
-    lit = "`%d`" % K_MASK
-    for k, ch in enumerate(lit):
-        h(5 + k, 1, ch)
-    xr = 5 + len(lit)
-    h(xr, 1, "N")
-    h(xr + 1, 1, "S")
-    h(xr + 2, 1, "v")
-    h(xr + 2, 4, "<")
-    h(4, 3, ">")
-    h(5, 3, ">")
-    h(6, 3, "b")
-    h(7, 3, "v")
     rows = [lrow(i) for i in range(NW)]
 
     def node_row(level, j):
@@ -102,6 +85,57 @@ def mem16(L, X0, Y0, NW=16, WROW=6, WY0=6, HUBW=30, WW=14, T=8, RC=20):
         blk = rows[j * span:(j + 1) * span]
         return (blk[0] + blk[-1]) // 2
     root = node_row(0, 0)
+
+    def h(dx, dy, ch):
+        L.put(X0 + dx, Y0 + dy, ch)
+    lit = "`%d`" % K_MASK
+    if centered:
+        ry = root - Y0
+        center_rc = HUBW - 2
+        for dx, ch in enumerate(">@rX", start=1):
+            h(dx, ry, ch)
+        # Negative reset arm immediately above the decoder root.
+        h(4, ry - 1, ">")
+        for k, ch in enumerate(lit):
+            h(5 + k, ry - 1, ch)
+        xr = 5 + len(lit)
+        h(xr, ry - 1, "N")
+        h(xr + 1, ry - 1, "S")
+        h(xr + 2, ry - 1, "v")
+        h(xr + 2, ry + 2, "<")
+        # Positive transaction arm dips below the entry and rejoins the
+        # decode tree at x=7 on the root row.
+        h(4, ry + 1, ">")
+        h(5, ry + 1, ">")
+        h(6, ry + 1, "b")
+        h(7, ry + 1, "^")
+        # Upper and lower leaves need distinct one-way return columns. They
+        # merge into the entry from rows two cells above/below the root.
+        for y in range(Y0 + 5, root - 2):
+            L.put(X0 + RC, y, "v")
+        h(RC, ry - 2, "<")
+        h(1, ry - 2, "v")
+        for y in range(root + 3, Y0 + hub_h - 1):
+            L.put(X0 + center_rc, y, "^")
+        h(center_rc, ry + 2, "<")
+        h(1, ry + 2, "^")
+    else:
+        for dx, ch in enumerate(">@rX", start=1):
+            h(dx, 2, ch)
+        h(1, 4, "^")
+        h(5, 2, "v")
+        h(4, 1, ">")
+        for k, ch in enumerate(lit):
+            h(5 + k, 1, ch)
+        xr = 5 + len(lit)
+        h(xr, 1, "N")
+        h(xr + 1, 1, "S")
+        h(xr + 2, 1, "v")
+        h(xr + 2, 4, "<")
+        h(4, 3, ">")
+        h(5, 3, ">")
+        h(6, 3, "b")
+        h(7, 3, "v")
     L.put(X0 + 7, root, ">")
     L.put(X0 + T, root, "x")
     for level in range(1, 4):
@@ -114,9 +148,10 @@ def mem16(L, X0, Y0, NW=16, WROW=6, WY0=6, HUBW=30, WW=14, T=8, RC=20):
         y = rows[i]
         for k, ch in enumerate(">rsrs"):
             L.put(X0 + T + 6 + k, y, ch)
-    for y in range(Y0 + 5, Y0 + hub_h - 1):
-        L.put(X0 + RC, y, "^")
-    L.put(X0 + RC, Y0 + 4, "<")
+    if not centered:
+        for y in range(Y0 + 5, Y0 + hub_h - 1):
+            L.put(X0 + RC, y, "^")
+        L.put(X0 + RC, Y0 + 4, "<")
 
     for i in range(NW):
         top = Y0 + WY0 + WROW * i

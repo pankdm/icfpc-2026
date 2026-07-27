@@ -231,11 +231,15 @@ class Asm:
             assert sorted(q) == sorted(self.T.q), (
                 "scratch contents differ entering %s: %r vs %r"
                 % (name, self.T.q, list(q)))
-            for _ in range(len(self.T.q)):
-                if tuple(self.T.q) == q:
-                    break
-                self.T.asm.E.seq(["r:%s" % self.T.lane, "s:%s" % self.T.lane])
-                self.T.q.append(self.T.q.pop(0))
+            # ROTATION IS NOT ENOUGH.  Two scratch states holding the same names
+            # need not be cyclic shifts of one another, and the loop that used to
+            # sit here simply ran out of iterations and fell through with the
+            # queue STILL WRONG -- a silent miscompile.  That is why no committed
+            # builder reproduced its own .man: every LAZY=True build from lane2
+            # onwards graded 0/10, and the shipped grids came from a working tree
+            # that predated the bug.  `normalize` reaches an ARBITRARY
+            # permutation, so it always lands.
+            self.T.normalize(list(q))
 
     def capture(self, name):
         """Record (or check) the symbolic ring/scratch state entering `name`.
@@ -392,7 +396,19 @@ class Asm:
         # A branch ARM cannot emit anything, so the state its three targets are
         # entered with has to be pinned HERE, where ops are still legal.  Head 0
         # is the pin; every jump into those blocks then align()s to it.
-        self.S.rot((-self.S.head) % self.S.n)
+        #
+        # THE PIN MUST NOT EAT THE CONDITION.  `r`/`s` clobber A and the branch
+        # tests A, so rotating here after the caller has computed the condition
+        # silently branched on a ring slot instead.  With LAZY=False the caller's
+        # HOME() had already zeroed the head and this rotation was empty, which
+        # is exactly why the bug only ever showed up in LAZY builds.  Park the
+        # condition in B across the rotation -- B is dead at every branch, and
+        # every arm's block reloads it.
+        k = (-self.S.head) % self.S.n
+        if k:
+            E.tok("M")
+            self.S.rot(k)
+            E.tok("W")
         self.endblock()
         ytop = max(self.R.y, E.y + 1)
         ymid, ybot = ytop + 1, ytop + 2

@@ -46,9 +46,16 @@ def geometry(CW=104, CY0=20, CBOT=300, SPC=None, TPC=None, PPC=None, MEN=2,
     the right margin.  The old fixed 13/39/65 gave S a 26-column window no matter
     how wide the room was -- which is why widening CW did nothing at all.
     """
+    # The three percents are INDEPENDENT: S, T and P may sit in any left-to-right
+    # ORDER.  The old chained max() silently forced S < T < P, which meant the
+    # single biggest wrap source -- coming back WEST to the state lane after an
+    # excursion east to scratch -- could never even be measured.
     S_OUT = max(7, CW * (22 if SPC is None else SPC) // 100)
-    T_OUT = max(S_OUT + 12, CW * (62 if TPC is None else TPC) // 100)
-    P_OUT = max(T_OUT + 12, CW * (88 if PPC is None else PPC) // 100)
+    T_OUT = max(7, CW * (62 if TPC is None else TPC) // 100)
+    P_OUT = max(7, CW * (88 if PPC is None else PPC) // 100)
+    _p = sorted((S_OUT, T_OUT, P_OUT))
+    assert _p[1] - _p[0] >= 12 and _p[2] - _p[1] >= 12, \
+        "controller ports too close: %r" % (_p,)
     D_OUT, I_IN = CW - 3, CW - 7
     ATT = CY0 - 1
     g = dict(CX0=0, CY0=CY0, CW=CW, CBOT=CBOT, ATT=ATT)

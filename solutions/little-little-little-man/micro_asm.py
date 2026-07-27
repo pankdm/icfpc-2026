@@ -186,8 +186,9 @@ class Scratch:
 
 # ──────────────────────────────────────────────────────────────────────────
 class Asm:
-    def __init__(self, L, E, g, hw_cols):
+    def __init__(self, L, E, g, hw_cols, ahead=True):
         self.L, self.E, self.g = L, E, g
+        self.ahead = ahead
         self.R = Rows(g["IYLO"], E.dead)
         self.hw_free = list(hw_cols)
         self.hw_of = {}
@@ -269,10 +270,28 @@ class Asm:
         self.S.head = head
         self.S.pending = False
 
-    def hw(self, name):
+    def hw(self, name, ahead=False):
+        """Reserve a highway COLUMN for block `name`.
+
+        Allocation order is a row lever, not bookkeeping.  `jump()` has to get
+        the man onto the column, and a column BEHIND him costs a `face()` --
+        i.e. a whole wrapped row.  Handing columns out in sorted order made that
+        a coin flip and it was the second-largest wrap source (22 of 101).
+        With `ahead`, take the nearest free column the man can still reach in the
+        direction he is already walking; only fall back to sorted order when the
+        rest of the row is exhausted."""
         if name not in self.hw_of:
             assert self.hw_free, "out of highway columns"
-            self.hw_of[name] = self.hw_free.pop(0)
+            col = None
+            if ahead and self.ahead and self.E.d in ("E", "W"):
+                x, step = self.E.x, (1 if self.E.d == "E" else -1)
+                reach = [c for c in self.hw_free if (c - x) * step >= 0]
+                if reach:
+                    col = min(reach, key=lambda c: (c - x) * step)
+            if col is None:
+                col = self.hw_free[0]
+            self.hw_free.remove(col)
+            self.hw_of[name] = col
         return self.hw_of[name]
 
     def _blank(self, x, y):
@@ -305,7 +324,7 @@ class Asm:
     def jump(self, name):
         """Leave the current row for block `name` via its highway column."""
         self.align(name)
-        col = self.hw(name)
+        col = self.hw(name, ahead=True)
         E = self.E
         d = "E" if col >= E.x else "W"
         if (E.d == "E") != (d == "E"):

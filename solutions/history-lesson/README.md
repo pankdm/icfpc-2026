@@ -414,6 +414,64 @@ Two facts constrain where those rows can come from.
   need 11 more columns, and the band already runs x=1..79.  Getting the band to
   7 rows means making that stack 7 rows tall, not rearranging it.
 
+### Where the two rows are not
+
+Measured, so they are not retried.
+
+- **More dictionary entries are exactly row-neutral.**  Extra pair phrases do
+  shrink the stream, but P1's group-B table pays for them at the same rate.
+  Choosing the fewest group-B rows that satisfy P1's width cap
+  (`sum(TB) + 3*nB + 4 <= inner + 1`, i.e. `<= 77` at W=80) for each dictionary
+  size gives a completely flat total:
+
+  | extra pairs | entries | feeder rows | group-B rows | P1 room | total |
+  | ---: | ---: | ---: | ---: | ---: | ---: |
+  | 0 | 35 | 64 | 4 | 8 | **82** |
+  | 3 | 38 | 63 | 5 | 9 | **82** |
+  | 6 | 41 | 62 | 6 | 10 | **82** |
+  | 10 | 45 | 61 | 7 | 11 | **82** |
+  | 14 | 49 | 61 | 8 | 12 | 83 |
+
+  About 3.3 extra entries buy one feeder row and cost one P1 row.  `nB` is
+  pinned at 5 slots per row in every case — the widest entry is a 17-digit
+  packed 8-byte phrase, and two more like it exhaust the cap.
+
+- **A pipe may not loop back into its own room.**  The loader rejects it
+  outright: *"pipe loops back to the room it started from — pipes must connect
+  two different rooms"* (`scratchpad/history-disp/selfloop.man`).  That kills
+  absorbing DECODER into DISP as a second man handing symbols over a self-loop,
+  which is otherwise attractive: DISP has a free 2×9 cell block at rows 1–2,
+  x=11..19, exactly the size of DECODER's grid.
+
+- **Two rooms may not share a wall row** — reconfirmed, and worth knowing *how*
+  to probe it, because weak probes say otherwise.  A shared row silently fails
+  to parse as two rooms: the upper room is not recognised at all, so its `@`
+  never spawns.  `scratchpad/history-disp/share4.man` (shared) crashes
+  `no-pipe` and reports one runner and one pipe; `share5.man` is the identical
+  layout with separate wall rows and passes.  A probe of two `@H` rooms
+  "passes" either way and proves nothing — always give the probe an expected
+  output and check the runner/pipe counts.
+
+- **A one-content-row room cannot branch.**  `X`, `d`, `a` and `x` all turn to
+  north or south, which is the wall, so a 3-row room can only walk straight or
+  bounce between `<` and `>`.  Every divmod loop needs a data-dependent exit,
+  so neither UNPACK nor DECODER can be a 3-row room and the stack cannot be 7.
+
+### What the remaining gap actually is
+
+It is a *packing* loss, not a compression loss.  At W=80 the feeder's 64 rows
+hold 4,900 occupied cells against a 5,120-cell grid — 95.7%.  The missing 220
+cells are all right-margin slack, 3.4 columns on the average row, because a
+band's length is `2 + sum(w+3)` over its slot widths and the next chunk needs
+at least four more cells.  Two rows' worth of that slack is 160 cells.
+
+The content would already fit: 62 rows × 80 = 4,960 ≥ 4,900.  Reaching it means
+getting the average band to fill 79 of 80 columns instead of 76.6 — a better
+feeder DP, not a better encoder.  For reference the per-chunk overhead (two
+backticks and one `s`, 3 cells × 310 chunks = 930 cells, 11.6 rows) is already
+at its floor: every chunk needs both ticks and its own send, and chunks are
+capped at 9 symbols by the i64 literal limit.
+
 ## Vertical-P1 line
 
 `build_vertical_p1.py` is a different tail experiment: it drops the YEAR room

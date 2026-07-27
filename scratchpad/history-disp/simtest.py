@@ -31,9 +31,12 @@ def make_pipe_for(ports):
 
 
 def check(rows, ports, start, direction="E", entries=44, trials=1500, seed=7,
-          zeros=False):
+          zeros=False, direct=None, reserved=None, esc=None):
     """zeros: also feed the 0 year-marker symbol, which the champion's
     dispatcher forwards untouched (the no-YEAR vertical builds never emit it)."""
+    DIRECT_ = DIRECT if direct is None else direct
+    RESERVED_ = RESERVED if reserved is None else reserved
+    ESC_ = ESC if esc is None else esc
     w = max(len(r) for r in rows)
     rows = [r.ljust(w) for r in rows]
     ring0 = [1000 + i for i in range(1, entries + 1)] + [0]
@@ -45,16 +48,16 @@ def check(rows, ports, start, direction="E", entries=44, trials=1500, seed=7,
             stream.append(0)
             want.append(0)
         elif c < 0.40:
-            v = rnd.randint(1, DIRECT)
+            v = rnd.randint(1, DIRECT_)
             stream.append(v)
             want.append(1000 + v)
         elif c < 0.70:
-            k = rnd.randint(DIRECT + 1, entries)
-            stream += [ESC, k]
+            k = rnd.randint(DIRECT_ + 1, entries)
+            stream += [ESC_, k]
             want.append(1000 + k)
         else:
-            v = rnd.choice([v for v in range(18, 92)
-                            if v != ESC and v != RESERVED])
+            v = rnd.choice([v for v in range(RESERVED_ + 1, 92)
+                            if v != ESC_])
             stream.append(v)
             want.append(v + 31)
     queues = {"stream": list(stream), "ring": list(ring0), "unpack": []}

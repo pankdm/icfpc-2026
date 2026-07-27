@@ -556,6 +556,42 @@ the budget for whatever the classifier change costs.  W=79 does not go further
 because P1's width cap tightens (`sum(TB) + 3*nB <= 72`) and pushes its table
 from 6 rows to 7.
 
+#### CORRECTION: route A ties at 6,561, it does not reach 6,400
+
+Route A was built (`build_80x80()`, `alphabet(30, 31)`) and the projection above
+was **wrong**.  It assumed group A could be packed width-sorted like group B.
+It cannot: DISP reaches ring position `p` by rotating `p-1` times, so position
+`v` *is* symbol `v`, and every position whose symbol spells a literal byte is
+**pinned**.  Only the free positions may be permuted.  Raising T adds those
+pinned byte entries to group A, and they interleave with the wide phrase
+entries, so group A grows faster than the projection allowed.  Measured with
+the real packers, every threshold lands on the same height:
+
+| T | ESC | direct | symbols | feeder | group A | group B | height | box |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 19 | 20 | 10 | 2025 | 63 | 2r | 4r | 81 | 6,561 |
+| 21 | 22 | 12 | 1990 | 62 | 3r | 4r | 81 | 6,561 |
+| 22 | 29 | 13 | 1980 | 62 | 3r | 4r | 81 | 6,561 |
+| 29 | 30 | 14 | 1964 | 61 | 4r | 4r | 81 | 6,561 |
+| 30 | 31 | 15 | 1951 | 61 | 4r | 4r | 81 | 6,561 |
+
+Flat again, and at width 80 that is `max(80, 81)^2 = 6,561` — a tie with the
+champion, never a win.  Two hard floors make it flat: group A's 29 entries need
+~279 cells against 73 per row, so 4 rows; and group B stays at 4 rows even
+after losing five entries, because 3 rows forces `nB = 5` and `sum(TB) + 3*nB`
+= 78 > 73.
+
+Route A also breaks the ring: 43 entries + sentinel need 43 cells of pipe and
+the strip east of DISP carries 37.  Combing more of the strip splits the return
+leg into two pipes, because **every pipe cell adjacent to a room wall reads as
+an attachment** — the serpentine touched P1's top wall in three columns and the
+loader made three pipes out of it.  Worth remembering for any reroute.
+
+**Route B is the only path to 6,400.**  It keeps the direct range at `1..16`,
+so group A stays 2 rows with its 7 existing byte entries; the recycled runs
+land at positions 17-26 inside group *B*, which absorbs them without a new row.
+That is why it reaches height 78 where route A reaches 81.
+
 #### Two routes, and what each one actually costs
 
 Costed with P1 as it is really built — group A (the direct positions, which

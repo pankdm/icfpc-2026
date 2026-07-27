@@ -54,8 +54,9 @@ CORR = {
     'OUT': row(50, 40, 43),
     'CF':  row(50, 21, 23) + col(21, 50, 70) + row(70, 21, 26),
     'CR':  row(68, 22, 23) + col(22, 53, 68) + row(53, 22, 23),
-    'CP':  col(20, 12, 35) + row(35, 20, 50) + col(50, 35, 78) + row(78, 45, 50),
-    'CTL': col(38, 65, 73) + row(65, 33, 38) + col(33, 64, 65),
+    'CP':  col(20, 12, 18) + row(18, 20, 31) + col(31, 18, 24),
+    'CTL': col(38, 30, 31) + row(31, 38, 49) + col(49, 31, 65) + row(65, 33, 49) +
+           col(33, 64, 65),
 }
 
 
@@ -65,9 +66,8 @@ def build(ap_rect=(9, 2, 10, 32, False), br_rect=(0, 58, 20, 16), verbose=False)
     rt.add_input_room(12, -3)
     spl = R.spl(g, 12, 2)
     brel = R.brel(g, -16, 46)
-    pcnt = R.pcnt(g, 32, 74)
-    pcnt.attach('CP', 'R', 78, 'in')
-    pcnt.attach('CTL', 'T', 38, 'out')
+    pcnt = R.pcnt(g, 32, 20)
+    pcnt.attach('CP', 'L', 24, 'in')
     arel = R.arel(g, 12, 36)
     arel.attach('AP', 'L', 40, 'in')
     arel.attach('AR', 'R', 40, 'out')
@@ -140,7 +140,7 @@ def build(ap_rect=(9, 2, 10, 32, False), br_rect=(0, 58, 20, 16), verbose=False)
         ('CF', A(acc, 'CF'), A(crel, 'CF'), 'N'),
         ('CR', A(crel, 'CR'), A(acc, 'CR'), 'E'),
         ('OUT', A(acc, 'OUT'), (43, 50), 'E'),
-        ('CP', A(spl, 'CP'), A(pcnt, 'CP'), 'W'),
+        ('CP', A(spl, 'CP'), A(pcnt, 'CP'), 'E'),
         ('CTL', A(pcnt, 'CTL'), A(acc, 'CTL'), 'N'),
     ]
     for name, sp, dp, ed in seq:

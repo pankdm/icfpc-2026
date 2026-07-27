@@ -83,6 +83,10 @@ def br_exit(rect):
 # LANE: the one free column in the gutter between the A band's east edge (col 2) and
 # SPL/AREL/MUL's west wall.  At DX>=8 the old 10-DX lane lands ON the band, so clamp.
 LANE = max(3, 10 - DX)
+# PPL/CTLL: the two east lanes.  PP descends past the output room's east side and
+# CTL past PP -- together they set the program's east edge.
+PPL = 46 - DX - int(os.environ.get('PPX', '0'))
+CTLL = 47 - DX - int(os.environ.get('CTLX', '0'))
 AP_LEAD = row(5, LANE, 11 - DX) + col(LANE, 2, 5) + row(2, 3, LANE)
 # BREL's SD attachment is at x = -12, so SD's descent lane must be <= -12 and must
 # clear the A band, whose west edge is 2 - APW + 1.
@@ -99,8 +103,8 @@ CORR = {
     'SD':  row(11, 28 - DX, 29 - DX) + col(29 - DX, -4, 11) + row(-4, SDX, 29 - DX) +
            col(SDX, -4, 36 - DY) + row(36 - DY, SDX, -12),
     'PP':  row(35 - DY, 20 - DX, 21 - DX) + col(21 - DX, 33 - DY, 35 - DY) +
-           row(33 - DY, 21 - DX, 46 - DX) + col(46 - DX, 33 - DY, 39 - DY) +
-           row(39 - DY, 40 - DX, 46 - DX),
+           row(33 - DY, 21 - DX, PPL) + col(PPL, 33 - DY, 39 - DY) +
+           row(39 - DY, 40 - DX, PPL),
     'OUT': row(36 - DY, 40 - DX, 41 - DX),
     'CF':  row(36 - DY, 21 - DX, 23 - DX) + col(21 - DX, 36 - DY, 56 - DY - CRD) +
            row(56 - DY - CRD, 21 - DX, 26 - DX),
@@ -108,8 +112,8 @@ CORR = {
            col(22 - DX, 39 - DY, 54 - DY - CRD) + row(39 - DY, 22 - DX, 23 - DX),
     'CP':  col(20 - DX, 12, 13) + row(13, 20 - DX, 30 - DX) +
            col(30 - DX, 6, 13) + [(31 - DX, 6)],
-    'CTL': col(38 - DX, 12, 13) + row(13, 31 - DX, 47 - DX) +
-           col(47 - DX, 13, 51 - DY) + row(51 - DY, 33 - DX, 47 - DX) +
+    'CTL': col(38 - DX, 12, 13) + row(13, 31 - DX, CTLL) +
+           col(CTLL, 13, 51 - DY) + row(51 - DY, 33 - DX, CTLL) +
            col(33 - DX, 50 - DY, 51 - DY),
 }
 

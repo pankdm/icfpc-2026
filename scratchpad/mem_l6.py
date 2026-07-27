@@ -62,6 +62,23 @@ def room(g, x0, x1, y0=0, y1=3):
         g[y][x1] = "|"
 
 
+def snake(g, x0):
+    """A 6-cell pipe in a 2-column gap (rooms occupy rows 0-3, gaps are free).
+
+    Pipe capacity == pipe length.  Each front-end pipe carries 3 values per
+    6-tick cycle with the producer sending at cycle offsets 2/4/7 and the
+    consumer reading at 1/3/5, so a 2-cell pipe fills, the producer blocks on
+    's', and the NEXT worker -- whose own 's' sits on a different cell -- gets
+    to send first.  That reorders the stream.  Six slots absorb the transient.
+    """
+    g[2][x0] = "^"
+    g[1][x0] = "^"
+    g[0][x0] = ">"
+    g[0][x0 + 1] = "v"
+    g[1][x0 + 1] = "v"
+    g[2][x0 + 1] = ">"
+
+
 def relay(g, x0, x1, yx, body, init, k):
     """A 2-row relay room: worker walks west from the Y, loop returns east."""
     room(g, x0, x1)
@@ -92,11 +109,11 @@ def build(src, dst, k=2):
     put(g, 15, 1, "Y rbrsdWsH")                # Y . r b r s d | W s H
     put(g, 21, 2, "U-sH")                      # write path: 'U' reads value @6
 
-    put(g, 26, 2, ">>")
+    snake(g, 26)
     relay(g, 28, 40, 37, "HsrsWs/r", "@5M*M^", k)   # split addr -> blk, idx
-    put(g, 41, 2, ">>")
+    snake(g, 41)
     relay(g, 43, 56, 52, "Hs*rsrsr", "@5M*M^", k)   # payload *= 25
-    put(g, 57, 2, ">>")
+    snake(g, 57)
     relay(g, 59, 72, 68, "Hs-rsrsr", "@1M^", k)     # payload -= 1
 
     put(g, 73, 2, ">v")                        # -> fanout (top wall row 4)
@@ -110,6 +127,14 @@ def build(src, dst, k=2):
     put(g, 71 + k, 5, "v")
     put(g, 71 + k, 6, "<")
     put(g, 66, 6, "@5M*M^")
+
+    for b in range(NB):                        # fanout -> block: 2 -> 6 slots
+        px = 6 + b * BW
+        for y in range(9, 14):
+            g[y][px] = " "
+        for y in range(8, 13):
+            g[y][px] = "v"
+        g[13][px] = "<"
 
     # ----------------------------- block headers ----------------------------
     if "--oldblock" in sys.argv:

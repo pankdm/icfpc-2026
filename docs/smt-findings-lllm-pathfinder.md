@@ -312,3 +312,45 @@ serialization.
 Worth noting for the tick budget: `pathfinder-d67da44b` (170x170, box **28900** — smaller
 than the champion's 29929) scores **17.69B vs 12.14B** because its ticks are 611,941 vs
 405,671. Box is squared and it still loses. Do not trade ticks for box here.
+
+### 10b. The pathfinder tick bottleneck is TRANSFER LATENCY, not compute
+
+Every public case feeds exactly **258 values** per round (a fixed 16x16 grid + 2), which is
+also why there are exactly 16 lanes — one per row. Per-round cost:
+
+| case | ticks/round | ticks per cell per round |
+|---|---|---|
+| running errands | 66,617 | 258 |
+| rooms and doors | 70,259 | 272 |
+| a cluttered field | 95,306 | 369 |
+| there and back again | 97,214 | 377 |
+| a straight shot | 97,692 | 379 |
+| the long way | 120,784 | 468 |
+| around the pillars | 125,196 | 485 |
+
+**The lanes finish their work in ~2,567 ticks; the round takes ~100,000.** So ~97% of every
+round happens OUTSIDE the lanes, moving 258 values in and results out at ~390 ticks per
+value — against pipes whose length is ~129 (pipe 39 is 129 cells).
+
+That identity (258 values x ~390 ticks ~= 100k ticks/round) is the whole story: the machine
+is **latency-bound on serial value transfer**, not compute-bound. A pipe IS a FIFO with
+capacity equal to its length, so a 129-cell pipe can hold 129 values in flight. Paying ~390
+ticks per value means the design is doing one value per ROUND TRIP (send -> wait -> receive
+-> send next) instead of streaming. It also explains `r` = 42.3% of man-ticks and stalls =
+48%: everyone is waiting on transfers, and the 16 lanes idle at 99.5% because they are fed
+one value at a time.
+
+Priority for a tick round:
+
+1. **Stream, do not round-trip.** Issue sends back-to-back and let the pipes buffer them.
+   Ceiling ~= pipe length (~100x); realistically bounded by the lanes' 2,567 ticks of real
+   work, so target **10-30x**. Needs no floorplan change, which matters because section 10
+   proves the floorplan is closed at 1.11x.
+2. **Then shorten the long relays** (pipe 39 = 129; the 7x112 at x50..56 and 30x122 at
+   x0..29 are pure transit). This only pays while you are still paying L per value; after
+   pipelining, latency amortizes and it stops mattering.
+3. **Never trade ticks for box** — `d67da44b` has the smaller box (28900 < 29929) and loses
+   17.69B vs 12.14B.
+
+NOT a lever, though it looks like one: the 3-7 "rounds" are INPUT rounds supplied by the
+test case, not internal iterations, so there is no fixed iteration count to early-exit.

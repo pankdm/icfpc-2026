@@ -856,12 +856,13 @@ def audit_vertical_ticks(program):
 
 def build(W=83, variable=False, compact_tail=False, narrow=False,
           west_first=False):
-    assert W >= (81 if (narrow or west_first) else (82 if variable else 83))
+    assert W >= (80 if west_first else 81 if narrow else 82 if variable else 83)
     if narrow or west_first:
-        if (W, variable, compact_tail) != (81, True, True):
+        allowed = (80, 81) if west_first else (81,)
+        if (W not in allowed) or not (variable and compact_tail):
             raise ValueError(
-                "the narrow/west-first tails require W=81, variable=True, "
-                "compact_tail=True"
+                "the narrow/west-first tails require variable=True, "
+                f"compact_tail=True and W in {allowed}"
             )
         if narrow and west_first:
             raise ValueError("narrow and west_first are alternative tails")
@@ -901,6 +902,19 @@ def build_champion():
     return program
 
 
+def build_w80():
+    """Width-80 baseline: the same west_first tail with a width-80 feeder.
+
+    Only useful as a starting point for an 80x80 build.  The feeder DP costs
+    one extra row at width 80 (64 content rows rather than 63), so the naive
+    packing is 66 feeder + 8 service + 8 P1 = 82 rows, i.e. score 6724 against
+    the 81x81 champion's 6561.  Two rows have to come out of the service band
+    or P1 before this beats the champion."""
+    program = build(80, variable=True, compact_tail=True, west_first=True)
+    assert program.footprint() == (80, 82, 6724), program.footprint()
+    return program
+
+
 def build_82x82():
     """Build the previous 82x82 champion (still reproduced byte-for-byte)."""
     program = build(82, variable=True, compact_tail=True)
@@ -928,9 +942,9 @@ def build_compact_once(W, chunks, ring, layout, bands, narrow=False,
     DISP's nearest-pipe bindings are unchanged."""
     program = Program()
     feeder_rows = variable_feeder(program, bands, W)
-    assert feeder_rows == (63 if west_first else 62)
+    assert feeder_rows == ((63 if W == 81 else 64) if west_first else 62)
     tail_top = feeder_rows + 2
-    assert tail_top == (65 if west_first else 64)
+    assert tail_top == ((65 if W == 81 else 66) if west_first else 64)
 
     # Room left edges, and DISP's width.  DISP's last inner column is entirely
     # blank, so 26 columns suffice; that trim is what pays for both narrow
@@ -954,7 +968,10 @@ def build_compact_once(W, chunks, ring, layout, bands, narrow=False,
     assert (dwid, dh) == ((23, 7) if west_first
                           else ((26 if narrow else 27), 8))
     paste_room(program, xd, tail_top + 4, DECODER_ROWS)
-    p1h = p1_room(program, 0, tail_top + 8, W - 1 if west_first else W - 2,
+    # P1's group-B row needs exactly 80 columns (sum(TB) + 3*nB + 4 <= inner+1
+    # is tight at inner=76), so west_first always gives it 80 -- which at W=81
+    # leaves one dead column beside it and at W=80 is the whole width.
+    p1h = p1_room(program, 0, tail_top + 8, 80 if west_first else W - 2,
                   ring, layout, west_first=west_first)
     assert p1h == (8 if west_first else 10)
 
@@ -987,28 +1004,29 @@ def build_compact_once(W, chunks, ring, layout, bands, narrow=False,
     )
 
     if west_first:
-        # Both legs snake in the strip east of DISP: 26 + 13 = 39 cells, over
-        # the 35-word capacity floor.  The rebuilt dispatcher moved its east
-        # wall from x=75 to x=72, so the strip is eight columns wide and both
-        # legs attach squarely to that wall instead of the old room corner.
+        # Both legs snake in the strip east of DISP, which runs from x=73 (the
+        # rebuilt dispatcher's east wall is at x=72, so both legs attach
+        # squarely to it rather than to the old room corner) out to the right
+        # margin.  39 cells at W=81, 37 at W=80, against a 35-word floor.
+        e = W - 1                       # rightmost usable column
         program.pipe(
             [
                 (73, tail_top + 1),
-                (80, tail_top + 1),
-                (80, tail_top + 7),
-                (79, tail_top + 7),
-                (79, tail_top + 2),
-                (78, tail_top + 2),
-                (78, tail_top + 7),
+                (e, tail_top + 1),
+                (e, tail_top + 7),
+                (e - 1, tail_top + 7),
+                (e - 1, tail_top + 2),
+                (e - 2, tail_top + 2),
+                (e - 2, tail_top + 7),
             ],
             end_direction="S",
         )
         program.pipe(
             [
-                (77, tail_top + 7),
-                (77, tail_top + 2),
-                (76, tail_top + 2),
-                (76, tail_top + 5),
+                (e - 3, tail_top + 7),
+                (e - 3, tail_top + 2),
+                (e - 4, tail_top + 2),
+                (e - 4, tail_top + 5),
                 (73, tail_top + 5),
             ],
             end_direction="W",
@@ -1121,11 +1139,17 @@ def main():
     legacy = "--legacy" in sys.argv
     variable = "--variable" in sys.argv
     narrow = "--narrow" in sys.argv
+    w80 = "--w80" in sys.argv
     positional = [
         arg for arg in sys.argv[1:]
-        if arg not in ("--legacy", "--variable", "--narrow")
+        if arg not in ("--legacy", "--variable", "--narrow", "--w80")
     ]
-    if narrow:
+    if w80:
+        if legacy or variable or narrow or positional:
+            raise SystemExit("--w80 does not accept other modes or a width")
+        program = build_w80()
+        name = os.path.join("candidates", "80x82.man")
+    elif narrow:
         if legacy or variable or positional:
             raise SystemExit("--narrow does not accept other modes or a width")
         program = build_narrow()

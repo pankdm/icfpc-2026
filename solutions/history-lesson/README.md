@@ -380,6 +380,40 @@ a second rather than in a 200k-tick oracle run.
 Still on the table for this block: the `+31` path and the ESC path each need
 their own row, which is what holds the interior at five rows rather than four.
 
+## Toward 80x80: the width-80 baseline
+
+`build_ring.py --w80` is the same `west_first` tail rebuilt with a width-80
+feeder, written to `candidates/80x82.man`.  It passes the oracle at **80×82,
+score 6,724** — worse than the champion's 6,561, and deliberately so: it exists
+to make the row budget concrete.
+
+The three budgets at each width, measured rather than guessed:
+
+| | W=81 (champion) | W=80 |
+| --- | ---: | ---: |
+| feeder room | 65 (63 content) | **66** (64 content) |
+| service band | 8 | 8 |
+| P1 | 8 | 8 |
+| total height | 81 | **82** |
+
+Only the feeder moves.  The DP costs one extra row per column removed — 63/64/65
+content rows at W=81/80/79 — so width 80 starts a row *behind*, and 80×80 needs
+**two** rows out of the service band or P1.
+
+Two facts constrain where those rows can come from.
+
+- **P1 needs exactly 80 columns.**  Its group-B row asserts
+  `sum(TB) + 3*nB + 4 <= inner + 1`, which at `TB = [17,15,11,9,6]` is `77 <= 77`
+  — tight at `inner = 76`, i.e. `width = 80`.  So at W=80 P1 is the whole width
+  and there is no margin column beside it; the ring must stay entirely in the
+  service band, which it already does.  Shrinking P1 to 7 rows means changing
+  the *dictionary layout*, not the room.
+- **The service band is 8 rows because UNPACK and DECODER stack**, not because
+  of DISP or YEAR — both of those are 7 rows since the dispatcher rebuild.
+  UNPACK (4 rows) sits above DECODER (4 rows) because unstacking them would
+  need 11 more columns, and the band already runs x=1..79.  Getting the band to
+  7 rows means making that stack 7 rows tall, not rearranging it.
+
 ## Vertical-P1 line
 
 `build_vertical_p1.py` is a different tail experiment: it drops the YEAR room

@@ -34,6 +34,10 @@ import subprocess
 import sys
 
 
+class Unsat(Exception):
+    """No packing exists under the spec's bounds — a proved floor, not a tool failure."""
+
+
 def symbol(name):
     safe = re.sub(r"[^A-Za-z0-9_]", "_", name)
     if not safe or safe[0].isdigit():
@@ -287,6 +291,12 @@ class Model:
         return "\n".join(lines) + "\n"
 
     def decode(self, stdout):
+        # UNSAT is a RESULT, not a failure: it certifies that no packing fits under these
+        # bounds, which is how a floor gets proved (e.g. 16 lanes of 9 columns cannot go
+        # below 144).  Report it as such instead of letting z3's follow-on
+        # "model is not available" from the trailing (get-value) read as a crash.
+        if stdout.startswith("unsat"):
+            raise Unsat("no packing exists under these bounds")
         if not stdout.startswith("sat\n"):
             raise RuntimeError(f"z3 did not find a model: {stdout[:400]}")
         values = {
@@ -342,6 +352,10 @@ def solve(spec, z3="z3"):
         capture_output=True,
         timeout=float(spec.get("timeout_seconds", 60)),
     )
+    # Check the VERDICT before the exit code: z3 exits nonzero on an unsat run, because the
+    # trailing (get-value) has no model to read.  That is an expected unsat, not a failure.
+    if process.stdout.startswith("unsat"):
+        raise Unsat("no packing exists under these bounds")
     if process.returncode:
         raise RuntimeError((process.stderr or process.stdout)[:1000])
     return model.decode(process.stdout)
@@ -359,7 +373,12 @@ def main():
     if args.command == "emit":
         sys.stdout.write(model.emit())
     else:
-        print(json.dumps(solve(spec, args.z3), indent=2, sort_keys=True))
+        try:
+            print(json.dumps(solve(spec, args.z3), indent=2, sort_keys=True))
+        except Unsat as exc:
+            # Exit 3 (not 1) so a caller can tell "proved impossible" from "tool broke".
+            print(json.dumps({"unsat": True, "reason": str(exc)}, indent=2))
+            sys.exit(3)
 
 
 if __name__ == "__main__":

@@ -257,6 +257,41 @@ Everything together is 736 -> ~667 rows, box 444,889, **1.21x**. Not worth a rew
 that matters is the WRAP row (289 of 688), and op rows average 20 ops over a 101-column span
 inside a 387-column room.
 
+### LLM: OUR TICKS NOW BEAT THE LEADER'S — the whole gap is AIR (2026-07-27)
+
+Champion `solutions/little-little-man/live-2b320f4f.man`, **356x793**, box 628,849, server
+3,132,597,346,528 at 28/28.
+
+    ours    box 628,849   avgTicks 4,981,478
+    leader  box  37,249   avgTicks 5,509,238   (193x193, recovered by tools/leaderbox.py)
+
+**We are 1.11x FASTER on ticks and 16.9x BIGGER on box.** There is nothing left to win on
+execution; every remaining point is packing. Note this reverses the previous champion's shape:
+045a959c was 428x735 with 11.0M ticks, so the last LLM win traded box UP 1.16x for ticks DOWN
+2.21x. Do not repeat that trade — ticks are now spent.
+
+The grid holds **16,800 content cells in a 356x793 area = 6.0% DENSITY**. 94% of it is air.
+What that content would score if repacked, at our CURRENT tick count:
+
+    60% density -> 167x167 ->  139e9   (BEATS the 205e9 leader)
+    40% density -> 204x204 ->  207e9   (ties it)
+    30% density -> 236x236 ->  277e9
+    20% density -> 289x289 ->  416e9
+    10% density -> 409x409 ->  833e9   (still a 3.8x on today)
+
+Even a 10% density target — under twice today's — is a 3.8x. Sanity check on the cheap version:
+splitting the ribbon into 2 side-by-side columns gives 712x397, box 506,944, a 1.24x for free;
+3 columns is WORSE (width becomes the binder at 1068). Squaring alone is not enough — the win
+is DENSITY.
+
+Two blockers, both real:
+- **No generator for the champion exists in any of 23 worktrees** (re-verified 2026-07-27). The
+  smallest regenerable build is 1137x277. Rebuilding an emitter that can reproduce the champion
+  is the prerequisite for any packing work.
+- 289 of 688 controller rows in the *previous* champion were WRAP/continuation rows (42%), and
+  op rows averaged 20 ops over a 101-column span inside a 387-column room. Re-measure on the new
+  build before designing.
+
 ### Brackets is at BOTH fixpoints — stop optimising it (2026-07-27)
 
 15x15, box 225, 86.2% density, server 97,719 at 26/26, 1.8x off the leader. Two independent

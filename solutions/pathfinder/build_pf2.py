@@ -421,7 +421,7 @@ def _tight_state_ring(program, send, recv, drop=3, lift=2):
 
 def _right_frontier_ring(
     program, send, recv, drop=3, east_row=9, west_row=8,
-    ascend_x=96, descend_x=90, top=151, relay_x=None,
+    ascend_x=96, descend_x=90, top=151, relay_x=None, side_entry=False,
 ):
     """FRONTIER ring whose capacity pipe runs in the free column band to the RIGHT
     of the controller instead of in extra rows under it.
@@ -439,7 +439,14 @@ def _right_frontier_ring(
     fs, bottom = send
     fr = recv[0]
     assert ascend_x > descend_x, (ascend_x, descend_x)
-    assert east_row > west_row >= drop + 4, (east_row, west_row, drop)
+    if side_entry:
+        # The long leg ends pointing WEST into the relay's RIGHT wall, so the
+        # west lane may share a row with the relay itself and the apron loses
+        # the two rows that a bottom-wall entry needs underneath it.
+        assert drop + 1 <= west_row <= drop + 2, (west_row, drop)
+        assert east_row > drop + 3, (east_row, drop)
+    else:
+        assert east_row > west_row >= drop + 4, (east_row, west_row, drop)
     y0 = bottom + drop                      # relay room top wall
     # Relay: entry through the BOTTOM wall, exit through the TOP wall and one
     # short step across to the controller's recv column.
@@ -462,9 +469,10 @@ def _right_frontier_ring(
         (ascend_x, top),
         (descend_x, top),
         (descend_x, w_y),
-        (x0 + 2, w_y),
-        (x0 + 2, y0 + 4),
+        (x0 + 7, w_y) if side_entry else (x0 + 2, w_y),
     ]
+    if not side_entry:
+        pts.append((x0 + 2, y0 + 4))
     program.pipe(pts)
     return pipelen(pts)
 
@@ -558,6 +566,10 @@ def build(
     driver_x_min=88,
     frontier_drop=3,
     state_lift=2,
+    frontier_side=False,
+    memory_x_arg=-58,
+    hub_row_arg=3,
+    coll_row_arg=2,
 ):
     p = lm.Program()
     flow = build_flow_one_ring(eager_payload) if merge_nb else build_flow()
@@ -616,7 +628,7 @@ def build(
     # MEM16 sits beside the controller. Its 106-row height is thereby paid in
     # parallel with controller code instead of being added below it.
     L = Layout(p)
-    memory_x = -58
+    memory_x = memory_x_arg
     memory_wrow = 7 if eager_payload else 6
     memory = mem16(
         L,
@@ -631,13 +643,17 @@ def build(
     hub_end = (memory_x + 20, memory["bottom"] + 1)
     collector_bottom = memory_y + 6 + memory_wrow * 16 - 1
     coll_start = (memory_x + 53, collector_bottom + 1)
+    # Both trunk rows must lie strictly BELOW the memory's attachment cells, or
+    # the last arrow points south into the wall instead of north out of it.
+    hub_row = max(hub_row_arg, hub_end[1] - bottom + 1)
+    coll_row = max(coll_row_arg, coll_start[1] - bottom + 1)
     p.pipe([
-        ports["Hs"], (ports["Hs"][0], bottom + 3),
-        (hub_end[0], bottom + 3), hub_end,
+        ports["Hs"], (ports["Hs"][0], bottom + hub_row),
+        (hub_end[0], bottom + hub_row), hub_end,
     ])
     p.pipe([
-        coll_start, (coll_start[0], bottom + 2),
-        (ports["Cr"][0], bottom + 2), ports["Cr"],
+        coll_start, (coll_start[0], bottom + coll_row),
+        (ports["Cr"][0], bottom + coll_row), ports["Cr"],
     ])
 
     if side_apron:
@@ -690,10 +706,14 @@ def build(
             _right_frontier_ring(
                 p, ports["Fs"], ports["Fr"],
                 drop=frontier_drop,
-                west_row=frontier_drop + 5, east_row=frontier_drop + 6,
+                west_row=(frontier_drop + 1 if frontier_side
+                          else frontier_drop + 5),
+                east_row=(frontier_drop + 4 if frontier_side
+                          else frontier_drop + 6),
                 top=right_frontier,
                 ascend_x=drv_x + 27,
                 descend_x=drv_x + 21,
+                side_entry=frontier_side,
             )
         else:
             _frontier_ring(
@@ -712,7 +732,15 @@ def build(
         # at rows bottom+3..bottom+6, so Ir must sit at least 3 columns right of
         # Fr: an input arrow whose BACKWARD neighbour is that relay's wall would
         # start a second, spurious outgoing pipe from the relay room.
-        if right_frontier:
+        if right_frontier and frontier_side:
+            # Side entry puts the west lane on a relay row, so the input room
+            # and its trunk must sit entirely LEFT of both the relay and the
+            # east lane.
+            assert ports["Ir"][0] + 2 < ports["Fr"][0] - 5, (
+                ports["Ir"][0], ports["Fr"][0])
+            assert ports["Ir"][0] + 1 < ports["Fs"][0], (
+                ports["Ir"][0], ports["Fs"][0])
+        elif right_frontier:
             assert ports["Ir"][0] >= ports["Fr"][0] + 3, (
                 ports["Ir"][0], ports["Fr"][0])
         p.input_room(ports["Ir"][0] - 1, bottom + 4)
@@ -782,6 +810,10 @@ if __name__ == "__main__":
     parser.add_argument("--driver-x-min", type=int, default=88)
     parser.add_argument("--frontier-drop", type=int, default=3)
     parser.add_argument("--state-lift", type=int, default=2)
+    parser.add_argument("--frontier-side", action="store_true")
+    parser.add_argument("--memory-x", type=int, default=-58)
+    parser.add_argument("--hub-row", type=int, default=3)
+    parser.add_argument("--coll-row", type=int, default=2)
     parser.add_argument(
         "--right-frontier", type=int, default=0,
         help="top row of the FRONTIER capacity pipe in the free band right of "
@@ -825,6 +857,10 @@ if __name__ == "__main__":
         args.driver_x_min,
         args.frontier_drop,
         args.state_lift,
+        args.frontier_side,
+        args.memory_x,
+        args.hub_row,
+        args.coll_row,
     )
     program.save(args.output)
     print("saved", args.output, "footprint", program.footprint())

@@ -235,6 +235,35 @@ avoids a 16-word frontier RAM and turns the global barrier into the driver's
 natural sweep.  The remaining build risk is physical placement of the
 two-sided send sites, not the BFS algorithm.
 
+That risk is now closed by two more Rust probes:
+
+```text
+pathfinder_stream_driver.py   149×32  exact [state,U,R,L,D] packets
+pathfinder_packet_stages.py   149×88  driver plus four priority bands
+```
+
+The controller uses a nine-column meander per row.  State and U/R/L sends are
+physically closest to the current packet pipe; the current frontier's D send
+is closest to the previous packet pipe.  To retain the frontier with only A
+and B after computing both shifts, it reconstructs the original from the
+right-shift quotient and remainder: `frontier = 2*q + remainder`.
+
+All four priority rooms are now identical 7×9 blocks with fifteen operations.
+Their packet sequence is:
+
+```text
+[state,U,R,L,D]
+[U,state,R,L,D]
+[U,R,state,L,D]
+[U,R,L,state,D]
+[U,R,L,D,state]
+```
+
+The composed probe matches a Python reference in every lane, including both
+zero borders.  The remaining solver work is to replace the final passive
+sinks with persistent UNVIS/parent/NEXT state and feed `[state,frontier]`
+back to the driver.
+
 This is direct physical evidence for the large-factor interpretation of the
 competitor scores, rather than proof that the competitors use the same
 design.

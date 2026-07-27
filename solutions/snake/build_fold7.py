@@ -980,15 +980,19 @@ if __name__ == "__main__":
     # the box, then a full 5/5 grade_fast gate -- an ungraded geometry search is
     # useless here, `branch()`'s tight-arm heuristic makes plenty of smaller boxes
     # that build, bind and are silently WRONG).
-    path = sys.argv[1] if len(sys.argv) > 1 else os.path.join(HERE, "fold18.man")
-    # fold18: 69x64, box 4,761, avgTicks 6,929, local 32,990,873.
+    path = sys.argv[1] if len(sys.argv) > 1 else os.path.join(HERE, "fold19.man")
+    # fold19: 69x64, box 4,761, avgTicks 6,903, local 32,863,278.  RUN
+    # tools/shrink.py ON IT -- its fold pass merges two dead COLUMNS and a row,
+    # 69x64 -> 67x63, box 4,489, local 30,680,519 (solutions/snake/fold19-shrunk.man,
+    # the champion).  Width is the binder, so shrink is worth running on every
+    # candidate, not just at the end.
+    #
     # CW=48 is this generator's width FLOOR: 40,000 gated samples at CW=47 produce
-    # no build at all.  Height has five rows of slack (64 vs 69), so what binds is
-    # the WIDTH = CW + 21, and CW is bounded below by the body ring's capacity
-    # (>= 51 cells of boustrophedon in the top band) and by the emitter's ability
-    # to fold the controller at all.
+    # no build at all -- the body ring (a boustrophedon of the band's free rows
+    # between FEED_W and BD_IN-1, BD_IN sliding with CW) stops reaching the 51
+    # cells the worst legal snake needs.  Height has five rows of slack at CW=48.
     prog, cap, nrows = fit(save_to=path, CW=48, CY0=8, DRVX=4, DRV_OUT=47,
-                           D_EAT=28, D_HX=10, D_HY=9, D_NOEAT=10, D_REP=3,
+                           D_EAT=28, D_HX=10, D_HY=6, D_NOEAT=10, D_REP=2,
                            FEED_W=24, HW_DIR=32, HW_RET=44, HW_SPAWN=45,
                            HW_TICK=33, LOOPR=35, ST_IN=21, ST_OUT=20, ST_X0=17)
     print("saved", path)

@@ -1,0 +1,3 @@
+{"avgTicks": 11269.0, "file": "v000-60x60.man", "footprint": {"box": 3600, "h": 60, "w": 60}, "move": "baseline", "score": 40568400.0, "source": "solutions/matmul/best/60x60.man", "version": 0}
+{"avgTicks": 11269.0, "file": "v001-60x60.man", "footprint": {"box": 3600, "h": 60, "w": 60}, "move": "reroute pipe 4 at length 61", "objective": [3600, 3600, 60, 120, 517, 80891], "parent": "v000-60x60.man", "score": 40568400.0, "version": 1}
+{"avgTicks": 11269.0, "file": "v002-60x60.man", "footprint": {"box": 3600, "h": 60, "w": 60}, "move": "reroute pipe 6 at length 22", "objective": [3600, 3600, 60, 120, 517, 80773], "parent": "v001-60x60.man", "score": 40568400.0, "version": 2}

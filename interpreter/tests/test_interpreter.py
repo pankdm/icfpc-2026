@@ -78,6 +78,35 @@ class ParserTests(unittest.TestCase):
         self.assertTrue(result.passed)
         self.assertEqual(result.output, [12])
 
+    def test_ignores_false_self_loop_pipe_start(self) -> None:
+        # Regression: the arrow at (41, 24) belongs to a longer pipe but is
+        # adjacent to a room border, so it also resembles a self-loop start.
+        baseline = (
+            Path(__file__).parents[2]
+            / "solutions"
+            / "matmul"
+            / "matmul-84495795.man"
+        )
+        program = parse_program(baseline.read_text(encoding="ascii"))
+        self.assertEqual((len(program.rooms), len(program.pipes)), (9, 12))
+        self.assertEqual(
+            [(pipe.source_room, pipe.destination_room, len(pipe.cells)) for pipe in program.pipes],
+            [
+                (0, 3, 259),
+                (0, 5, 70),
+                (2, 0, 2),
+                (0, 1, 20),
+                (1, 7, 44),
+                (3, 6, 16),
+                (7, 4, 2),
+                (6, 5, 15),
+                (6, 7, 39),
+                (7, 8, 26),
+                (5, 6, 245),
+                (8, 7, 16),
+            ],
+        )
+
 
 class RuntimeTests(unittest.TestCase):
     def test_outputs_constant_and_scores_ticks(self) -> None:

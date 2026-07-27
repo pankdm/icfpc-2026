@@ -278,13 +278,17 @@ def _parse_pipes(
     used_cells: set[Point] = set()
     for start, source_room in sorted(starts, key=lambda item: (item[0][1], item[0][0])):
         if start in used_cells:
-            raise LoadError(f"overlapping pipes at {start}")
+            # A bend/end arrow may itself look like another source arrow beside a
+            # room.  The reference loader assigns it to the first pipe traced in
+            # reading order and does not start a second, overlapping pipe there.
+            continue
         cells = [start]
         direction = DIRECTIONS[grid[start[1]][start[0]]]
         current = start
         seen = {start}
         destination_room: int | None = None
         destination_attachment: Point | None = None
+        false_self_loop = False
         while destination_room is None:
             next_point = (current[0] + direction[0], current[1] + direction[1])
             if not (0 <= next_point[0] < width and 0 <= next_point[1] < height):
@@ -304,7 +308,11 @@ def _parse_pipes(
                 candidate_room = border_rooms.get(forward)
                 if candidate_room is not None:
                     if candidate_room == source_room:
-                        raise LoadError(f"pipe beginning at {start} returns to its source room")
+                        # An in-path arrow beside a room wall may look like a
+                        # second pipe start. The oracle discards that candidate
+                        # when it leads back to the same room.
+                        false_self_loop = True
+                        break
                     destination_room = candidate_room
                     destination_attachment = forward
                     break
@@ -318,6 +326,8 @@ def _parse_pipes(
             seen.add(next_point)
             current = next_point
 
+        if false_self_loop:
+            continue
         if len(cells) < 2:
             raise LoadError("pipes must contain at least two cells")
         overlap = used_cells.intersection(cells)

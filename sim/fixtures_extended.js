@@ -8,6 +8,19 @@ function manRows(file) { return fs.readFileSync(file, 'utf8').replace(/\r/g, '')
 
 const cases = [];
 
+// An in-path turn arrow beside a room wall resembles a second pipe start.
+// The oracle ignores that false start when it traces back into the same room.
+const matmulFalseStart = path.join(
+  __dirname, '..', 'solutions', 'matmul', 'matmul-84495795.man'
+);
+if (fs.existsSync(matmulFalseStart)) {
+  cases.push({
+    name: 'pipe-false-self-loop-start',
+    rows: manRows(matmulFalseStart),
+    steps: 0,
+  });
+}
+
 // ---- numeric literals ----
 cases.push({ name: 'lit-east-123', rows: rows(`
 +-------+

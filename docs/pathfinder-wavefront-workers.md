@@ -580,3 +580,55 @@ Thus only about 8% box remains in coarse floorplanning.  Applying `smtrows`
 would regress the grid to 167×226.  The credible large win is completing the
 round/setup/query/display shell around this low-tick kernel, then realizing
 the 164×165 envelope; it is not further generic controller repacking.
+
+### Query/reset demux and the tick target
+
+The old NEXT room understood only positive BFS packets.  A reset token would
+fall into the four-word reducer and permanently desynchronize the lane, while
+a negative parent query reply had no route to reconstruction.  The compact
+`pathfinder_next_demux.py` service closes that protocol:
+
+```text
+positive [1,U,R,L,D,state]  -> [next_state,next_frontier]
+negative [-1,hU,hR,hL,hD]  -> reconstruction output unchanged
+zero     [0]                -> consumed
+```
+
+The 9×21 fold uses height rather than lane pitch for the nineteen-operation
+positive lap.  Its mixed update/query/reset trace passes both Rust and the
+organizer WASM (272 ticks in the standalone two-output probe).  Folded into
+all sixteen lanes, the closed kernel is 167×194 and still reproduces both
+dense and sparse parent states.  The organizer loads and executes 100,000
+ticks of the composition without error.
+
+The feature is almost free in time despite the extra height.  At tick 80,000,
+the old 167×172 kernel has three of 64 layers left and the demux kernel has
+four.  Profile counts explain the difference: the new path adds one `X` per
+row packet (1,040 total in the probe) and 7,200 blank steps, roughly seven
+extra walking cells per packet.  It does **not** add a pipe-latency stall.
+
+The dominant tick mistake is now the fixed 64-layer gate.  Public Pathfinder
+rounds have shortest-path lengths:
+
+```text
+count 24, mean 15.83, min 1, max 49
+```
+
+Stopping when the reverse wavefront first contains the robot therefore has a
+public-case ceiling near `64 / 15.83 = 4.04x`, before any walking improvement.
+This is more valuable than shaving the demux lap or its 22 rows.  The next
+composition should keep one target mask per row, test each new frontier in
+parallel, and latch the first non-zero hit until the lane-15 sweep barrier;
+then query parents and reconstruct.  A completion token may arrive mid-sweep,
+so stopping immediately is unsafe—the existing final-pair drain remains the
+correct barrier.
+
+After early termination, the remaining throughput limiter is the shared
+controller sweep, about 1,250–1,300 ticks per layer.  A credible second
+architecture replaces it with sixteen row-local assemblers: each returned
+frontier is broadcast by `S` to its own R/L calculator and its two neighbours,
+and all rows form `[state,U,R,L,D]` concurrently.  This removes the serial
+serpentine without speculative prefetch or random-access RAM.  It needs a
+measured gadget before integration; merely forking the current controller
+does not work because its B register carries the previous row frontier across
+the split boundary.

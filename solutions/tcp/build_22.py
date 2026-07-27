@@ -49,22 +49,31 @@ half -- measured, the seq send must sit at col >=7 (col 6 ties). The dip puts
 the loop man's leg in cols 8..1, so its `s` lands at col 5 and the seq stream
 is written into lane 5 instead of the checker.
 
-That is a closed chain, and every link is forced:
-  13-row checker (bandsearch: 14 does not fit at width 22)
-    -> 3 init cells in column R (r7,r8,r9; r6 is the ok-return turn)
-    -> B init <= 9, since the last op must be `M` and A <= 9 after two cells
-    -> K <= 9, so the reader must send (16-K)-seq with 16-K >= 7
-    -> that needs 3 ops (`M`, digit, `-`); 2 ops only reach c in {0,1,-1},
-       i.e. K in {15,16,17}, all of which need a 4-cell init
-    -> 3 ops push `s` to col 5, which mis-binds.
-Going the other way (loop returns EAST) binds `s` correctly at col >=13 but
-loses the race by one tick: the east pocket (row 2 cols 15-16, row 3 cols
-14-16, row 4 col 16) admits at most 4 pass-through cells, so loop `r` reaches
-only T+12 against the clone's T+13, and (9,1) is a one-way valve -- the man
-cannot cross back west past `Y`.
+It reduces to an exact dichotomy, both halves machine-verified. The checker's
+init cells are the column-R cells between the ok-return turn row and the `@`
+row -- i.e. exactly alongside the overflow gadget -- so **init cells = overflow
+rows**. A 4th init cell and a 14th checker row are the same object:
 
-Breaking it needs a 4th init cell in the checker, which needs a 12-interior
-checker, which does not fit at width 22.
+  keep `H`  -> overflow 4 rows -> 4 init cells -> B=16 (`4M*M`) -> K=16
+            -> reader needs only `N`, so `s` lands at col 7 -> BINDING WINS
+            -> but bandsearch: a 14-row checker has NO PLACEMENT at width 22.
+
+  drop `H`  -> 13-row checker, which DOES pack (bandsearch, cy=8)
+            -> 3 init cells -> initsearch.py brute-forces every 3-cell program
+               over the real op set: max reachable B is 9, and 16 needs 4 cells
+            -> K<=9 -> reader must supply c = 16-K >= 7 -> that needs 3 ops
+               (stash seq in B, load the constant, subtract); 2 ops reach only
+               c in {0,+1,-1} -> `s` lands at col 5.
+            -> binding needs col >=6 (col 6 ties, and reading order resolves the
+               tie in seq's favour since (18,1) precedes (6,13)). One short.
+
+The `s` cannot move east instead: the transform must run AFTER the fork (A must
+still be seq at `Y` for the tree's `b` reloads and its `&`), the return leg runs
+cols 8..1, and (9,1) is a one-way valve -- a man cannot cross back west past `Y`,
+since rows 3/5/7 are all blocked mid-span by tree cells. Putting `s` before the
+fork at (8,2) binds fine but then the checker sees raw seq, which still needs
+K=16 and so the 4th init cell again.
+
 """
 import sys
 

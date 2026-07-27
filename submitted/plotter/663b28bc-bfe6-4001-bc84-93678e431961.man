@@ -1,0 +1,54 @@
++----------------------+  +-------+  +-+
+|>@.RsRsRsRsRsRsRsRsRsv|  |>@.rsrv|<<|I|
+|^sRsRsRsRsRsRsRsRsRsR<|<<|^srsrs<|  +-+
++----------------------+  +-------+
+     >--^  v
+     ^     >---v
++-----------------------------------------------+
+|>@rsMrssr-srsrsrMrsrsr-s5Mrsr{Mrsrsr+s5Mrs}Msrv|
+|.                vM1s-~rsrsrsrsM}srsrM5s-~rsrs<|
+|.vsrsWsrsrMrsrsr<>rsrsrsr{|srsr{|s5Mrsrsrsrsr{v|
+|..              X..|{rsrsrsrsrsrM1s-srsrMsrsrs<|
+|.vsWsrMrsrsWsrMr<                              |
+|.>1Mrsrsrs-s5Mrsrsrsrsrsr}s6Mr{{Mr+s1Mrsrsrs+bv|
+|.             vsrsrM5s+N{rsrsrsrM1ss-rsrsrsrMr<|
+|.             >rsrsr{{Mrsrsr+s6Mrsr{{NMrsrsr+.v|
+|.                                       v rMrs<|
+|.                                       .      |
+|.                                       >smdv  |
+|.                                       .  +.  |
+|.                                       +  ..  |
+|.                                      vdms<.  |
+|^....................................s0<....<  |
++-----------------------------------------------+
+     v
+   v-<   >-----v
+   v     |     v
++-----+  |    +================================+
+|>@rMv|  |    :                                :
+|.   .|  |    :                                :
+|^Xs<.|  |    :                                :
+|>v %.|  |    :                                :
+|.>r^.|  |    :                                :
+|^...<|  |    :                                :
++-----+  |    :                                :
+   v     |    :                                :
+   v     ^    :                                :
++----------+  :                                :
+|@5M1{{Mv  |  :                                :
+|       vs<|  :                                :
+|       r %|  :                                :
+|       >s^|  :                                :
++----------+  :                                :
+         v    :                                :
+ v-------<    :                                :
+ >------v     :                                :
++----------+  :                                :
+|@9M6+M...v|  :                                :
+|    >...v<|  :                                :
+|    ^sXr< |  :                                :
+|      0 s |>>:                                :
+|      >+^ |  :                                :
++----------+  +================================+
+      v          ^
+      >----------^

@@ -1,0 +1,19 @@
+sort-numbers sym13b: lap-restart chain 16 -> 12 cells, ticks 1148 -> 1084, local 193940 -> 183268 (7/7)
+
+Two facts unblocked the chain the last pass recorded as blocked:
+
+  * `R` receives WITHOUT turning (`U` = R + turn away from the supplying pipe).
+    The old entry used `U`, which forced the man west and stranded him four
+    columns past the descent, costing a 4-cell jog back east.  `R` lets the
+    entry keep its heading, so the read can sit anywhere on the walk.
+  * `M` does not turn either, so it rides the descent: (5,2)v -> (5,3)M ->
+    (5,4)> reaches the greater arm's test in three cells instead of six.
+
+Chain is now Y -> ^ q . . ^ a m R v M > d.  The round-entry path grew by three
+cells (it needs its own `m` and `R` now that they are no longer shared) but it
+runs once per round, not once per lap: 47 laps vs 4 rounds on the long case.
+
+long case 4016 -> 3836.  Stress- and fuzz-clean: 250/250 random multi-round,
+plus n=1/2/16, all-equal, ascending, descending, duplicates, extremes.
+
+Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>

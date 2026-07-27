@@ -216,7 +216,7 @@ def add_best_pair_phrases(stream, phrases, count):
 
 def build_encoding(table_budget=None, extra_pair_count=0, tail_constants=False,
                    west_first=False, threshold=None, group_b_rows=4,
-                   group_a_cap=73):
+                   group_a_cap=73, bottom_up=False):
     """``threshold`` is DISP's T: symbols 1..T-1 are ring lookups, T is the
     reserved value, and T+1..91 are literal bytes.  Raising it converts escape
     pairs (2 stream symbols) into direct references (1) at no P1 cost, since a
@@ -290,8 +290,10 @@ def build_encoding(table_budget=None, extra_pair_count=0, tail_constants=False,
         byte_by_pos = {v: pack128(spell(v))
                        for v in range(1, T) if v not in SMALL_FREE}
         phrase_vals = [pack128(phrase_bytes(phrases[i][0])) for i in singles]
-        _, _, assign = pack_group_a(phrase_vals, byte_by_pos, T - 1,
-                                    west_first, group_a_cap)
+        group_a_rows, _, assign = pack_group_a(
+            phrase_vals, byte_by_pos, T - 1,
+            False if bottom_up else west_first, group_a_cap,
+        )
         by_val = {}
         for i in singles:
             by_val.setdefault(pack128(phrase_bytes(phrases[i][0])), []).append(i)
@@ -301,6 +303,8 @@ def build_encoding(table_budget=None, extra_pair_count=0, tail_constants=False,
         ring.update(byte_by_pos)
         for v in range(1, T):
             ring.setdefault(v, 9)      # unused free position: cheap filler
+    if T == 17:
+        group_a_rows = 2
 
     # --- template layout for P1 group B (pairs), 4 rows x nB slots ---
     # Assign pair values to a grid so every column's backtick count is even
@@ -338,7 +342,13 @@ def build_encoding(table_budget=None, extra_pair_count=0, tail_constants=False,
     # the narrowest group there -- that also leaves the row's tail free for the
     # pump.  Which physical slot that is depends on the direction of the last
     # row, i.e. on the parity of the row count, not on west_first alone.
-    last_westward = ((RB - 1) % 2 == 0) if west_first else ((RB - 1) % 2 == 1)
+    last_overall_row = group_a_rows + RB - 1
+    last_westward = (
+        last_overall_row % 2 == 1
+        if bottom_up
+        else ((last_overall_row % 2 == 0) if west_first
+              else (last_overall_row % 2 == 1))
+    )
     # westward last row ends on slot 0; eastward ends on slot nB-1
     phys = sorted(range(nB), key=lambda j: widths[j] if last_westward
                   else -widths[j])
@@ -353,7 +363,13 @@ def build_encoding(table_budget=None, extra_pair_count=0, tail_constants=False,
     # Position numbering follows the preload walk: row-major, and within a row
     # the direction the little man actually travels.
     def walk(r):
-        westward = (r % 2 == 0) if west_first else (r % 2 == 1)
+        overall_row = group_a_rows + r
+        westward = (
+            overall_row % 2 == 1
+            if bottom_up
+            else ((overall_row % 2 == 0) if west_first
+                  else (overall_row % 2 == 1))
+        )
         return range(nB - 1, -1, -1) if westward else range(nB)
 
     def number(ring):
@@ -398,7 +414,8 @@ def build_encoding(table_budget=None, extra_pair_count=0, tail_constants=False,
     layout = dict(TB=TB, cellgrid=cellgrid,
                   val_of={i: pack128(phrase_bytes(phrases[i][0]))
                           for i in pairs},
-                  tail_pairs=tail_pairs, n_small=T - 1, group_b_rows=RB)
+                  tail_pairs=tail_pairs, n_small=T - 1, group_b_rows=RB,
+                  group_a_rows=group_a_rows, bottom_up=bottom_up)
 
     symbols = []
     for t in stream:
@@ -835,11 +852,14 @@ def p1_room(program, x0, y0, width, ring, layout, west_first=False):
     ``tail_constants``, which needs those rows to carry extra entries."""
     assert not (west_first and layout["tail_pairs"])
     n_small = layout.get("n_small", 16)
+    bottom_up = layout.get("bottom_up", False)
     smalls = [ring[v] for v in range(1, n_small + 1)]
     # west_first must also clear the turn column and the two pump columns, so
     # its usable span is three cells shorter than the plain interior.
     gridA, TA, RA, nA = group_a_grid(
-        smalls, west_first, width - 4 - (3 if west_first else 0))
+        smalls, False if bottom_up else west_first,
+        width - 4 - (3 if (west_first or bottom_up) else 0))
+    assert RA == layout.get("group_a_rows", RA)
     TB = layout["TB"]
     cellgrid = layout["cellgrid"]
     tail_pairs = layout["tail_pairs"]
@@ -892,7 +912,11 @@ def p1_room(program, x0, y0, width, ring, layout, west_first=False):
     # slot contents plus the direction the walk takes through it.
     rows_spec = []
     for r in range(RA):
-        westward = (r % 2 == 0) if west_first else (r % 2 == 1)
+        westward = (
+            r % 2 == 1
+            if bottom_up
+            else ((r % 2 == 0) if west_first else (r % 2 == 1))
+        )
         rows_spec.append((gridA[r], TA, not westward))
     # Group B contains the multi-symbol phrase entries.  In the baseline its
     # last zero is the sentinel observed by DISP after one full rotation.
@@ -906,11 +930,40 @@ def p1_room(program, x0, y0, width, ring, layout, west_first=False):
                 vals.append(None if tail_pairs else 0)
             else:
                 vals.append(layout["val_of"][idx])
-        rows_spec.append((vals, TB, (r % 2 == 1) if west_first else (r % 2 == 0)))
+        overall_row = RA + r
+        east = (
+            overall_row % 2 == 0
+            if bottom_up
+            else ((overall_row % 2 == 1) if west_first
+                  else (overall_row % 2 == 0))
+        )
+        rows_spec.append((vals, TB, east))
     nrows = len(rows_spec)
-    room_h = nrows + 2 if west_first else nrows + 2 + 2
+    room_h = nrows + 2 if (west_first or bottom_up) else nrows + 2 + 2
     program.room(x0, y0, width, room_h)
     right = turn if west_first else x0 + width - 2
+    if bottom_up:
+        right = turn
+        assert right + 3 <= x0 + width - 2, (right, width)
+        for ri, (vals, widths, east) in enumerate(rows_spec):
+            assert east == (ri % 2 == 0)
+            y = y0 + nrows - ri
+            place_row(y, vals, widths, east)
+            last = ri == nrows - 1
+            if east:
+                if ri:
+                    program.put(x0 + 1, y, ">")
+                program.put(right, y, ">" if last else "^")
+            else:
+                program.put(right, y, "<")
+                program.put(x0 + 1, y, "^")
+        # The final preload row is the top row and runs east.  Continue into
+        # a six-cell pump in the otherwise-dead three-column right margin.
+        put_row(program, right + 1, y0 + 1, [">", "r", "v"])
+        put_row(program, right + 1, y0 + 2, ["^", "s", "<"])
+        program.put(x0 + 1, y0 + nrows, "@")
+        return room_h
+
     for ri, (vals, widths, east) in enumerate(rows_spec):
         y = y0 + 1 + ri
         last = ri == nrows - 1
@@ -1002,10 +1055,12 @@ def audit_vertical_ticks(program):
 
 
 def build(W=83, variable=False, compact_tail=False, narrow=False,
-          west_first=False):
-    assert W >= (80 if west_first else 81 if narrow else 82 if variable else 83)
-    if narrow or west_first:
-        allowed = (80, 81) if west_first else (81,)
+          west_first=False, bottom_up=False):
+    assert not (west_first and bottom_up)
+    compact_p1 = west_first or bottom_up
+    assert W >= (80 if compact_p1 else 81 if narrow else 82 if variable else 83)
+    if narrow or compact_p1:
+        allowed = (80, 81) if compact_p1 else (81,)
         if (W not in allowed) or not (variable and compact_tail):
             raise ValueError(
                 "the narrow/west-first tails require variable=True, "
@@ -1019,6 +1074,7 @@ def build(W=83, variable=False, compact_tail=False, narrow=False,
         extra_pair_count=NARROW_EXTRA_PAIRS if narrow else 0,
         tail_constants=narrow,
         west_first=west_first,
+        bottom_up=bottom_up,
     )
     if variable:
         bands = optimize_feeder(symbols, W)
@@ -1033,7 +1089,7 @@ def build(W=83, variable=False, compact_tail=False, narrow=False,
     if compact_tail:
         program = build_compact_once(
             W, chunks, ring, layout, bands, narrow=narrow,
-            west_first=west_first,
+            west_first=compact_p1,
         )
     else:
         program = build_once(W, chunks, dw, ring, layout, bands=bands)
@@ -1080,17 +1136,30 @@ class alphabet:
 
 
 def build_80x80():
-    """The 80x80 build: same layout, wider direct dictionary range.
+    """Build the 80x80 stolen-threshold champion.
 
-    Raising DISP's threshold from 17 to 30 turns every free symbol below 30
-    into a one-symbol dictionary reference instead of a two-symbol escape pair.
-    That is 15 direct entries rather than 9, which shortens the stream from
-    2,042 symbols to about 1,951 and the feeder from 64 rows to 61 -- two rows
-    more than the width-80 layout needs.  DISP is unchanged in size: only its
-    two alphabet literals move (17 -> 30, and ESC 29 -> 31).
+    Positions 17..22 carry six additional one-symbol phrases.  Symbol 18 is
+    the only used byte in that range, and 23 is the classifier threshold; both
+    raw bytes are escaped into the ring.  This preserves the proven 21x5 DISP
+    shape (only its threshold literal changes), while producing the same
+    61-row feeder and 37-entry ring as the much larger Route-B range tester.
+
+    Group A takes three rows and group B four.  Their odd seven-row total is
+    preloaded bottom-to-top so the last row runs east into an in-room pump.
     """
-    with alphabet(30, 31):
-        program = build(80, variable=True, compact_tail=True, west_first=True)
+    global THRESHOLD, ESC, SMALL_FREE, STOLEN
+    old = (THRESHOLD, ESC, SMALL_FREE, STOLEN)
+    THRESHOLD = 23
+    ESC = 29
+    SMALL_FREE = [2, 4, 5, 6, 7, 8, 11, 12, 16, 17, 18, 19, 20, 21, 22]
+    STOLEN = (8, 18, 23)
+    try:
+        program = build(
+            80, variable=True, compact_tail=True, bottom_up=True,
+        )
+    finally:
+        THRESHOLD, ESC, SMALL_FREE, STOLEN = old
+    assert program.footprint() == (80, 80, 6400)
     return program
 
 
@@ -1232,9 +1301,13 @@ def build_compact_once(W, chunks, ring, layout, bands, narrow=False,
                     (e - 4, tail_top + 2), (e - 4, tail_top + 5),
                     (73, tail_top + 5)]
         else:
+            # Leave P1's top wall immediately, then comb one row above it.
+            # Returning to row +7 in another column makes every such cell a
+            # second P1 attachment, silently splitting this into parallel
+            # pipes and stranding most of the ring in the full first leg.
             back = [(e - 3, tail_top + 7), (e - 3, tail_top + 2),
-                    (e - 4, tail_top + 2), (e - 4, tail_top + 7),
-                    (e - 5, tail_top + 7), (e - 5, tail_top + 2),
+                    (e - 4, tail_top + 2), (e - 4, tail_top + 6),
+                    (e - 5, tail_top + 6), (e - 5, tail_top + 2),
                     (73, tail_top + 2)]
         program.pipe(back, end_direction="W")
         return program
@@ -1346,11 +1419,17 @@ def main():
     variable = "--variable" in sys.argv
     narrow = "--narrow" in sys.argv
     w80 = "--w80" in sys.argv
+    best80 = "--80x80" in sys.argv
     positional = [
         arg for arg in sys.argv[1:]
-        if arg not in ("--legacy", "--variable", "--narrow", "--w80")
+        if arg not in ("--legacy", "--variable", "--narrow", "--w80", "--80x80")
     ]
-    if w80:
+    if best80:
+        if legacy or variable or narrow or w80 or positional:
+            raise SystemExit("--80x80 does not accept other modes or a width")
+        program = build_80x80()
+        name = os.path.join("best", "80x80.man")
+    elif w80:
         if legacy or variable or narrow or positional:
             raise SystemExit("--w80 does not accept other modes or a width")
         program = build_w80()
@@ -1373,7 +1452,8 @@ def main():
         if positional or variable:
             raise SystemExit(
                 "default build is best/81x81.man; use --legacy 82 for the "
-                "previous champion, --narrow for the constant-tail candidate, "
+                "previous champion, --80x80 for the stolen-threshold champion, "
+                "--narrow for the constant-tail candidate, "
                 "or --legacy [W] [--variable] for an older layout"
             )
         program = build_champion()

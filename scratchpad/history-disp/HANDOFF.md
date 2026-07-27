@@ -1,6 +1,29 @@
 # history-lesson: the 6400 attempt — full handoff
 
-**State:** the new design is **working and oracle-verified end to end**, but as an
+## Resolved: 80x80 reached
+
+`solutions/history-lesson/best/80x80.man` is the completed build: Rust and
+organizer-WASM both pass 1/1 at **80x80, score 6400, 228,530 ticks**.
+
+The final unlock is simpler than compacting the Route-B product tester.  Make
+23 the classifier threshold, use positions 17..22 for six direct phrases, and
+escape the raw symbols 18 and 23 into group B.  The proven 21x5 dispatcher
+then changes only its threshold literal.  Group A takes three rows and group B
+four; preloading the odd seven-row table bottom-to-top makes the final row
+eastbound, so its pump fits in the upper-right margin.  The 37-entry ring also
+needs a return pipe that leaves P1's top wall immediately: combing along that
+wall creates multiple attachments and deadlocks.
+
+Reproduce and verify:
+
+```bash
+python3 solutions/history-lesson/build_ring.py --80x80
+python3 tools/grade_fast.py history-lesson solutions/history-lesson/best/80x80.man
+node tools/grade.js history-lesson solutions/history-lesson/best/80x80.man
+```
+
+**Historical state at handoff:** the new design was **working and
+oracle-verified end to end**, but as an
 uncompacted artifact (393×83). The champion is untouched at **81×81 = 6561**.
 The remaining work is entirely *compaction* — no unknowns of correctness left.
 

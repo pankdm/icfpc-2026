@@ -17,12 +17,19 @@ sys.path.insert(0, os.path.join(HERE, "..", "..", "tools"))
 import railflow
 import build_banked_dedup as dedup
 import build_multi as multi
+import echo_split
 from build_banked_boustro import alias_empty_gotos
 
 
 def build(code_x=45, op_slack=0, verify=True, hw_layout="tight", hw_gap=2,
-          port_cols=None, nrail=10):
+          port_cols=None, nrail=10, extra_echoes=0):
     flow = alias_empty_gotos(dedup.build_flow())
+    if extra_echoes:
+        if not port_cols:
+            raise SystemExit("--extra-echoes needs --port-cols")
+        flow, _glyphs, est = echo_split.rewrite_flow(
+            flow, port_cols, extra_echoes + 1, opmin=nrail + 2)
+        print(f"echo split: {extra_echoes + 1} copies, est {est} code rows")
     layout = {}
 
     def lay(program, graph, port_spec, code_x=code_x):
@@ -51,6 +58,7 @@ def build(code_x=45, op_slack=0, verify=True, hw_layout="tight", hw_gap=2,
         hw_layout=hw_layout,
         hw_gap=hw_gap,
         port_cols=port_cols,
+        extra_echoes=extra_echoes,
     )
     if verify:
         railflow.verify_bindings(program, layout)
@@ -66,6 +74,7 @@ if __name__ == "__main__":
     parser.add_argument("--hw", choices=("wide", "tight"), default="tight")
     parser.add_argument("--hw-gap", type=int, default=2)
     parser.add_argument("--nrail", type=int, default=10)
+    parser.add_argument("--extra-echoes", type=int, default=0)
     parser.add_argument("--port-cols", help="JSON dict of absolute port columns")
     parser.add_argument("--tag", default="")
     args = parser.parse_args()
@@ -80,7 +89,10 @@ if __name__ == "__main__":
         hw_gap=args.hw_gap,
         port_cols=port_cols,
         nrail=args.nrail,
+        extra_echoes=args.extra_echoes,
     )
+    if program.overwrites:
+        print("OVERWRITES", program.overwrites[:5])
     program.save(output)
     print("saved", output, "footprint", program.footprint(),
           "controller", layout["width"], "x", layout["height"],

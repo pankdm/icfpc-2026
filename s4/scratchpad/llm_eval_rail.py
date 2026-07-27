@@ -10,8 +10,10 @@ import railflow
 from llm_eval import get_flow, GLYPH, PORTS
 
 
-def evaluate_rail(cols, op_slack=0, x0=0, y0=0, nrail=10, max_rail=80):
-    flow = get_flow()
+def evaluate_rail(cols, op_slack=0, x0=0, y0=0, nrail=10, max_rail=80,
+                  flow=None, GLYPH=GLYPH):
+    if flow is None:
+        flow = get_flow()
     bands = {}
     bands.update(boustro.voronoi_bands(
         [(n, c) for n, c in cols.items() if GLYPH[n] == 's']))

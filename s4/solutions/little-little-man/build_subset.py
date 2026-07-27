@@ -259,6 +259,7 @@ def lay_controller(
     dedup_edges=False,
     lay_fn=None,
     port_cols=None,
+    extra_echoes=0,
 ):
     if port_profile == "compact" and banked:
         spec = {
@@ -298,6 +299,11 @@ def lay_controller(
             "sa": (118, "s"),
             "ss": (140, "s"),
         }
+    for i in range(1, extra_echoes + 1):
+        # Replicated scratch echoes (see echo_split.py).  Their columns always
+        # arrive through ``port_cols``; the placeholders only have to be unique.
+        spec[f"sp{i}"] = (1000 + 2 * i, "s")
+        spec[f"rp{i}"] = (1001 + 2 * i, "r")
     if port_cols:
         # Absolute columns from a routability-constrained anneal; the spec's
         # first field is an offset from code_x, so convert back.
@@ -345,7 +351,19 @@ def _cmd_route(port_col, cy, command):
     ]
 
 
-def _attach_tight(p, ports, cy, ram_size, cell_ram_size, display_addr, gap):
+def _echo_room(p, cy, sy, send_col, reply_col):
+    """One `@>rsv` FIFO echo: `send_col` pushes into it, `reply_col` pops."""
+    sx = send_col - 2
+    p.room(sx, sy, 8, 4)
+    p.text(sx + 1, sy + 1, "@>rsv")
+    p.put(sx + 5, sy + 2, "<")
+    p.put(sx + 2, sy + 2, "^")
+    p.pipe([(send_col, cy), (send_col, sy - 2), (sx + 3, sy - 2), (sx + 3, sy - 1)])
+    p.pipe([(sx + 4, sy - 1), (sx + 4, sy - 3), (reply_col, sy - 3), (reply_col, cy)])
+
+
+def _attach_tight(p, ports, cy, ram_size, cell_ram_size, display_addr, gap,
+                  extra_echoes=0):
     """Hardware packed into one shallow band right under the controller wall.
 
     The wide layout staggered every service 45-100 rows below the controller and
@@ -373,13 +391,9 @@ def _attach_tight(p, ports, cy, ram_size, cell_ram_size, display_addr, gap):
     # One-value scratch echo: stages a variable RAM address across payload
     # computation without nesting a RAM request inside a write transaction.
     sy = top + 4
-    sx = sp - 2
-    p.room(sx, sy, 8, 4)
-    p.text(sx + 1, sy + 1, "@>rsv")
-    p.put(sx + 5, sy + 2, "<")
-    p.put(sx + 2, sy + 2, "^")
-    p.pipe([(sp, cy), (sp, sy - 2), (sx + 3, sy - 2), (sx + 3, sy - 1)])
-    p.pipe([(sx + 4, sy - 1), (sx + 4, sy - 3), (rp, sy - 3), (rp, cy)])
+    _echo_room(p, cy, sy, sp, rp)
+    for i in range(1, extra_echoes + 1):
+        _echo_room(p, cy, sy, ports[f"sp{i}"][0], ports[f"rp{i}"][0])
 
     # Scalar RAM directly under its command port; the command pipe hugs the
     # room's left wall instead of descending 80 rows first (122 cells -> 36).
@@ -422,6 +436,7 @@ def build_program(
     hw_layout="wide",
     hw_gap=2,
     port_cols=None,
+    extra_echoes=0,
 ):
     """Attach a compiled Flow to the shared input/RAM/scratch/display hardware."""
     p = lm.Program()
@@ -438,6 +453,7 @@ def build_program(
         dedup_edges=dedup_edges,
         lay_fn=lay_fn,
         port_cols=port_cols,
+        extra_echoes=extra_echoes,
     )
     inp = ports["ri"]
     ram_reply = ports["rr"]
@@ -447,7 +463,8 @@ def build_program(
     cy = inp[1]
     if hw_layout == "tight":
         return _attach_tight(
-            p, ports, cy, ram_size, cell_ram_size, display_addr, hw_gap
+            p, ports, cy, ram_size, cell_ram_size, display_addr, hw_gap,
+            extra_echoes,
         )
     # Place RAM and display below the controller, then route outside its bbox.
     rox, roy = controller_code + 48, cy + 80

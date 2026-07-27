@@ -17,6 +17,11 @@ DECODER64_ROWS = (
     "^`46`M<<",
     "@r     ^",
 )
+DECODER92_ROWS = (
+    ">W/WsWXU",
+    "^`29`M<<",
+    "@r     ^",
+)
 UNPACK128_ROWS = (
     ">>W/WsWXU",
     "^`821`M<<",
@@ -52,7 +57,11 @@ def packed(digits, base):
 
 
 def main():
-    for base, rows in ((64, DECODER64_ROWS), (128, UNPACK128_ROWS)):
+    for base, rows in (
+        (64, DECODER64_ROWS),
+        (92, DECODER92_ROWS),
+        (128, UNPACK128_ROWS),
+    ):
         for length in range(1, 10):
             digits = [
                 ((length * 17 + index * 23) % (base - 1)) + 1

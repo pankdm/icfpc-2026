@@ -151,7 +151,8 @@ class GroupPlan(PLACE.Plan):
             elif bad in rest:
                 rest.remove(bad)
             rest.insert(0, bad)
-        return None, last
+        return self._shuffle_route(layout, pipe_len, margin, reusable + rest,
+                                   tighten, last, fixed=reusable)
 
     def _reuse(self, p, src, dst, occ, taken, core=None):
         keep = super()._reuse(p, src, dst, occ, taken, core)
@@ -180,7 +181,8 @@ def zabs(e):
 
 class Model:
     def __init__(self, plan, groups, gap, extra_cap, base_maxdim, verbose=False,
-                 deficit=24, parity=False):
+                 deficit=24, parity=False, fan_order="wall", move_cap=0,
+                 objectives="m", max_m=0, free_len=False):
         self.plan = plan
         self.gap = gap
         self.verbose = verbose
@@ -210,6 +212,21 @@ class Model:
             o.add(self.X[i] >= ax - dom, self.X[i] <= ax + dom)
             o.add(self.Y[i] >= ay - dom, self.Y[i] <= ay + dom)
 
+        # move cap: a hard leash on how far a block may travel from where it is.
+        # Optimize() over 22 blocks in a +-216 domain does not converge (measured:
+        # `unknown` after 120s on snake, so not one candidate was ever produced), and
+        # the moves that actually shrink a generated floorplan are SMALL -- snake's
+        # 212 -> ~200 needs the RAM hub up 12 rows and its satellites up 4.  A leash
+        # both shrinks the domain by an order of magnitude and keeps every block near
+        # enough that place.py's route reuse still fires.
+        if move_cap:
+            for i in range(n):
+                if i == self.anchor:
+                    continue
+                b = plan.blocks[i]
+                o.add(self.X[i] >= b.ox0 - move_cap, self.X[i] <= b.ox0 + move_cap)
+                o.add(self.Y[i] >= b.oy0 - move_cap, self.Y[i] <= b.oy0 + move_cap)
+
         # rigid groups: original relative offsets
         for i in range(n):
             j = self.gid[i]
@@ -222,6 +239,26 @@ class Model:
         # pairwise non-overlap with clearance.  Required separation is the corridor
         # gap, but never MORE than the champion's own original separation: if two
         # rooms already sit 0 apart legally, holding them to 2 would be UNSAT-by-fiat.
+        # Which walls of which block carry a pipe attachment.  A pipe leaving a wall
+        # needs TWO free cells straight out from it: the loader derives the attachment
+        # from the start cell's backward neighbour, so a route that bends on its very
+        # first cell parses as detached (place.py `_route_one` enforces the stub).  With
+        # --gap 1 there is exactly one free cell in front of the controller's bottom
+        # wall and EVERY proposal died with "pipe 1/3 unroutable" — 16 random net orders
+        # could not fix what no route could satisfy.  The clearance has to be
+        # DIRECTIONAL: snake's satellites sit flush side by side (separation 0) and that
+        # is fine, because their attachments face down, not sideways.
+        # Only the SOURCE end needs it: the router may bend on the last cell (the
+        # arrowhead only has to point at the destination border) but not on the first.
+        # And the side is read off the pipe's own flow direction, never off the offset —
+        # a corner attachment looks like two walls, and calling both of them "in use"
+        # is what made M<=206 UNSAT-by-fiat (snake's block 1 sits flush on top of hub
+        # 19 and exits EAST, so its bottom wall needs no clearance at all).
+        _SIDE = {(0, 1): "B", (0, -1): "T", (1, 0): "R", (-1, 0): "L"}
+        self.att_walls = {i: set() for i in range(n)}
+        for p in plan.pipes:
+            self.att_walls[p.src_b].add(_SIDE[tuple(p.dirs[0])])
+
         self.sep_extra = {}
         for i in range(n):
             for j in range(i + 1, n):
@@ -229,6 +266,8 @@ class Model:
                     continue  # rigid relative geometry, legal by construction
                 s = min(gap, self._orig_sep(i, j))
                 self._add_sep(i, j, s)
+
+        self.fan_pairs = self._add_fan_order(fan_order)
 
         # fixed obstacles: orphan cells (place.py never moves them)
         if plan.orphans:
@@ -262,7 +301,18 @@ class Model:
             # champion is the proof), plus a little slack.
             s1, d1 = plan.ends(plan.base_layout(), p)
             orig_deficit = p.length - (abs(s1[0] - d1[0]) + abs(s1[1] - d1[1]) - 1)
-            o.add(md - 1 >= p.length - max(deficit, orig_deficit))
+            if free_len:
+                # --pipe-len free: the router takes the SHORTEST route, so nothing has
+                # to be wound and a pipe may come out shorter than the champion's.  That
+                # is a real risk (a pipe's length is also its FIFO capacity) but it is
+                # the constraint that pins snake's satellite band 40 rows below its hub:
+                # pipe 21 must stay >= 101 cells, so its two ends may not approach closer
+                # than md=60, and M=200 is UNSAT purely because of that.  Shorter pipes
+                # also cost FEWER ticks, so when the grade still passes this is a win on
+                # both terms of the score.
+                pass
+            else:
+                o.add(md - 1 >= p.length - max(deficit, orig_deficit))
             if parity:
                 # any route between these endpoints has length ≡ md-1 (mod 2), so an
                 # EXACT-length route exists only when md keeps the original parity —
@@ -308,20 +358,111 @@ class Model:
         o.add(self.M >= self.area_lb)
 
         o.add(self.M <= base_maxdim - 1)     # only strict improvements are interesting
-        self.h_M = o.minimize(self.M)
-        if self.extras:
-            o.minimize(z3.Sum(self.extras))
-        # tertiary: move as little as possible.  Endpoints that keep their EXACT original
-        # position keep their original route verbatim (place.py's reuse), which routes a
-        # heavily-padded champion pipe with certainty where the padder may fail.
+        if max_m:
+            # ask for a TARGET envelope instead of the optimum.  Proving optimality is
+            # what makes Optimize() diverge here; a target turns the whole thing into a
+            # satisfiability question, and the CEGAR loop still tightens on every win.
+            o.add(self.M <= max_m)
+        # move as little as possible.  Endpoints that keep their EXACT original position
+        # keep their original route verbatim (place.py's reuse), which routes a heavily
+        # padded champion pipe with certainty where the padder may fail.
         move = []
         for i in range(n):
             if self.gid[i] != i or i == self.anchor:
                 continue
             move.append(zabs(self.X[i] - plan.blocks[i].ox0))
             move.append(zabs(self.Y[i] - plan.blocks[i].oy0))
-        if move:
-            o.minimize(z3.Sum(move))
+        # objective policy.  `minimize(M)` has to PROVE that no smaller envelope exists,
+        # and on a generated 22-block floorplan that does not terminate (measured: Optimize
+        # returns `unknown` after 180s on snake without ever emitting a candidate, so the
+        # CEGAR loop never starts).  `--max-m T --objective move` turns the same question
+        # into "the least-disturbed layout that fits in T", which is both a satisfiability
+        # query and exactly the bias place.py's route reuse wants.
+        if objectives == "m":
+            self.h_M = o.minimize(self.M)
+            if self.extras:
+                o.minimize(z3.Sum(self.extras))
+            if move:
+                o.minimize(z3.Sum(move))
+        elif objectives == "move":
+            if move:
+                o.minimize(z3.Sum(move))
+        # "none": pure satisfiability
+
+    # ── fan ordering: the constraint that makes a proposal ROUTABLE ───────────
+    @staticmethod
+    def _walls(b, off):
+        w = set()
+        if off[1] == 0:
+            w.add("T")
+        if off[1] == b.h - 1:
+            w.add("B")
+        if off[0] == 0:
+            w.add("L")
+        if off[0] == b.w - 1:
+            w.add("R")
+        return w
+
+    def _add_fan_order(self, mode):
+        """Keep every port fan NESTED: pipes leaving one wall of one block must reach
+        their far ends in the same relative order as the ports they hang off.
+
+        This is the constraint whose absence produced `pipe N unroutable` on every
+        snake/pathfinder proposal.  Neither program's room graph forces a crossing —
+        both are near-trees (snake: 22 rooms, 23 simple edges, 2 independent cycles;
+        three hubs, no hub-hub edge) — so an unroutable Z3 model is never a topology
+        failure, it is an ORDER failure: the hub's ports are at a fixed pitch along one
+        wall and the satellites they serve are interchangeable as far as the model can
+        see, so Z3 permutes them and turns a properly nested fan into an interleaved one
+        that no planar routing exists for.  Pipe k of snake's hub #20 joins the k-th
+        port column to the k-th satellite; swap any two satellites and those two pipes
+        must cross.
+
+        The encoding is deliberately the cheapest thing that expresses it: for every
+        pair of pipes touching one wall of one block, the far endpoints keep the SIGN of
+        their original coordinate difference, on both axes.  Strict orders only — a tie
+        (all sixteen satellites share a row) constrains nothing, so a fan may still be
+        re-shaped, just not re-ordered.  Every constraint is a strict linear inequality
+        over two position variables, i.e. purely conjunctive: it PRUNES the search
+        instead of adding disjunctions, and the original layout satisfies all of them by
+        construction, so the model can never be made UNSAT by this alone.
+
+        mode: "off" (skip), "wall" (pairs sharing a wall of the shared block — the
+        default), "all" (every pair touching the shared block).
+        """
+        if mode == "off":
+            return 0
+        plan = self.plan
+        touch = {}
+        for p in plan.pipes:
+            touch.setdefault(p.src_b, []).append((p.idx, p.src_off, p.dst_b, p.dst_off))
+            touch.setdefault(p.dst_b, []).append((p.idx, p.dst_off, p.src_b, p.src_off))
+        added = 0
+        for bi, lst in sorted(touch.items()):
+            b = plan.blocks[bi]
+            for ia in range(len(lst)):
+                for ib in range(ia + 1, len(lst)):
+                    _, oa, fa, ofa = lst[ia]
+                    _, ob, fb, ofb = lst[ib]
+                    if mode == "wall" and not (self._walls(b, oa) & self._walls(b, ob)):
+                        continue
+                    # two far ends inside one rigid group (or the same block) are at a
+                    # constant offset from each other: the relation already holds.
+                    if self.gid[fa] == self.gid[fb]:
+                        continue
+                    for axis in (0, 1):
+                        V = self.X if axis == 0 else self.Y
+                        ba = plan.blocks[fa]
+                        bb = plan.blocks[fb]
+                        pa = (ba.ox0 if axis == 0 else ba.oy0) + ofa[axis]
+                        pb = (bb.ox0 if axis == 0 else bb.oy0) + ofb[axis]
+                        if pa == pb:
+                            continue
+                        ea = V[fa] + ofa[axis]
+                        eb = V[fb] + ofb[axis]
+                        self.opt.add(ea < eb if pa < pb else ea > eb)
+                        added += 1
+        return added
 
     def _orig_sep(self, i, j):
         a, b = self.plan.blocks[i], self.plan.blocks[j]
@@ -331,14 +472,34 @@ class Model:
         dy = max(by0 - ay1 - 1, ay0 - by1 - 1)
         return max(dx, dy, 0)
 
+    STUB = 2      # free cells a pipe needs straight out of its attachment wall
+
     def _add_sep(self, i, j, s):
         a, b = self.plan.blocks[i], self.plan.blocks[j]
         self.sep_extra[(i, j)] = s
+        aw = getattr(self, "att_walls", {}).get(i, set())
+        bw = getattr(self, "att_walls", {}).get(j, set())
+
+        # the ORIGINAL directional separations; exactly one of the four is >= 0 (the
+        # branch that actually separates the pair in the champion).
+        og = (self.plan.blocks[j].ox0 - (a.ox0 + a.w),
+              a.ox0 - (self.plan.blocks[j].ox0 + b.w),
+              self.plan.blocks[j].oy0 - (a.oy0 + a.h),
+              a.oy0 - (self.plan.blocks[j].oy0 + b.h))
+
+        def need(mine, theirs, orig):
+            """Clearance on the branch where MY `mine` wall faces THEIR `theirs` wall."""
+            v = max(s, self.STUB) if (mine in aw or theirs in bw) else s
+            # never demand more than the champion itself proves is enough: on the one
+            # branch the original layout uses, its own separation is an existence proof,
+            # and asking for more would make the model UNSAT-by-fiat.
+            return min(v, orig) if orig >= 0 else v
+
         self.opt.add(z3.Or(
-            self.X[i] + a.w + s <= self.X[j],
-            self.X[j] + b.w + s <= self.X[i],
-            self.Y[i] + a.h + s <= self.Y[j],
-            self.Y[j] + b.h + s <= self.Y[i]))
+            self.X[i] + a.w + need("R", "L", og[0]) <= self.X[j],
+            self.X[j] + b.w + need("L", "R", og[1]) <= self.X[i],
+            self.Y[i] + a.h + need("B", "T", og[2]) <= self.Y[j],
+            self.Y[j] + b.h + need("T", "B", og[3]) <= self.Y[i]))
 
     def bump_sep(self, i, j):
         """A pipe between i and j keeps failing to route: demand more corridor."""
@@ -417,7 +578,10 @@ def main():
     ap.add_argument("--gap", type=int, default=2)
     ap.add_argument("--extra", type=int, default=8,
                     help="hard cap on forced length increase per pipe (latency budget)")
-    ap.add_argument("--pipe-len", choices=("min", "exact"), default="min")
+    ap.add_argument("--pipe-len", choices=("free", "min", "exact"), default="min",
+                    help="'free' lets a pipe come out SHORTER than the original — fewer "
+                         "ticks and far more placement freedom, but a pipe used as a FIFO "
+                         "store loses capacity, so the grade is the only gate")
     ap.add_argument("--margin", type=int, default=8)
     ap.add_argument("--group", action="append", default=[],
                     help="comma-separated block indices moved as one rigid cluster")
@@ -427,6 +591,26 @@ def main():
     ap.add_argument("--min-m", type=int, default=0,
                     help="start the envelope no tighter than this (routing headroom); "
                          "wins still tighten the bound from there")
+    ap.add_argument("--route-tries", type=int, default=0,
+                    help="extra random net orders per proposal before calling a "
+                         "floorplan unroutable (place.Plan._shuffle_route)")
+    ap.add_argument("--no-route-guard", action="store_true",
+                    help="allow a new route to run alongside a room wall, as the "
+                         "original program's own routes already do (required for a "
+                         "tight --gap; the grade is then the only gate)")
+    ap.add_argument("--max-m", type=int, default=0,
+                    help="ask for max(W,H) <= N (satisfiability) instead of the optimum")
+    ap.add_argument("--objective", choices=("m", "move", "none"), default="m",
+                    help="'m' minimises the envelope (proves optimality — does not "
+                         "converge past ~20 blocks); 'move' minimises total block "
+                         "displacement subject to --max-m; 'none' pure satisfiability")
+    ap.add_argument("--move-cap", type=int, default=0,
+                    help="max cells a block may move from its original offset "
+                         "(0 = unlimited; a leash makes Optimize() converge)")
+    ap.add_argument("--fan-order", choices=("off", "wall", "all"), default="wall",
+                    help="keep port fans nested (see Model._add_fan_order): 'wall' "
+                         "constrains pipe pairs sharing a wall, 'all' every pair "
+                         "sharing a block, 'off' reproduces the old unordered model")
     ap.add_argument("--iters", type=int, default=20)
     ap.add_argument("--timeout", type=float, default=60.0, help="per-solve seconds")
     ap.add_argument("--time-limit", type=float, default=1800.0, help="whole-run seconds")
@@ -443,7 +627,14 @@ def main():
     args = ap.parse_args()
 
     plan = GroupPlan(args.man)
-    plan.route_guard = True     # new routes must not graze ANY wall (see place.py)
+    # New routes must not graze ANY wall (see place.py) — except that a program whose
+    # OWN routes graze walls cannot be re-routed under that rule at all once the
+    # floorplan is tight: with --gap 1 every corridor is one cell wide, so any pipe in
+    # it touches both walls and the guard rejects it.  Measured on snake at M=204: every
+    # Z3 model died with "pipe N unroutable" until the guard came off.  The grade is then
+    # the gate, exactly as it is for the champion this program already is.
+    plan.route_guard = not args.no_route_guard
+    plan.route_shuffles = args.route_tries
     n = len(plan.blocks)
     print(f"{Path(args.man).name}: {n} blocks, {len(plan.pipes)} pipes, "
           f"{len(plan.orphans)} orphans, adjacency guard "
@@ -468,12 +659,18 @@ def main():
             groups.append(g)
 
     model = Model(plan, groups, args.gap, args.extra, base_maxdim, args.verbose,
-                  deficit=args.deficit, parity=args.pipe_len == "exact")
+                  deficit=args.deficit, parity=args.pipe_len == "exact",
+                  fan_order=args.fan_order, move_cap=args.move_cap,
+                  objectives=args.objective, max_m=args.max_m,
+                  free_len=args.pipe_len == "free")
     if args.min_m:
         model.opt.add(model.M >= args.min_m)
     print(f"  SMT: anchor block {model.anchor}, groups {groups or 'none'}, "
           f"area lower bound M >= {model.area_lb} "
-          f"(baseline M = {base_maxdim})")
+          f"(baseline M = {base_maxdim}), fan-order {args.fan_order} "
+          f"({model.fan_pairs} constraints), move-cap "
+          f"{args.move_cap or 'none'}, objective {args.objective}"
+          f"{' <= ' + str(args.max_m) if args.max_m else ''}")
 
     base_res = None
     if not args.no_grade:
@@ -523,7 +720,9 @@ def main():
                     pair_fail[key] = 0
                 # a long pipe that cannot wind is an AREA problem, not a pair problem:
                 # after repeated failures at the same envelope, demand a roomier one.
-                if m_fail[0] == mval:
+                if m_fail[0] == mval and not args.max_m:
+                    # with an explicit --max-m the relaxation would contradict it and
+                    # the next solve is UNSAT-by-construction, ending the run early.
                     m_fail[1] += 1
                     if m_fail[1] >= 4:
                         print(f"      4 routing failures at M={mval} — relaxing to "

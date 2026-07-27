@@ -30,7 +30,10 @@ def make_pipe_for(ports):
     return pipe_for
 
 
-def check(rows, ports, start, direction="E", entries=44, trials=1500, seed=7):
+def check(rows, ports, start, direction="E", entries=44, trials=1500, seed=7,
+          zeros=False):
+    """zeros: also feed the 0 year-marker symbol, which the champion's
+    dispatcher forwards untouched (the no-YEAR vertical builds never emit it)."""
     w = max(len(r) for r in rows)
     rows = [r.ljust(w) for r in rows]
     ring0 = [1000 + i for i in range(1, entries + 1)] + [0]
@@ -38,11 +41,14 @@ def check(rows, ports, start, direction="E", entries=44, trials=1500, seed=7):
     rnd = random.Random(seed)
     for _ in range(trials):
         c = rnd.random()
-        if c < 0.30:
+        if zeros and c < 0.10:
+            stream.append(0)
+            want.append(0)
+        elif c < 0.40:
             v = rnd.randint(1, DIRECT)
             stream.append(v)
             want.append(1000 + v)
-        elif c < 0.60:
+        elif c < 0.70:
             k = rnd.randint(DIRECT + 1, entries)
             stream += [ESC, k]
             want.append(1000 + k)

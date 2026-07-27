@@ -18,8 +18,8 @@ previous champion and the constant-tail candidate byte-for-byte.
 
 The program has no input.  It emits the byte sequence in
 `icfp-history.txt`; consequently a slow, small decoder is the right tradeoff.
-Its cached oracle check passes the sole public case in 352,318 ticks, but ticks
-do not affect this problem's score.
+The organizer WASM passes the sole public case in 208,863 ticks (214,833 before
+the dispatcher rebuild below), but ticks do not affect this problem's score.
 
 ## Encoding
 
@@ -128,16 +128,20 @@ margin pump needs the very rows the constant tail uses.
   end on the right, so the pump becomes a six-cell loop in the two columns
   between the turn column and the right wall instead of two rows of its own.
   P1 goes from 10 rows to 8.
-- **A trimmed DISP and a shifted band.**  DISP's last inner column is entirely
-  blank, so the room needs 26 columns.  With every service room slid one
-  column left, that trim widens the strip east of DISP to the five columns the
-  ring's 35 cells need, while still leaving DISP → YEAR a two-column gap — a
-  one-cell pipe is rejected by the loader, verified directly against the
-  oracle.  Each room keeps its position *relative* to its own attachments, so
-  DISP's nearest-pipe bindings are unchanged.
+- **A rebuilt DISP and a shifted band.**  With every service room slid one
+  column left, a narrower dispatcher widens the strip east of DISP to the
+  columns the ring's 35 cells need, while still leaving DISP → YEAR a
+  two-column gap — a one-cell pipe is rejected by the loader, verified directly
+  against the oracle.  Each room keeps its position *relative* to its own
+  attachments, so DISP's nearest-pipe bindings survive the slide.  This was
+  originally a 26-column trim of the 6-row grid (its last inner column is
+  entirely blank); DISP is now the 23×7 `DISP_COMPACT_ROWS` build described
+  under [the dispatcher rebuild](#the-dispatcher-rebuild) below.
 
 That is 65 feeder rows + 8 service + 8 P1 = 81, with the ring at 26+13 = 39
-cells against a 35-word floor.
+cells against a 35-word floor.  Note the service band is 8 rows because UNPACK
+and DECODER *stack* to 8, not because of DISP: shrinking DISP to 7 rows leaves
+row 72 free but does not shorten the program.
 
 Measured dead ends, recorded so they are not retried:
 
@@ -301,37 +305,36 @@ other ring leg folds down a second time above P1: it has 45 cells, so the two
 legs provide 47 cells of capacity for the 38 dictionary entries plus sentinel.
 The organizer WASM passes the complete public output in 255,288 ticks.
 
-## Vertical-P1 line, and its compacted dispatcher
+## The dispatcher rebuild
 
-`build_vertical_p1.py` is a different tail experiment: it drops the YEAR room
-entirely (the year prefixes become ordinary stream text, spelled by two
-repurposed dictionary slots and raw shifted ASCII digits) and stands P1 up as a
-tall 52×20 preload room instead of a wide one.  It produces
-`candidates/81x90-vertical-p1.man`.  At 81×90 it is **not** competitive with
-the 81×81 champion — the point of the line is that a shorter, squarer service
-tail becomes reachable once YEAR is gone.
+DISP — the room holding the `17`, `31` and `92` literals — was rebuilt from six
+interior rows to **five**, and from 24 (champion) or 23 (vertical) columns to
+**21**.  Both live builds now carry it:
 
-`build_vertical_p2.py` rebuilds one block of that program and nothing else: the
-dispatcher room, the one holding the `17`, `31` and `92` literals.  It goes
-from **25×11 (275 cells) to 23×7 (161 cells)**, a 41% cut, and the whole
-program still passes the sole public case on the organizer WASM.  The footprint
-is unchanged at 81×90 — DISP sits inside P1's row span and is not on either
-critical dimension — so this is headroom, not score.
+| Build | DISP room before | after | cells |
+| --- | --- | --- | ---: |
+| `best/81x81.man` (`DISP_COMPACT_ROWS`) | 26×8 | **23×7** | 208 → 161 |
+| `candidates/81x90-vertical-p2.man` | 25×11 | **23×7** | 275 → 161 |
 
-Three independent things paid for the shrink.
+Neither program's footprint changes: in the champion the service band is 8 rows
+because UNPACK and DECODER stack to 8, and in the vertical build DISP sits
+inside P1's row span.  This is headroom, not score.
 
-- **The 81-lap countdown was not load-bearing.**  P1's top three rows in the p1
-  build are a pure delay loop, added on the theory that DISP must not start
-  rotating before P1 finishes its (slower, vertical) preload.  It isn't so: the
-  two ring legs carry 118 cells against a 44-entry dictionary plus sentinel, far
-  above the `entries + sentinel − 1` capacity floor, so DISP simply blocks on
-  `r` until P1 catches up.  Deleting the loop passes and is ~800 ticks faster.
-  Three rows, for free.
-- **`b` moved up into the classifier head.**  The head now reads
-  `` > `17` M r b - v ``: stash the raw symbol in `BP` *before* subtracting 17.
-  The `v ≤ 16` branch then already holds its rotation count, which deletes the
-  `-` cell that needed its own row and the `+`/`b` pair that used to rebuild the
-  count from `v − 17`.  Two columns.
+Three independent things paid for the shrink; the first applies only to the
+vertical line, the other two to both.
+
+- **The 81-lap countdown was not load-bearing.**  `build_vertical_p1` spends
+  DISP's top three rows on a delay loop, added on the theory that DISP must not
+  start rotating before P1 finishes its (slower, vertical) preload.  It isn't
+  so: the two ring legs carry 118 cells against a 44-entry dictionary plus
+  sentinel, far above the `entries + sentinel − 1` capacity floor, so DISP simply
+  blocks on `r` until P1 catches up.  Deleting the loop passes and is ~800 ticks
+  faster.  Three rows, for free.
+- **`b` moved up into the classifier head**, stashing the raw symbol in `BP`
+  *before* subtracting 17.  The `v ≤ 16` branch then already holds its rotation
+  count, which deletes the `+`/`b` pair that used to rebuild the count from
+  `v − 17` — and, in the vertical build which has no zero marker to test for,
+  the `-` cell that needed a row of its own as well.  Two columns.
 - **The sentinel return folded into a riser column.**  The old grid spent a
   whole sixth row walking west from the ring send back to the `W` swap.  Putting
   the drain loop's `X` *before* its turn lets the 0 sentinel fall out of the loop
@@ -339,12 +342,15 @@ Three independent things paid for the shrink.
   into `A`) stack vertically in the last column and rejoin the ordinary return
   corridor on row 0.  One row.
 
-The resulting 21×5 interior, with the ring machinery annotated:
+The champion's 21×5 interior, with the ring machinery annotated.  The vertical
+build's grid is the same except that its head reads `` > `17` M r b - v `` — no
+zero marker exists once YEAR is gone, so the `-` and the drop collapse into the
+head and the `+31` riser moves from x=7 to x=10.
 
 ```text
-        row 0  v@< s     <         <     return corridor; x=4 is the only UNPACK send
-        row 1  >`17`Mrb-v          W     head: B=17, A=sym, BP=sym, A=sym-17, drop
-        row 2   >`31`+   ^         s     +31 for raw ASCII; sentinel riser
+        row 0  v@<<s  <  <         <     return corridor; x=4 is the only YEAR send
+        row 1  >`17`Mr bX^         W     head: B=17, A=sym, BP=sym, then zero test
+        row 2   >`31`+^ -          s     +31 for raw ASCII; `-` drops to the 3-way
         row 3  vX~`92`M+X> mdrMs>rX^     ESC test (`92` reads back 29 westward)
         row 4  >rb       ^sr<   ^s<      ESC's second read; underside of both loops
 
@@ -354,19 +360,74 @@ The resulting 21×5 interior, with the ring machinery annotated:
         x=20      riser: send the sentinel, W the entry into A, walk home
 ```
 
-Two port columns had to move with it, because `s` and `r` bind to the
-*nearest* pipe and the room got narrower under them: DISP → UNPACK from x=74 to
-x=76, and DISP → P1 from x=78 to x=77.  With those, every send and receive wins
-its contest by at least one cell.  `scratchpad/history-disp/test_disp_p2.py`
-checks the old and new grids side by side on a scripted stream and ring, with
-the same nearest-pipe tie-break the interpreter uses, so a future port move that
-flips a binding fails there rather than in a 274k-tick oracle run.
+`b` sits at x=8 rather than x=7 specifically to leave x=7 clear for the `+31`
+riser to pass through on its way to the row-0 corridor.
 
-Still on the table for this block: the `+31` path and the ESC path each still
-need their own row, which is what holds the interior at five rows rather than
-four.  More usefully, the four rows DISP gave back sit directly above the four
+Ports had to move with the walls, because `s` and `r` bind to the *nearest*
+pipe.  In the champion both ring legs now attach squarely to DISP's east wall at
+x=73 (rows +1 and +5) instead of reaching around the old room corner at x=76,
+which also widens the ring strip from five columns to eight; the leg lengths are
+unchanged at 26+13 = 39 cells.  In the vertical build, DISP → UNPACK moved from
+x=74 to x=76 and DISP → P1 from x=78 to x=77.  Every send and receive wins its
+nearest-pipe contest by at least one cell.
+
+`scratchpad/history-disp/test_disp_p2.py` runs all four grids — champion and
+vertical, before and after — standalone against a scripted symbol stream and
+dictionary ring, using the same `(manhattan, attach_y, attach_x)` tie-break the
+interpreter uses.  A future port move that flips a binding fails there in under
+a second rather than in a 200k-tick oracle run.
+
+Still on the table for this block: the `+31` path and the ESC path each need
+their own row, which is what holds the interior at five rows rather than four.
+
+## Toward 80x80: the width-80 baseline
+
+`build_ring.py --w80` is the same `west_first` tail rebuilt with a width-80
+feeder, written to `candidates/80x82.man`.  It passes the oracle at **80×82,
+score 6,724** — worse than the champion's 6,561, and deliberately so: it exists
+to make the row budget concrete.
+
+The three budgets at each width, measured rather than guessed:
+
+| | W=81 (champion) | W=80 |
+| --- | ---: | ---: |
+| feeder room | 65 (63 content) | **66** (64 content) |
+| service band | 8 | 8 |
+| P1 | 8 | 8 |
+| total height | 81 | **82** |
+
+Only the feeder moves.  The DP costs one extra row per column removed — 63/64/65
+content rows at W=81/80/79 — so width 80 starts a row *behind*, and 80×80 needs
+**two** rows out of the service band or P1.
+
+Two facts constrain where those rows can come from.
+
+- **P1 needs exactly 80 columns.**  Its group-B row asserts
+  `sum(TB) + 3*nB + 4 <= inner + 1`, which at `TB = [17,15,11,9,6]` is `77 <= 77`
+  — tight at `inner = 76`, i.e. `width = 80`.  So at W=80 P1 is the whole width
+  and there is no margin column beside it; the ring must stay entirely in the
+  service band, which it already does.  Shrinking P1 to 7 rows means changing
+  the *dictionary layout*, not the room.
+- **The service band is 8 rows because UNPACK and DECODER stack**, not because
+  of DISP or YEAR — both of those are 7 rows since the dispatcher rebuild.
+  UNPACK (4 rows) sits above DECODER (4 rows) because unstacking them would
+  need 11 more columns, and the band already runs x=1..79.  Getting the band to
+  7 rows means making that stack 7 rows tall, not rearranging it.
+
+## Vertical-P1 line
+
+`build_vertical_p1.py` is a different tail experiment: it drops the YEAR room
+entirely (the year prefixes become ordinary stream text, spelled by two
+repurposed dictionary slots and raw shifted ASCII digits) and stands P1 up as a
+tall 52×20 preload room instead of a wide one.  It produces
+`candidates/81x90-vertical-p1.man`.  At 81×90 it is **not** competitive with
+the 81×81 champion — the point of the line is that a shorter, squarer service
+tail becomes reachable once YEAR is gone.
+
+`build_vertical_p2.py` is that program with the rebuilt dispatcher above, and
+nothing else changed.  The four rows DISP gave back sit directly above the four
 rows of ring routing at y=86..89; re-anchoring DISP at y=75 and routing both
-ring legs through y=82..85 would take the whole program to 81×86 (score 7,396).
+ring legs through y=82..85 would take that program to 81×86 (score 7,396).
 
 ## Reproducing the champion
 
@@ -380,9 +441,17 @@ git diff --exit-code -- solutions/history-lesson/best/82x82.man
 python3 scratchpad/history-ring/test_rooms.py
 python3 scratchpad/history-ring/test_year.py
 python3 scratchpad/history-ring/test_disp.py
+python3 scratchpad/history-disp/test_disp_p2.py
 node tools/grade_json.js history-lesson solutions/history-lesson/candidates/81x82.man \
   --cases tests/history-lesson.json --failfast
+node tools/grade.js history-lesson solutions/history-lesson/best/81x81.man
 ```
+
+`test_disp.py` covers the 6-row dispatcher that `--legacy` and `--narrow` still
+use; `test_disp_p2.py` covers the rebuilt 5-row one the champion now uses.  The
+two `--legacy`/`--narrow` reproduction gates above are what pin the rebuild to
+the champion only: `DISP_ROWS` is untouched, so those two files stay
+byte-identical.
 
 The vertical-P1 line reproduces the same way:
 

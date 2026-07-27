@@ -30,10 +30,18 @@ extra.append(mk("varying lengths", [[3, 1, 2], [9] * 16, [0], [-1, -1], list(ran
 extra.append(mk("n1 x6", [[rng.randint(-10000, 10000)] for _ in range(6)]))
 extra.append(mk("n2 x6", [[rng.randint(-10000, 10000) for _ in range(2)] for _ in range(6)]))
 extra.append(mk("dup heavy n16", [[rng.choice([-3, 0, 3]) for _ in range(16)] for _ in range(6)]))
-for k in range(6):
+for k in range(120):
     extra.append(mk(f"rand mixed {k}",
-                    [[rng.randint(-10000, 10000) for _ in range(rng.randint(1, 16))]
+                    [[rng.choice([rng.randint(-10000, 10000), rng.choice([-10000, 0, 10000, 1, -1])])
+                      for _ in range(rng.randint(1, 16))]
                      for _ in range(rng.randint(2, 6))]))
+# adversarial: every length transition, and n=16 back to back
+for a in range(1, 17):
+    for b in (1, 16):
+        extra.append(mk(f"len {a}->{b}",
+                        [[rng.randint(-10000, 10000) for _ in range(a)],
+                         [rng.randint(-10000, 10000) for _ in range(b)],
+                         [rng.randint(-10000, 10000) for _ in range(a)]]))
 cases += extra
 spec["publicTestData"] = cases
 spec["name"] = "Sort (stress)"

@@ -1,0 +1,15 @@
+{
+ "slug": "sort-numbers",
+ "target": "solutions/sort-numbers/ring15-auto.man",
+ "builder": "solutions/sort-numbers/build_ring15.py",
+ "baseline_score": 563212.5,
+ "best_score": 524081.25,
+ "accepted": [
+  {
+   "knob": "L55#6",
+   "from": 7,
+   "to": 6,
+   "score": 524081.25
+  }
+ ]
+}

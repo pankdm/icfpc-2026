@@ -367,7 +367,7 @@ def projection_markdown(snapshot: dict) -> str:
             f"{format_percent(row['scoreChangePercent'])} | "
             f"{row['frozenRank']}/{row['fieldSize']} | "
             f"{row['projectedRank']}/{row['fieldSize']} | {rank_gain} | "
-            f"{row['frozenPoints']:.4f} | {row['projectedPoints']:.4f} |"
+            f"{row['frozenPoints']:.2f} | {row['projectedPoints']:.2f} |"
         )
     overall_rank_gain = f"+{overall['rankGain']}" if overall["rankGain"] else "—"
     lines.extend(
@@ -378,14 +378,14 @@ def projection_markdown(snapshot: dict) -> str:
             "| frozen total | projected total | points gain | frozen rank | "
             "projected rank | rank gain |",
             "|---:|---:|---:|---:|---:|---:|",
-            f"| {overall['frozenPoints']:.4f} | {overall['projectedPoints']:.4f} | "
-            f"+{overall['pointsGain']:.4f} | "
+            f"| {overall['frozenPoints']:.2f} | {overall['projectedPoints']:.2f} | "
+            f"+{overall['pointsGain']:.2f} | "
             f"{overall['frozenRank']}/{overall['fieldSize']} | "
             f"{overall['projectedRank']}/{overall['fieldSize']} | "
             f"{overall_rank_gain} |",
             "",
             "Expected final result under this assumption: "
-            f"**{overall['projectedPoints']:.4f} points, rank "
+            f"**{overall['projectedPoints']:.2f} points, rank "
             f"{overall['projectedRank']} of {overall['fieldSize']}**.",
             "",
         ]

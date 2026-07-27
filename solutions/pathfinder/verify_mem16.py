@@ -18,7 +18,7 @@ def s64(value):
     return value - (1 << 64) if value >= 1 << 63 else value
 
 
-def run_flow(flow, rounds, limit=5_000_000):
+def run_flow(flow, rounds, limit=5_000_000, eager_payload=False):
     blocks = flow.blocks
     inputs = deque(int(v) for rnd in rounds for v in rnd["in"])
     state, frontier, nb = deque(), deque(), deque()
@@ -111,7 +111,8 @@ def run_flow(flow, rounds, limit=5_000_000):
                     replies.append(memory[word] & mask)
                 elif len(mem_cmd) == 3:
                     word, _mask, payload = mem_cmd
-                    memory[word] |= payload
+                    if not eager_payload or memory[word] & _mask == 0:
+                        memory[word] |= payload
                     mem_cmd.clear()
         elif token == "Cr":
             if not replies:
@@ -147,12 +148,15 @@ def run_flow(flow, rounds, limit=5_000_000):
 def main():
     with open(os.path.join(build.REPO, "tests", "pathfinder.json")) as stream:
         cases = json.load(stream)["publicTestData"]
-    for variant, make_flow in (
-        ("two-ring", build.build_flow),
-        ("one-ring", build.build_flow_one_ring),
+    for variant, make_flow, eager_payload in (
+        ("two-ring", build.build_flow, False),
+        ("one-ring", build.build_flow_one_ring, False),
+        ("one-ring-eager", lambda: build.build_flow_one_ring(True), True),
     ):
         for case in cases:
-            got, steps = run_flow(make_flow(), case["rounds"])
+            got, steps = run_flow(
+                make_flow(), case["rounds"], eager_payload=eager_payload
+            )
             want = [frame for rnd in case["rounds"] for frame in rnd["frames"]]
             got = frames_as_strings(got)
             assert got == want, (variant, case["name"])

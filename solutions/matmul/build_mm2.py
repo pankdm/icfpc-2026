@@ -21,11 +21,11 @@ BOUND = (-4, -4, 90, 90)
 # walls the canvas in half, and every short net then fails.
 AP_LEAD = [(11, 5), (10, 5)] + [(10, y) for y in range(2, 6)] + [(9, 2)]
 AP_EXIT = [(9, 33), (10, 33)] + [(10, y) for y in range(33, 36)] + \
-          [(x, 35) for x in range(10, 19)]
-BR_LEAD = [(45, 6), (46, 6)] + [(x, 6) for x in range(45, 59)] + \
-          [(58, y) for y in range(2, 7)] + [(x, 2) for x in range(58, 61)]
-BR_EXIT = [(60, 33), (59, 33)] + [(59, y) for y in range(33, 42)] + \
-          [(x, 41) for x in range(29, 60)] + [(29, 40)]
+          [(x, 35) for x in range(10, 18)]
+BR_LEAD = [(60, 18), (61, 18)] + [(61, y) for y in range(2, 19)] + [(62, 2)]
+BR_EXIT = [(62, 33), (61, 33)] + [(61, y) for y in range(33, 44)] + \
+          [(x, 43) for x in range(42, 62)] + [(42, y) for y in range(19, 44)] + \
+          [(x, 19) for x in range(37, 43)] + [(37, 18)]
 
 
 def outside(allowed, box=(-3, -3, 80, 72)):
@@ -34,24 +34,24 @@ def outside(allowed, box=(-3, -3, 80, 72)):
             if (x, y) not in a]
 
 
-def outside(allowed, box=(-4, -5, 74, 58)):
+def outside(allowed, box=(-4, -5, 78, 60)):
     a = set(allowed)
     return [(x, y) for x in range(box[0], box[2]) for y in range(box[1], box[3])
             if (x, y) not in a]
 
 
-def build(ap_rect=(9, 2, 10, 32, False), br_rect=(60, 2, 10, 32), verbose=False):
+def build(ap_rect=(9, 2, 10, 32, False), br_rect=(62, 2, 10, 32), verbose=False):
     rt = RT.Router()
     g = RGrid(rt)
     rt.add_input_room(12, -3)
     spl = R.spl(g, 12, 2)
-    brel = R.brel(g, 31, 2)
-    pcnt = R.pcnt(g, 34, 42)
+    brel = R.brel(g, 46, 14)
+    pcnt = R.pcnt(g, 24, 44)
     arel = R.arel(g, 12, 36)
-    mul = R.mul(g, 26, 36)
-    crel = R.crel(g, 30, 30)
-    acc = R.acc(g, 42, 14)
-    rt.add_output_room(44, 33)
+    mul = R.mul(g, 34, 14)
+    crel = R.crel(g, 12, 30)
+    acc = R.acc(g, 24, 26)
+    rt.add_output_room(45, 36)
 
     A = lambda r, n: (r.pipes[n][0], r.pipes[n][1])
     W = lambda r, n: r.walls[n]
@@ -108,12 +108,12 @@ def build(ap_rect=(9, 2, 10, 32, False), br_rect=(60, 2, 10, 32), verbose=False)
     seq = [
         ('IN', (13, 0), A(spl, 'IN'), 'S'),
         ('SD', A(spl, 'SD'), A(brel, 'SD'), 'E'),
-        ('AR', A(arel, 'AR'), A(mul, 'AR'), 'S'),
         ('BF', A(mul, 'BF'), A(brel, 'BF'), 'N'),
+        ('AR', A(arel, 'AR'), A(mul, 'AR'), 'S'),
         ('PP', A(mul, 'PP'), A(acc, 'PP'), 'W'),
         ('CF', A(acc, 'CF'), A(crel, 'CF'), 'S'),
         ('CR', A(crel, 'CR'), A(acc, 'CR'), 'E'),
-        ('OUT', A(acc, 'OUT'), (44, 34), 'N'),
+        ('OUT', A(acc, 'OUT'), (44, 37), 'E'),
         ('CP', A(spl, 'CP'), A(pcnt, 'CP'), 'E'),
         ('CTL', A(pcnt, 'CTL'), A(acc, 'CTL'), 'N'),
     ]

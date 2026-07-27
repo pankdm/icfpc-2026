@@ -39,7 +39,7 @@ def crel(g, ox, oy):
     g.text(ox + 1, oy + 1, "@>rv")
     g.text(ox + 1, oy + 2, " ^s<")
     r.attach('CF', 'T', ox + 2, 'in')
-    r.attach('CR', 'B', ox + 2, 'out')
+    r.attach('CR', 'R', oy + 2, 'out')
     return r
 
 

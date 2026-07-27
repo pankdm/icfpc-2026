@@ -85,7 +85,7 @@ DIRSTEP = {2: (-1, 0, -GRID),    # up
 # geometry knobs (integers -- autotune can sweep them)
 # ──────────────────────────────────────────────────────────────────────────
 def geometry(CX0=0, CY0=16, CW=40, CBOT=100,
-             BD_OUT=2, BD_IN=4, ST_OUT=16, ST_IN=18, IN_IN=34, DRV_OUT=36):
+             BD_OUT=44, BD_IN=50, ST_OUT=22, ST_IN=24, IN_IN=56, DRV_OUT=58):
     g = dict(CX0=CX0, CY0=CY0, CW=CW, CBOT=CBOT)
     g["CX1"] = CX0 + CW - 1                       # controller right wall
     g["IXLO"], g["IXHI"] = CX0 + 1, CX0 + CW - 2  # interior columns
@@ -97,30 +97,26 @@ def geometry(CX0=0, CY0=16, CW=40, CBOT=100,
 
 
 def lane_windows(g):
-    """Column window in which BOTH the send- and receive-binding name the lane."""
-    out, inc = g["attach_out"], g["attach_in"]
+    """Window for each (op, lane): the columns where that op binds that lane.
 
-    def near(table, x):
-        return min(table, key=lambda k: (abs(table[k] - x), table[k]))
-
+    `s` consults only the OUTGOING table and `r` only the INCOMING one, so the
+    two are independent -- a receive window may overlap the send window of a
+    DIFFERENT lane.  Keeping them separate (rather than intersecting per lane)
+    is what lets `r:B` sit right next to `s:D`.
+    """
     win = {}
-    for lane in set(out) | set(inc):
-        cols = []
-        for x in range(g["IXLO"], g["IXHI"] + 1):
-            ok = True
-            if lane in out:
-                ok = ok and near(out, x) == lane
-            if lane in inc:
-                ok = ok and near(inc, x) == lane
-            if ok:
-                cols.append(x)
-        best = cur = []
-        for x in cols:
-            cur = cur + [x] if cur and x == cur[-1] + 1 else [x]
-            if len(cur) > len(best):
-                best = cur
-        win[lane] = (best[0], best[-1])
+    for op, table in (("s", g["attach_out"]), ("r", g["attach_in"])):
+        for lane in table:
+            cols = [x for x in range(g["IXLO"], g["IXHI"] + 1)
+                    if min(table, key=lambda k: (abs(table[k] - x), table[k])) == lane]
+            best = cur = []
+            for x in cols:
+                cur = cur + [x] if cur and x == cur[-1] + 1 else [x]
+                if len(cur) > len(best):
+                    best = cur
+            win[(op, lane)] = (best[0], best[-1])
     return win
+
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -212,8 +208,8 @@ class Emit:
             self.wrap()
         raise RuntimeError("no room for a %d-cell literal" % n)
 
-    def _reach(self, lane):
-        lo, hi = self.win[lane]
+    def _reach(self, op, lane):
+        lo, hi = self.win[(op, lane)]
         for _ in range(10):
             if self.d == "E":
                 xs = [x for x in range(max(self.x, lo), hi + 1)
@@ -240,7 +236,7 @@ class Emit:
             return self
         if ":" in t:
             op, lane = t.split(":")
-            self._reach(lane)
+            self._reach(op, lane)
             self.ops.append((self.x, self.y, op, lane))
             self.raw(op)
             return self
@@ -295,10 +291,15 @@ class Rows:
 
 # Dispatch/branch highway columns: one vertical wire per destination.  They are
 # deliberately kept OUT of the state lane (10..26) -- see BINDING above.
-HW_RET, HW_TICK, HW_SPAWN, HW_DIR = 37, 35, 33, 31
-D_EAT, D_NOEAT = 27, 29
+# The state lane owns the whole left half (1..19/22) and the BODY and DISPLAY
+# lanes sit side by side on the right (20..32 / 32..38).  Every frame alternates
+# body-ring and display ops -- with those two lanes at opposite ends of the room
+# that alternation walked ~20 blank cells four times per frame, which was the
+# single largest tick item in the profile.
+HW_RET, HW_TICK, HW_SPAWN, HW_DIR = 57, 47, 45, 42
+D_EAT, D_NOEAT = 39, 40
 D_REP, D_COLL, D_HX, D_HY = 8, 6, 4, 2
-WRAP_W, WRAP_E = 1, 38               # reserved: wrap() must always find a landing
+WRAP_W, WRAP_E = 1, 58               # reserved: wrap() must always find a landing
 # One drop column per direction arm.  They REUSE the death highways: every death
 # column's traffic terminates in a block that is emitted above DIR, so the two
 # uses never share a row range.  That keeps the state lane (12..26) unbroken.
@@ -325,10 +326,11 @@ def _lit(v):
     return ["8", "M", "+"] + (["N"] if v < 0 else [])
 
 
-def build(save_to=None, CBOT=100, CW=40, CY0=16,
-          BD_OUT=2, BD_IN=4, ST_OUT=16, ST_IN=18, IN_IN=34, DRV_OUT=36,
-          BODY_X=7, BODY_Y=13, BODY_R=10, RELAY_Y=4, DRVX=None, DISX=None,
-          BRX=12, BRE=26, LOOPX=9, LOOPM=7, LOOPR=5):
+def build(save_to=None, CBOT=100, CW=60, CY0=16,
+          BD_OUT=44, BD_IN=50, ST_OUT=22, ST_IN=24, IN_IN=56, DRV_OUT=58,
+          BODY_X0=31, BODY_W=29, BODY_LO=32, BODY_Y=13, RELAY_Y=5,
+          DRVX=None, DISX=None, LOOPX=49, LOOPM=48, LOOPR=46,
+          DEC1=48, DEC2=53, REPD=52):
     DRVX = CW + 2 if DRVX is None else DRVX
     DISX = DRVX + 11 if DISX is None else DISX
     g = geometry(CY0=CY0, CW=CW, CBOT=CBOT, BD_OUT=BD_OUT, BD_IN=BD_IN,
@@ -340,13 +342,13 @@ def build(save_to=None, CBOT=100, CW=40, CY0=16,
 
     # ---- rooms ----------------------------------------------------------
     p.room(g["CX0"], CY0, CW, CBOT - CY0 + 1)          # controller
-    p.room(1, 0, BODY_R + 1, 4)                        # body relay
+    p.room(BODY_X0, 0, BODY_W, 4)                      # body relay
     p.room(ST_OUT - 1, RELAY_Y, 6, 4)                  # state relay
     p.input_room(IN_IN - 1, RELAY_Y + 1)
     p.room(DRVX, 10, 9, 22)                            # display driver
     p.display(DISX, 12, 18, 18)
 
-    for x, y in ((2, 1), (ST_OUT, RELAY_Y + 1)):
+    for x, y in ((BODY_LO, 1), (ST_OUT, RELAY_Y + 1)):
         L.put(x, y, "@"); L.put(x + 1, y, ">"); L.put(x + 2, y, "R")
         L.put(x + 3, y, "v")
         L.put(x + 1, y + 1, "^"); L.put(x + 2, y + 1, "s"); L.put(x + 3, y + 1, "<")
@@ -355,17 +357,16 @@ def build(save_to=None, CBOT=100, CW=40, CY0=16,
     p.pipe([(IN_IN, RELAY_Y + 4), (IN_IN, ATT)])                    # input -> ctrl
     p.pipe([(ST_OUT, ATT), (ST_OUT, RELAY_Y + 4)])                  # ctrl  -> state
     p.pipe([(ST_IN, RELAY_Y + 4), (ST_IN, ATT)])                    # state -> ctrl
-    feed = [(BD_OUT, ATT), (BD_OUT, BODY_Y), (BODY_X, BODY_Y), (BODY_X, BODY_Y - 2),
-            (BD_OUT, BODY_Y - 2), (BD_OUT, BODY_Y - 4), (BODY_X, BODY_Y - 4),
-            (BODY_X, BODY_Y - 6), (BD_OUT, BODY_Y - 6), (BD_OUT, 4)]
-    ret = [(BODY_R, 4), (BODY_R, 6), (BODY_R + 2, 6), (BODY_R + 2, 8),
-           (BODY_R, 8), (BODY_R, 10), (BODY_R + 2, 10), (BODY_R + 2, 12),
-           (BODY_R, 12), (BODY_R, BODY_Y + 1), (BD_IN, BODY_Y + 1), (BD_IN, ATT)]
+    feed = [(BD_OUT, ATT), (BD_OUT, BODY_Y), (BODY_LO, BODY_Y),
+            (BODY_LO, BODY_Y - 2), (BD_OUT, BODY_Y - 2), (BD_OUT, BODY_Y - 4),
+            (BODY_LO, BODY_Y - 4), (BODY_LO, BODY_Y - 6), (BD_OUT, BODY_Y - 6),
+            (BD_OUT, BODY_Y - 8), (BODY_LO, BODY_Y - 8), (BODY_LO, 4)]
+    ret = [(BD_IN, 4), (BD_IN, ATT)]
     p.pipe(feed)                                                    # ctrl  -> body
     p.pipe(ret)                                                     # body  -> ctrl
     cap = pipelen(feed) + 1 + pipelen(ret)
     assert cap >= 55, "body ring capacity %d too small" % cap
-    p.pipe([(DRV_OUT, ATT), (DRV_OUT, ATT - 1), (DRVX - 1, ATT - 1)])  # ctrl -> driver
+    p.pipe([(DRV_OUT, ATT), (DRV_OUT, 12), (DRVX - 1, 12)])            # ctrl -> driver
 
     # ---- driver man -----------------------------------------------------
     off = DRVX - 38                                    # driver block was built at x=38
@@ -393,7 +394,7 @@ def build(save_to=None, CBOT=100, CW=40, CY0=16,
         Turn TOWARDS the state lane, so the first `r:S` lands on this very row
         instead of costing a wrap."""
         y_ops = R.take()
-        if hw < win["S"][0]:
+        if hw < win[("r", "S")][1]:
             L.put(hw, y_ops, ">")
             E.at(hw + 1, y_ops, "E")
         else:
@@ -459,12 +460,19 @@ def build(save_to=None, CBOT=100, CW=40, CY0=16,
         free there, because ops cluster in the state lane while the arms run out
         to the highways -- the group costs only ONE new row instead of three.
         """
-        step = 1 if E.d == "E" else -1
-        col = E.x
-        while not (E._ok(col) and _blank(L, col, E.y)):
-            col += step
-            assert E.xlo <= col <= E.xhi, "no drop column for a branch"
-        bx = col + (1 if head == "E" else -1)
+        off = 1 if head == "E" else -1
+        for _ in range(4):
+            step = 1 if E.d == "E" else -1
+            col = E.x
+            while (E.xlo <= col <= E.xhi
+                   and not (E._ok(col) and _blank(L, col, E.y) and E._ok(col + off))):
+                col += step
+            if E.xlo <= col <= E.xhi:
+                break
+            E.wrap()
+        else:
+            raise RuntimeError("no drop column for a branch")
+        bx = col + off
         y_ops = E.y
         lo, hi = (min(bx, up_to), max(bx, up_to)) if up_to is not None else (0, -1)
         tight = (up_to is not None and R.y <= y_ops + 1
@@ -481,7 +489,7 @@ def build(save_to=None, CBOT=100, CW=40, CY0=16,
 
     def resume(bx, y, prefer_west=None):
         """Send a branch outcome that landed on (bx, y) back along the row."""
-        mid = (win["S"][0] + win["S"][1]) // 2
+        mid = (win[("s", "S")][0] + win[("s", "S")][1]) // 2
         west = (bx >= mid) if prefer_west is None else prefer_west
         L.put(bx, y, "<" if west else ">")
         E.at(bx - 1 if west else bx + 1, y, "W" if west else "E")
@@ -494,7 +502,7 @@ def build(save_to=None, CBOT=100, CW=40, CY0=16,
     # DIR.
     # ═══ DISPATCH (first: every block returns UP to it) ══════════════════
     block(HW_RET)
-    E.seq(["1", "M", "r:I", "-"])
+    E.seq(["r:I", "M", "1", "W", "-"])
     yb, bx = branch("X", "W", up_to=HW_DIR)
     yextra = rows()
     arm(bx, yb + 1, HW_TICK)       # A<0  (op 0)  -> tick
@@ -541,9 +549,8 @@ def build(save_to=None, CBOT=100, CW=40, CY0=16,
     E.ops.append((LOOPX, ys + 2, "s", "B"))
     arm(LOOPX, ys + 5, D_COLL)                               # collision -> repaint
     E.at(LOOPX + 1, ys, "E")
-    face(BRE, "E")
     yn = rows()
-    vjump(E, BRE, yn, "W")
+    vjump(E, LOOPX + 2, yn, "W")
     E.seq(["r:B", "s:D", "0", "s:D", "W", "s:B", "s:D", "5", "M", "+", "s:D",
            "1", "N", "s:D"])
     ret_dispatch()
@@ -573,27 +580,27 @@ def build(save_to=None, CBOT=100, CW=40, CY0=16,
     yr = rows(4)
     vjump(E, LOOPR, yr, "E")
     for (x, y, ch) in [(LOOPX, yr, "d"), (LOOPX, yr + 1, "r"), (LOOPX, yr + 2, ">"),
-                       (28, yr + 2, "s"), (30, yr + 2, "9"), (32, yr + 2, "s"),
-                       (34, yr + 2, "v"), (34, yr + 3, "<"),
+                       (REPD, yr + 2, "s"), (REPD + 1, yr + 2, "9"),
+                       (REPD + 2, yr + 2, "s"), (REPD + 3, yr + 2, "v"),
+                       (REPD + 3, yr + 3, "<"),
                        (LOOPM, yr + 3, "m"), (LOOPR, yr + 3, "^")]:
         L.put(x, y, ch)
     E.ops.append((LOOPX, yr + 1, "r", "B"))
-    E.ops.append((28, yr + 2, "s", "D"))
-    E.ops.append((32, yr + 2, "s", "D"))
+    E.ops.append((REPD, yr + 2, "s", "D"))
+    E.ops.append((REPD + 2, yr + 2, "s", "D"))
     E.at(LOOPX + 1, yr, "E")
-    face(BRE, "E")
     yn = rows()
-    vjump(E, BRE, yn, "W")
+    vjump(E, LOOPX + 2, yn, "W")
     E.seq(["1", "N", "s:D", "H"])
     endblock()
 
     # ═══ DIR ═════════════════════════════════════════════════════════════
     block(HW_DIR)
     E.seq(["b"])                                     # BP = op-1 (1..4)
-    yb1, bx1 = branch("x", "W", up_to=20)
+    yb1, bx1 = branch("x", "W", up_to=DEC1)
     arm_entry = {}
     for bit0, dy in ((1, -1), (0, +1)):              # bit set -> N, clear -> S
-        col = 20 if bit0 else 24
+        col = DEC1 if bit0 else DEC2
         arm(bx1, yb1 + dy, col)
         yq = rows(3) + 1                             # middle of a 3-row group
         L.put(col, yq, ">")

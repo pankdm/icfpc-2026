@@ -36,6 +36,7 @@ JITTER = {'ST_OUT': 3, 'ST_IN': 3, 'ST_X0': 3, 'ST_W': 3, 'FEED_W': 4,
           'REPD': 4, 'BD_OUT': 3, 'BD_IN': 3, 'IN_IN': 3, 'DRV_OUT': 3,
           'WRAP_E': 3, 'DRVX': 2, 'CY0': 1}
 
+HARDCAP = 200
 _mod = None
 
 
@@ -56,7 +57,7 @@ def _build(params):
         return None
     w, h, box = prog.footprint()
     s = max(w, h)
-    if s > LIMIT:
+    if s > HARDCAP:
         return None
     return (s, w, h, cap, params)
 
@@ -82,14 +83,17 @@ def main():
     pool = mp.Pool(JOBS)
     t0 = time.time()
     hits = []
+    import collections
+    hist = collections.Counter()
     batch = [draw(rng) for _ in range(DRAWS)]
     for res in pool.imap_unordered(_build, batch, chunksize=32):
         if res:
-            hits.append(res)
-            print("  side %d (%dx%d) cap %d" % (res[0], res[1], res[2], res[3]),
-                  flush=True)
+            hist[res[0]] += 1
+            if res[0] <= LIMIT:
+                hits.append(res)
     print("phase1: %d/%d builds with side <= %d in %.0fs"
           % (len(hits), DRAWS, LIMIT, time.time() - t0), flush=True)
+    print("side histogram:", sorted(hist.items())[:12], flush=True)
     json.dump([{"side": h[0], "w": h[1], "h": h[2], "cap": h[3], "params": h[4]}
                for h in sorted(hits)], open(OUT + "/side%d.json" % LIMIT, "w"),
               indent=1)

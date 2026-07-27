@@ -9,7 +9,7 @@
   "D_REP": 14,
   "D_COLL": 4,
   "D_HY": 7,
-  "D_HX": 11,
+  "D_HX": 13,
   "HW_RET": 48,
   "HW_TICK": 37,
   "HW_SPAWN": 31,
@@ -19,9 +19,9 @@
   "DRV_OUT": 51,
   "DRVX": 4
  },
- "score": 40943250.0,
+ "score": 40936500.0,
  "box": 5625,
- "ticks": 7278.8,
+ "ticks": 7277.6,
  "cap": 51,
  "side": 75
 }

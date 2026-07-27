@@ -556,6 +556,54 @@ the budget for whatever the classifier change costs.  W=79 does not go further
 because P1's width cap tightens (`sum(TB) + 3*nB <= 72`) and pushes its table
 from 6 rows to 7.
 
+#### Route B, resolved: the product test beats the register wall
+
+The blocker was that a two-sided range test needs two constants while `A` and
+`B` are both live and `BP` is write-only.  A **product** collapses it to one
+sign test, and both factors derive from `A` alone:
+
+```text
+(v - 18) * (v - 23) < 0   <=>   19 <= v <= 22
+(v - 59) * (v - 66) < 0   <=>   60 <= v <= 65
+```
+
+Verified exhaustively over all 91 symbols: no misclassification, and the two
+zeros of each product (v = 18, 23 and v = 59, 66) are *used byte symbols*, so
+`X`'s straight branch routes them to the literal-byte path where they belong.
+One `X` per run instead of two comparisons, and the accumulator stays in `A`
+while `B` carries the v-derived factor.
+
+The second half is the ring position.  `BP` already holds `v` from the head's
+`b` and survives all of the `A`/`B` arithmetic, so a run whose position offset
+is small costs only that many `m` — no registers touched at all.  Measured
+candidates, all costed with the real group-A/group-B packers
+(`scratchpad/history-dict/runsB.py`):
+
+| recycled runs | ESC | direct | symbols | feeder | grp A | grp B | height | box | slack | offsets |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| `19-22`, `60-65` | 29 | 19 | 1926 | 60 | 2r | 4r | **78** | 6,400 | 2 | 2, 39 |
+| `19-22`, `29-31` | 33 | 16 | 1947 | 61 | 2r | 5r | 80 | 6,400 | 0 | 2, 8 |
+| `19-22`, `29-31`, `33` | 58 | 17 | 1942 | 61 | 2r | 5r | 80 | 6,400 | 0 | 2, 8, 9 |
+| `19-22`, `29-31`, `60-65` | 33 | 22 | 1919 | 60 | 2r | 4r | 78 | 6,400 | 2 | 2, 8, 36 |
+
+**Take the first row.**  ESC stays 29, so the dispatcher's ESC literal does not
+change either; group A stays 2 rows; and it leaves two rows of slack, which is
+the budget for the new classifier.  The offset-39 run costs about eight cells to
+rebuild `BP` from `B` (`W`, `M`, literal, `+`, `b`) — the same as the eight `m`
+the offset-8 alternative would need, so the bigger offset is free in practice
+and buys the extra slack.
+
+One thing that will bite: the ring grows to 38 entries + sentinel = 39 words, so
+the two legs must carry **38 cells** and they carry 37 at W=80.  They must be
+lengthened by at least one cell, without grazing P1's top wall in more than one
+column (see route A's split-pipe failure below).
+
+Remaining work is the dispatcher grid itself: two product tests plus their
+merges do not fit in the 19 free interior cells of the current 21x5, so DISP
+grows to roughly 7-8 content rows.  At height 78 that is affordable — a 9-row
+DISP room makes the service band 9 and the program 79; a 10-row room makes it
+80.  Both still score 6,400.
+
 #### CORRECTION: route A ties at 6,561, it does not reach 6,400
 
 Route A was built (`build_80x80()`, `alphabet(30, 31)`) and the projection above

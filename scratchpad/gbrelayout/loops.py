@@ -26,8 +26,12 @@ p = subprocess.run([LM, man, "--trace", f"--input={inp}", f"--expected={exp}", "
                    capture_output=True, text=True)
 seq = []
 for line in (p.stdout or "").splitlines():
-    t, x, y = line.split()
-    seq.append((int(x), int(y)))
+    parts = line.split("|")
+    if len(parts) < 2:
+        continue
+    f2 = parts[1].split()
+    if len(f2) >= 2:
+        seq.append((int(f2[0]), int(f2[1])))
 print("trace ticks", len(seq))
 
 rows = open(man).read().split("\n")

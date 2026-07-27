@@ -17,7 +17,12 @@ inp = " / ".join(" ".join(r.get("in") or []) for r in rs)
 exp = " / ".join(" ".join(r.get("out") or []) for r in rs)
 p = subprocess.run([LM, man, "--trace", f"--input={inp}", f"--expected={exp}", "--cap=5000000"],
                    capture_output=True, text=True)
-seq = [tuple(map(int, l.split()))[1:] for l in (p.stdout or "").splitlines()]
+seq = []
+for _l in (p.stdout or "").splitlines():
+    _p = _l.split("|")
+    if len(_p) >= 2 and len(_p[1].split()) >= 2:
+        _f = _p[1].split()
+        seq.append((int(_f[0]), int(_f[1])))
 ts = [t for t, c in enumerate(seq) if c == (cx, cy)]
 print("ticks", len(seq), "visits to (%d,%d):" % (cx, cy), len(ts))
 g = collections.Counter(ts[i + 1] - ts[i] for i in range(len(ts) - 1))

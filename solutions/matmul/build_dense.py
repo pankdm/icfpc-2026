@@ -35,6 +35,9 @@ BOUND = (-26, -10, 62, 94)
 
 DX = int(os.environ.get('DX', '6'))
 DY = int(os.environ.get('DY', '8'))
+# CRD: extra rows CREL rises toward ACC's underside (its CF attach row is the
+# program's bottom edge, so every row here is a row of box).
+CRD = int(os.environ.get('CRD', '0'))
 
 
 def col(x, y0, y1):
@@ -70,11 +73,17 @@ def br_exit(rect):
     tx = (x0 + w - 1) if (h - 1) % 2 == 0 else x0
     ty = y0 + h - 1
     lane = 20 - DX
-    return col(tx, ty, 56 - DY) + row(56 - DY, min(tx, lane), max(tx, lane)) + \
-        col(lane, 38 - DY, 56 - DY) + row(38 - DY, 15 - DX, lane)
+    # turn immediately below the snake instead of at the old fixed row 56: that row
+    # was the whole program's bottom edge and nothing else needs it.
+    tr = ty + int(os.environ.get('BRT', '1'))
+    return col(tx, ty, tr) + row(tr, min(tx, lane), max(tx, lane)) + \
+        col(lane, 38 - DY, tr) + row(38 - DY, 15 - DX, lane)
 
 
 AP_LEAD = row(5, 10 - DX, 11 - DX) + col(10 - DX, 2, 5) + row(2, 3, 10 - DX)
+# BREL's SD attachment is at x = -12, so SD's descent lane must be <= -12 and must
+# clear the A band, whose west edge is 2 - APW + 1.
+SDX = min(-12, 2 - int(os.environ.get('APW', '14')))
 
 CORR = {
     'IN':  col(13 - DX, 0, 1),
@@ -82,16 +91,18 @@ CORR = {
            row(32 - DY, 15 - DX, 23 - DX) + col(15 - DX, 32 - DY, 33 - DY),
     'BF':  row(35 - DY, 10 - DX, 11 - DX) + col(10 - DX, 35 - DY, 43 - DY) +
            row(43 - DY, -1, 10 - DX) + col(-1, 42 - DY, 43 - DY),
-    'SD':  row(11, 28 - DX, 29 - DX) + col(29 - DX, -4, 11) + row(-4, -13, 29 - DX) +
-           col(-13, -4, 36 - DY) + row(36 - DY, -13, -12),
+    # SDX: the column SD descends on.  It only has to clear the A band's west edge
+    # (x0 - APW + 1), so it follows the band instead of sitting at a fixed -13.
+    'SD':  row(11, 28 - DX, 29 - DX) + col(29 - DX, -4, 11) + row(-4, SDX, 29 - DX) +
+           col(SDX, -4, 36 - DY) + row(36 - DY, SDX, -12),
     'PP':  row(35 - DY, 20 - DX, 21 - DX) + col(21 - DX, 33 - DY, 35 - DY) +
            row(33 - DY, 21 - DX, 46 - DX) + col(46 - DX, 33 - DY, 39 - DY) +
            row(39 - DY, 40 - DX, 46 - DX),
     'OUT': row(36 - DY, 40 - DX, 41 - DX),
-    'CF':  row(36 - DY, 21 - DX, 23 - DX) + col(21 - DX, 36 - DY, 56 - DY) +
-           row(56 - DY, 21 - DX, 26 - DX),
-    'CR':  row(54 - DY, 22 - DX, 23 - DX) + col(22 - DX, 39 - DY, 54 - DY) +
-           row(39 - DY, 22 - DX, 23 - DX),
+    'CF':  row(36 - DY, 21 - DX, 23 - DX) + col(21 - DX, 36 - DY, 56 - DY - CRD) +
+           row(56 - DY - CRD, 21 - DX, 26 - DX),
+    'CR':  row(54 - DY - CRD, 22 - DX, 23 - DX) +
+           col(22 - DX, 39 - DY, 54 - DY - CRD) + row(39 - DY, 22 - DX, 23 - DX),
     'CP':  col(20 - DX, 12, 13) + row(13, 20 - DX, 30 - DX) +
            col(30 - DX, 6, 13) + [(31 - DX, 6)],
     'CTL': col(38 - DX, 12, 13) + row(13, 31 - DX, 47 - DX) +
@@ -118,9 +129,9 @@ def build(ap_rect=None, br_rect=None, verbose=False):
     arel.attach('AP', 'L', 26 - DY, 'in')
     arel.attach('AR', 'R', 26 - DY, 'out')
     mul = R.mul(g, 12 - DX, 34 - DY)
-    crel = R.crel(g, 24 - DX, 52 - DY)
+    crel = R.crel(g, 24 - DX, 52 - DY - CRD)
     crel.attach('CF', 'B', 26 - DX, 'in')
-    crel.attach('CR', 'L', 54 - DY, 'out')
+    crel.attach('CR', 'L', 54 - DY - CRD, 'out')
     acc = R.acc(g, 24 - DX, 34 - DY)
     acc.attach('CTL', 'B', 33 - DX, 'in')
     rt.add_output_room(42 - DX, 35 - DY)

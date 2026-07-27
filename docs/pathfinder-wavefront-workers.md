@@ -180,3 +180,38 @@ The remaining synchronization rule is strict: FRONT may announce a row ready
 only after both its NEXT word and that row's four parent updates have
 completed.  A global ready barrier may then release all FRONT words together;
 otherwise adjacent U/D rows can mix consecutive BFS layers.
+
+### Physical closure of the nine-column strip
+
+The score-informed strip is no longer only a budget.  Three Rust-interpreter
+probes close its critical geometry:
+
+```text
+pathfinder_row_tile.py       109×64  two persistent layers, full state protocol
+pathfinder_stage_band.py     144×16  16 distinct lanes at pitch 9
+pathfinder_serial_bands.py   143×53  U/R/D/L priority bands and stream order
+```
+
+The first probe joins circulating UNVIS, ordered TAKE, NEXT, and the
+four-word parent ring.  The second proves that sixteen adjacent nine-wide
+rooms bind distinct state/candidate/output pipes correctly.  An attempted
+shared room was load-invalid because a room may contain only one initial `@`;
+using a shared hall would require a runtime `Y` splitter.
+
+The third probe deletes the separate TAKE pipes.  Each stage forwards the
+earlier TAKE prefix, applies its candidate, and appends its own TAKE plus the
+reduced state:
+
+```text
+U: [U, state]
+R: [U, R, state]
+D: [U, R, D, state]
+L: [U, R, D, L, state]
+```
+
+One pipe pair per row now carries both UNVIS and all four priority results.
+With eight-wide rooms on a nine-column pitch, the four bands occupy 143×53.
+The unused ninth column is a continuous L→U return channel, so adding cyclic
+state does not widen the 144-cell target.  This is direct physical evidence
+for the large-factor interpretation of the competitor scores, rather than
+proof that the competitors use the same design.

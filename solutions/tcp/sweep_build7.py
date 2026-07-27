@@ -12,8 +12,10 @@ Lower-main folded VERTICAL into a single pipeline column (x7):
   x3) -> seq, east reads (fwd-r x6, q x7) -> drain.
 """
 import sys
-sys.path.insert(0, '/Users/visenbaev/icfpc26/.claude/worktrees/agent-aaa4339681b1347a0/tools')
-sys.path.insert(0, '/Users/visenbaev/icfpc26/.claude/worktrees/agent-aaa4339681b1347a0/solutions/tcp')
+import os as _os
+_REPO = _os.path.abspath(__file__).split('/solutions/')[0]
+sys.path.insert(0, _REPO + '/tools')
+sys.path.insert(0, _REPO + '/solutions/tcp')
 from layout import Layout, place_pipe, DIRS
 from sweep_build import emit_montree
 
@@ -276,7 +278,7 @@ def build_full7(cy_checker=12, cx_checker=7):
 
 if __name__ == '__main__':
     import sys
-    base = '/Users/visenbaev/icfpc26/.claude/worktrees/agent-aaa4339681b1347a0/solutions/tcp'
+    base = _REPO + '/solutions/tcp'
     if '--v7' in sys.argv:                       # 33x33 folded2 checker
         L = build_full7(cy_checker=9)
         out = base + '/tcp-sweep7.man'

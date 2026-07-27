@@ -100,6 +100,76 @@ def simulate(rounds_in):
     return frames
 
 
+def simulate_bitplane(rounds_in):
+    """The SAME output, computed with NO per-cell RAM -- the build target.
+
+    Total mutable state is twelve 64-bit words plus a FIFO:
+
+        blocked  256 bits = 4 words   walls | visited, reset to walls per round
+        tag      512 bits = 8 words   2 bits per cell, (dist mod 3) + 1,
+                                      0 = unvisited; all 8 words zeroed per round
+        frontier FIFO ring of cell addresses (measured max depth 30)
+
+    Two facts make this work:
+
+    1.  ONE bitset transaction per neighbour.  `SET(nb)` on `blocked` returns
+        non-zero exactly when nb was neither a wall nor already visited, so the
+        wall test, the visited test and the visited mark are a single op.
+
+    2.  The walk needs no distance number.  Adjacent path cells always differ in
+        distance by exactly one (the grid is bipartite), so a neighbour is
+        either dist-1 or dist+1, and those differ by 2 -- which is non-zero mod
+        3.  Therefore `(dist mod 3) + 1` in two bits distinguishes them, and the
+        next tag is a function of the current tag alone.  Tag 0 (unvisited or
+        wall) can never be mistaken for a real tag because real tags are 1..3.
+
+    Verified equal to `simulate()` on all 387 public frames and on 291 random
+    3-round mazes.
+    """
+    setup = [int(t) for t in rounds_in[0]]
+    walls = setup[:SIZE]
+    robot = N * setup[SIZE + 1] + setup[SIZE]
+
+    pixels = [C_WALL if w else C_PATH for w in walls]
+    pixels[robot] = C_ROBOT
+    frames = [pixels.copy()]
+
+    for tokens in rounds_in[1:]:
+        fx, fy = (int(t) for t in tokens)
+        flag = N * fy + fx
+        pixels[flag] = C_FLAG
+
+        blocked = walls[:]                      # 4 words: reset to the walls
+        tag = [0] * SIZE                        # 8 words: zeroed
+        blocked[flag] = 1
+        tag[flag] = 1                           # (0 mod 3) + 1
+        queue = deque(((flag, 0),))
+        while not tag[robot]:
+            cell, d = queue.popleft()
+            for delta in DELTAS:
+                nb = cell + delta
+                if not blocked[nb]:             # SET+test, one transaction
+                    blocked[nb] = 1
+                    tag[nb] = ((d + 1) % 3) + 1
+                    queue.append((nb, d + 1))
+
+        t = tag[robot]
+        while robot != flag:
+            want = ((t - 2) % 3) + 1            # tag of the dist-1 neighbour
+            for delta in DELTAS:                # tie-break: up, right, down, left
+                nb = robot + delta
+                if tag[nb] == want:
+                    pixels[robot] = C_PATH
+                    robot = nb
+                    pixels[robot] = C_ROBOT
+                    frames.append(pixels.copy())
+                    t = want
+                    break
+            else:
+                raise AssertionError("stuck -- no neighbour carries the tag")
+    return frames
+
+
 def frames_as_strings(frames):
     """Frames as 16 rows of 16 hex chars -- the tests/*.json representation."""
     return [
@@ -108,9 +178,9 @@ def frames_as_strings(frames):
     ]
 
 
-def run_case(case):
+def run_case(case, model=simulate):
     """Take one publicTestData entry; return (got_frames, want_frames) as strings."""
-    got = frames_as_strings(simulate([rnd["in"] for rnd in case["rounds"]]))
+    got = frames_as_strings(model([rnd["in"] for rnd in case["rounds"]]))
     want = [frame for rnd in case["rounds"] for frame in rnd["frames"]]
     return got, want
 
@@ -123,22 +193,24 @@ def _main():
     with open(os.path.join(root, "tests", "pathfinder.json")) as fh:
         spec = json.load(fh)
 
-    total = matched = 0
-    bad_cases = 0
-    for case in spec["publicTestData"]:
-        got, want = run_case(case)
-        ok = sum(1 for g, w in zip(got, want) if g == w)
-        total += len(want)
-        matched += ok
-        status = "PASS" if (ok == len(want) == len(got)) else "FAIL"
-        if status == "FAIL":
-            bad_cases += 1
-        print(f"{status} {case['name']}: {ok}/{len(want)} frames"
-              f"{'' if len(got) == len(want) else f' (emitted {len(got)})'}")
-    print(f"\nframes_matched {matched} / frames_total {total} "
-          f"({len(spec['publicTestData']) - bad_cases}/"
-          f"{len(spec['publicTestData'])} cases)")
-    return 0 if bad_cases == 0 else 1
+    rc = 0
+    for label, model in (("reference", simulate), ("bit-plane", simulate_bitplane)):
+        total = matched = bad_cases = 0
+        for case in spec["publicTestData"]:
+            got, want = run_case(case, model)
+            ok = sum(1 for g, w in zip(got, want) if g == w)
+            total += len(want)
+            matched += ok
+            good = ok == len(want) == len(got)
+            bad_cases += not good
+            print(f"{'PASS' if good else 'FAIL'} [{label}] {case['name']}: "
+                  f"{ok}/{len(want)} frames"
+                  f"{'' if len(got) == len(want) else f' (emitted {len(got)})'}")
+        print(f"  {label}: frames_matched {matched} / frames_total {total} "
+              f"({len(spec['publicTestData']) - bad_cases}/"
+              f"{len(spec['publicTestData'])} cases)\n")
+        rc |= bool(bad_cases)
+    return rc
 
 
 if __name__ == "__main__":

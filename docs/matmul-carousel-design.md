@@ -380,3 +380,61 @@ fires once per MAC, rb = 4096-256. 16^3 = 65.5k lap + 14.4k prologue walks
 2. The flush mechanism for acc-men (see above) — THE structural win:
    lap 10 at P=1 = ~11.5k avg, and it removes the holder ring entirely.
 3. A real P=2 barrier (gate ring with pre-loaded GO tokens?) on top of 2.
+
+## Endgame measurements (2026-07-27 07:00–10:15Z) — do not repeat these
+
+**P2-CC was killed on arithmetic, not on a bug.** The design paces the whole machine
+from the controller's steady loop `[r s W s(Ha) W m d]` = 10 cells = **10 ticks/MAC
+regardless of P**; the workers are never the bottleneck, so the second man buys nothing.
+The live machine already runs ~13.7 ticks/MAC, so a *finished* P2-CC is a 1.37x tick win,
+and at its unfolded 44x49 footprint (2401) it would score ~19.7M against a live 28.1M —
+not worth the remaining debug. `build_p2.py` is committed at the seeder stage; the
+control flow (token spawn, A-ring markers, absorb, stall-stagger) is fully resolved in
+the P2-CC section above if anyone wants it later.
+
+**Public ticks are ~23% optimistic on this problem.** Submitting the 44x46 reflow
+returned `20/20, 29,410,178`. That is 2116 x **13,899** — but the same file grades
+**11,256** avg on the 7 public cases. The 13 private cases are tick-heavier, and the
+inflation factor is the same 13,898 the live 44x45 build shows. So: **compare matmul
+builds by BOX only** (box is exact locally); a local avg-ticks win of <23% is noise.
+
+**Matrix Multiply is now a pure density game and it is near its floor.** Decomposing the
+44x46 champion (`tools/place.py` Plan) gives:
+
+| component | cells |
+|---|---|
+| 9 rooms (16x16 worker + 16x10 + 12x10 + 10x9 + 10x10 + …) | 800 |
+| 12 pipes — **pipe0 = 254 (A-store), pipe10 = 244 (B-store)** | 745 |
+| **total** | **1545** → sqrt = 39.3 |
+
+so ~40x40 = 1600 is the topology's absolute floor and 42x42 is the realistic one. The two
+250-cell serpentines are **capacity-bound** (A needs N*M ≤ 256 resident before B arrives;
+B needs M*K ≤ 256 resident to be reused for each of the N rows) — they can be *reshaped*
+but never shortened. The leader's 8,320,307 factors uniquely to **1024 box x 8,125 ticks**,
+i.e. 1024 cells total — *fewer cells than we have*. Their lead is a structurally smaller
+machine, not a tighter pack of ours. The one idea that would close it: values are in
+[-99,99], so **two of them pack into one i64 cell** (`a*200+b`, unpacked by a single `/`
+which leaves the remainder in B) — that halves both stores, 498 -> ~250 cells, total
+~1300 -> 36x36. That is a machine redesign, not a fold.
+
+**Both automated packers converge at 2116 and stop.** `tools/incremental_pack.py`
+(rigid-room moves + shears, exact pipe lengths) ran to v9 making only mass-centering
+moves. `tools/place.py` (annealer) with `--pipe-len exact` finds ~1 valid neighbour per
+thousand proposals; with `--pipe-len free --tighten` it finds routings needing only
+**509** pipe cells but never a smaller box. Forcing the issue by hand fails on the
+serpentines specifically: base offsets + `--tighten` → `pipe 0 unroutable`; shifting the
+worker room and its relay up one row (the move that would kill row 45) → `pipe 7
+unroutable`. The router will not synthesise a 254-cell snake, and that is the blocker.
+
+Only rows 0 and 45 need to disappear to reach 44x44 = 1936 (the rooms already fit in
+42x44). Row 0 is pipe1's over-the-top run; **row 45 is forced** — blk8 (the c-relay) sits
+at rows 41-44 directly under blk7 (rows 25-40), so its south attachment can only live at
+row 45, and blk7 cannot move up without breaking pipe 7.
+
+### Triangle is provably at its floor (checked 2026-07-27, do not re-open)
+832 = 64 x 13 and 24 teams are tied there. The op sequence `r M * + W 2 W / s` is 9 ops
+and minimal — the `/2` needs B=2 while A holds n²+n, and stashing it costs `W 2 W` no
+matter which order you try (`M 2 W /` is also 4). 9 ops + `@` = 10 cells, which needs a
+6x2 interior; the two turn cells make the walk 12 cells, so `s` fires at tick 11 and the
+2-cell output pipe (the minimum) lands it at 13. The 8x8 frame is just the main room
+(8x4) over the two 3x3 I/O rooms. Nothing is left.

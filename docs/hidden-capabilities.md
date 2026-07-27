@@ -116,3 +116,48 @@ position. A rig with two parked copies and one input value woke the SOUTH (older
 values came out `["2","1"]`. Layout cannot influence the choice, so a crowd of parked men is not
 an addressable dispatch table. Compounding it: a genuinely parked man is blocked on `r`/`s` and
 therefore **cannot execute `q`**, so he cannot see a broadcast either.
+
+
+## The zero-cost fork idiom, and what forking is worth (measured 2026-07-27)
+
+**Fork on a `v` -> `<` DROP CELL, never on a horizontal run.** A `Y` copy is born
+PERPENDICULAR to the parent's heading, so a man arriving heading SOUTH forks into copies to his
+WEST and EAST -- exactly the two directions a boustrophedon layout already wants. Forking on an
+east-bound run instead puts copies on the rows above and below, and in a serpentine the row
+above an east-bound code row is the previous block's west-bound return row, so any steering
+glyph you place there corrupts the main man's walk.
+
+Done this way **the fork costs literally 0 ticks**. Replacing the `<` of a drop pair with `Y`,
+putting `<` on the west birth cell and the new man's code on the east one, reproduces the
+original timing exactly: original `T` exec `<`, `T+1` at x-1; forked `T` exec `Y`, `T+1` the
+west copy execs `<`, `T+2` at x-2 -- identical. Verified on LLM: avgTicks byte-identical at
+4,693,220.5, and `lm --profile` reports Y=1, H=1 so the second man really is alive.
+Pick the site by profiling every `v`/`<` drop pair and keeping those whose EAST birth cell is
+blank with execution count 0 over the whole case (`scratchpad/llmfork/graft.py`).
+
+**What a fork is worth: it removes latency, not work.** Synthetic rig (`scratchpad/llmfork/`),
+mock RAM behind pipes of length L, marginal ticks per transaction:
+
+| L | serial | forked | speedup |
+|---|---|---|---|
+| 10 | 30.0 | 10.0 | 3.0x |
+| 42 | 94.0 | 10.0 | **9.4x** |
+| 168 | 346.0 | 10.0 | 34.6x |
+
+`serial = 2L + 10` exactly; **forked is 10.0 at EVERY latency**. A fork turns a latency-bound
+loop into a throughput-bound one, so the win scales with the latency being hidden -- there is no
+2x ceiling. Stall fell 33,622 -> 594 ticks (56x); the consumer went from 87.1% blocked to 4.0%.
+
+**Three preconditions, and the third is the one that usually kills it:**
+1. *Role separation instead of arbitration.* Give man A only `s` on the outgoing pipe and man B
+   only `r` on the incoming one. `s` ranks outgoing pipes only and `r` incoming only, so the two
+   can never contend and creation-age FIFO never gets to decide. Assert it: recompute Manhattan
+   distance from every `s`/`r` cell to every same-direction port and fail the build unless the
+   intended pipe is strictly nearest (no ties).
+2. *In-order delivery and back-pressure are free.* A pipe is a FIFO, so replies arrive in request
+   order and the consumer needs no tag. When the producer runs too far ahead he simply blocks on
+   `s` and parks, which self-limits prefetch depth at no cost.
+3. **The address stream must be independently derivable.** If the consumer must hand the producer
+   the next address, the handoff (measured: 10 ticks/transaction through a 2-cell relay) lands on
+   the critical path and the two-man version becomes **0.90x -- a 10.7% LOSS**. A fork only pays
+   when the producer can run ahead ON ITS OWN.

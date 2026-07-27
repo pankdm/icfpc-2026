@@ -105,6 +105,23 @@ impl Pipe {
             }
         }
     }
+    /// EXPERIMENT ONLY (LM_FASTPIPE): compact every value as far toward the destination as
+    /// it can go in one tick. Capacity and FIFO order are identical to `transport`; only
+    /// transit latency drops to zero. Models "this pipe re-routed infinitely short".
+    fn transport_instant(&mut self) {
+        for occupied_index in (0..self.occupied.len()).rev() {
+            let position = self.occupied[occupied_index];
+            let limit = if occupied_index + 1 < self.occupied.len() {
+                self.occupied[occupied_index + 1] - 1
+            } else {
+                self.values.len() - 1
+            };
+            if limit > position {
+                self.values[limit] = self.values[position].take();
+                self.occupied[occupied_index] = limit;
+            }
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -154,6 +171,8 @@ pub struct World {
     pub room_glyph: HashMap<(usize, char), u64>,
     pub executed_cells: HashMap<Pt, u64>,
     pub stall_cells: HashMap<Pt, u64>,
+    pub tap_pipes: Vec<usize>,
+    pub fast_pipes: Vec<usize>,
 
     // IO / rounds
     input_tokens: Vec<i64>,      // flattened across all rounds
@@ -231,6 +250,8 @@ impl World {
             output: vec![],
             executed: HashMap::new(), room_exec: vec![], room_glyph: HashMap::new(),
             executed_cells: HashMap::new(), stall_cells: HashMap::new(),
+            tap_pipes: std::env::var("LM_TAP").ok().map(|s| s.split(',').filter_map(|t| t.trim().parse().ok()).collect()).unwrap_or_default(),
+            fast_pipes: std::env::var("LM_FASTPIPE").ok().map(|s| s.split(',').filter_map(|t| t.trim().parse().ok()).collect()).unwrap_or_default(),
             input_tokens: vec![], round_in_end: vec![], round_out_end: vec![],
             released_round: 0, input_read: 0, input_pipe: None, output_pipe: None,
             expected: vec![], expected_frames: vec![], round_frame_end: vec![], frame_w: 0, frame_h: 0,
@@ -516,6 +537,22 @@ impl World {
         for (i, p) in pipes.iter_mut().enumerate() {
             p.id = self.next_id; self.next_id += 1;
             for &c in &p.path { self.pipe_cells.insert(c, i); }
+        }
+        // EXPERIMENT ONLY (LM_SHRINK="i:n,..."): drop n storage slots from pipe i without
+        // touching the grid. Models "this pipe re-routed n cells shorter": same endpoints,
+        // same nearest-pipe selection, less transit AND less shift-register capacity.
+        if let Ok(spec) = std::env::var("LM_SHRINK") {
+            for item in spec.split(',') {
+                let mut it = item.split(':');
+                if let (Some(a), Some(b)) = (it.next(), it.next()) {
+                    if let (Ok(i), Ok(n)) = (a.trim().parse::<usize>(), b.trim().parse::<usize>()) {
+                        if i < pipes.len() && pipes[i].values.len() > n + 1 {
+                            let keep = pipes[i].values.len() - n;
+                            pipes[i].values.truncate(keep);
+                        }
+                    }
+                }
+            }
         }
         self.pipes = pipes;
         Ok(())
@@ -846,7 +883,13 @@ impl World {
     }
 
     fn pipe_transport(&mut self) {
-        for pipe in &mut self.pipes { pipe.transport(); }
+        if self.fast_pipes.is_empty() {
+            for pipe in &mut self.pipes { pipe.transport(); }
+        } else {
+            for (i, pipe) in self.pipes.iter_mut().enumerate() {
+                if self.fast_pipes.contains(&i) { pipe.transport_instant(); } else { pipe.transport(); }
+            }
+        }
     }
 
     fn io_phase(&mut self) {
@@ -1138,11 +1181,21 @@ impl World {
             None => { self.fatal("no-pipe", pos); }
             Some(pi) => {
                 if self.pipes[pi].values[0].is_none() {
-                    self.pipes[pi].push(self.runners[i].a);
+                    let v = self.runners[i].a;
+                    self.tap(pi, 'S', v, pos);
+                    self.pipes[pi].push(v);
                 } else {
                     self.runners[i].blocked = true;
                 }
             }
+        }
+    }
+
+    #[inline]
+    fn tap(&self, pi: usize, kind: char, v: i64, pos: Pt) {
+        if self.tap_pipes.is_empty() { return; }
+        if self.tap_pipes.contains(&pi) {
+            eprintln!("TAP {} {} {} {} {} {}", self.step_count, pi, kind, v, pos.0, pos.1);
         }
     }
 
@@ -1165,6 +1218,7 @@ impl World {
             None => { self.fatal("no-pipe", pos); }
             Some(pi) => {
                 if let Some(v) = self.pipes[pi].pop() {
+                    self.tap(pi, 'R', v, pos);
                     self.runners[i].a = v;
                 } else {
                     self.runners[i].blocked = true;

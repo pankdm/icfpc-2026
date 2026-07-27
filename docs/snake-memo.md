@@ -110,3 +110,26 @@ already beat the leader. Its data architecture is already right; its controller 
 ribbon whose height is wrap-bound and unfoldable (nine measured dead ends in
 `docs/boustrophedon-layout-limits.md`). The fix is Snake's: hand-structured lanes instead of an
 emitted CFG.
+
+
+## LIVE EXAMPLE of the ring trap (2026-07-27) — a 1.10x local win that fails PRIVATE cases
+
+`push2.man` graded **5/5 public on the oracle**, box 5,184, avgTicks 7,274.8, local 37,712,563 —
+a clean 1.10x over the champion's 41,550,213. Submitted, it came back **15/17, score None**.
+
+`tools/equiv.py` had called it in advance, in one line:
+
+    pipe structure changed (count, length or endpoints) — length is latency AND capacity
+
+Pipe profiles: champion `[3,5,5,6,8,11,16,31,38]` vs push1/push2 `[3,5,5,5,7,8,11,31,46]`. The
+rings were re-sized, and the 2 failing cases are the long ones no public case reaches — exactly
+the failure mode already recorded here (the body ring cut 85 -> 65 hangs at snake length 66 and
+still passes every public case).
+
+**The operational rule this gives us: run `equiv` on every candidate, and when it reports a PIPE
+LENGTH change, treat the build as unproven no matter how good the public grade looks.** Either
+fuzz to the true worst case before submitting, or expect to burn a slot. `push1.man` has the
+IDENTICAL pipe profile to push2, so it was not submitted — same rings, same expected failure.
+
+Contrast with the wins that held: `fold10` and `fold11` both changed only a man's path length
+(`equiv` reported no pipe change) and both scored 17/17 on the server.

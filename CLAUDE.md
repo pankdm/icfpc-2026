@@ -257,6 +257,40 @@ Everything together is 736 -> ~667 rows, box 444,889, **1.21x**. Not worth a rew
 that matters is the WRAP row (289 of 688), and op rows average 20 ops over a 101-column span
 inside a 387-column room.
 
+### LLM: forks are FREE but have nothing to do — the hot loop is a POINTER CHASE (2026-07-27)
+
+Three numbers I quoted earlier were wrong; use these:
+- **Stall is 138.8 ticks per RAM READ**, not ~51 per transaction. 782,821 stall ticks over only
+  **5,638 real receives** on case 0 — the old figure divided by 15,521 SENDS instead of receives.
+- **`node sim/difftest.js` is 62/62**, not 61/61.
+- **Free width is 437 columns, not 38.** x318..355 *and* x356..792 are unused; width does not
+  bind until 793.
+- The dominant stall is the **FRAME-RENDER loop** (4 frames x 256 pixels; the 12 hottest `r`
+  sites each net exactly 256/257 receives = 16x16), NOT guest-instruction fetch.
+
+**The fork itself is free and works.** `solutions/little-little-man/fork-s1.man` and `fork-s2.man`
+(patcher: `scratchpad/llmfork/graft.py`) both grade 14/14 with box AND avgTicks BYTE-IDENTICAL to
+the champion, and `lm --profile` shows Y=1/H=1, so the second man is genuinely alive at zero cost.
+s2 also proves the east strip is usable: room 0's wall moved x=317 -> x=355 with box unchanged.
+See `docs/hidden-capabilities.md` for the reusable zero-cost fork idiom (fork on a `v`->`<` drop
+cell) and the measured 3.0x/9.4x/34.6x latency-hiding curve.
+
+**Why it cannot pay HERE — two independent walls:**
+1. **No channel.** Forked men share only pipes, and room 0 cannot gain a usable one. A new port on
+   the bottom wall at x=318..355 is provably safe (tightest existing site is `r` at (312,196),
+   552 vs 549) — but safe and reachable are the same constraint inverted: a port only far-east men
+   can bind to is a port only far-east men can USE. A port near the real work instantly hijacks
+   existing sends (one at (318,~197) sits ~9 cells from the `s` at (309,196) whose binding is 548).
+   Talking through RAM costs a full round trip — the exact latency being hidden.
+2. **No independent address stream.** The hot loop is a POINTER CHASE. Row 196 is `0` / `s1s` /
+   `rM0` / 157 blanks / `sWsr` — **the value returned by RAM1 IS the address sent to RAM2**, and
+   the two biggest stall sites (312,196) and (312,721) at 79,104 ticks each are both downstream of
+   a RAM1 read. A prefetcher cannot form the address. Per the rig, when the consumer must hand the
+   producer the next address the handoff lands on the critical path and two men score **0.90x**.
+
+Ceiling for reference: removing ALL of room 0's `r` stall is **1.71x** (1,892,707 -> 1,109,886),
+score ~1.73e12. Anything beyond needs the 53.89% GLIDE split as well.
+
 ### LLM: THE FOLD LOSES ON LATENCY — box is immovable at the grid level (2026-07-27)
 
 **This supersedes the 4.0x squaring plan below. Do not build it.** The plan was arithmetically
@@ -418,6 +452,27 @@ but do not expect it to rescue a dense grid.
   replica is ready — a guarantee that gets *weaker* as the layout compacts.
 - **Snake box is at its floor**: `code_x` ∈ {10,20,40,60} × `op_slack` ∈ {0,10,40,100} ×
   `scalar_belts` × `cell_belts` all leave `ctrlH = 200` and best box 64,009 (= the champion).
+- **Snake `build_fold*` box floor is 5,329 = 73² and it is WIDTH-bound** (measured 2026-07-27).
+  width = CW + 21, and *both* terms are on their floor: the 21-column east strip is 18 display +
+  3 routing (SWAP descent, DATA descent, DATA's east-turn cell — 2 cannot do it, the SWAP descent
+  occupies the only column DATA could turn into), and **CW < 53 is real**: a 1.1M-sample hunt at
+  CW=52/51 found configs that build and pass, but every one costs 12–17 extra controller rows
+  (box 6,889–7,744). `shrink.py` mechanically folds one column, so 74→73 and no further. Height
+  is now 69 with 4 rows of pure slack: **row cuts are worth zero on snake's box, only on ticks.**
+- **Re-attaching snake's `r:I` off the single ATT row does NOT pay.** Moving the input attach to
+  column 32–33, between the state and body lanes, does what it promises — SPAWN 8→4 rows, INIT
+  9→7, its 15 wraps →8 — but it narrows `r:S` from 1..33 to 1..28 and shifts `r:B` to 41..51, and
+  the hot blocks pay it all back: DISPATCH +1, TICK +1, NOEAT +2, EAT +1, DIR +2. Net **62 → 63
+  controller rows**, i.e. worse. Left/bottom-wall attachment is worse still: with a 62-row
+  controller the y-term dominates, so any off-ATT attachment wins a huge pocket of rows next to
+  that wall and steals them from `r:S` on every row.
+- **Snake knob searches are silently wrong unless gated on generality.** A graded search on the
+  5 public cases reached 39.9M (74×70) — and 49/386 on the fuzz, *every* failure a north/west
+  death. Cause: the three death highways share one row and the deepest entrant walks east over
+  the others' pops, so moving `D_HY`/`D_HX` one column apart lets a pop group spill past the next
+  entry arrow. `build_fold3.py` now replays each highway's walk and counts the `r` cells it steps
+  on (exact, not a spacing heuristic). Gate every snake search on `tests/snake-sentinel.json`
+  (24 cases, 0.5 s); `tests/snake-{mini,stress}.json` are the 60- and 106-case versions.
 - ~~**History Lesson is at its layout floor** (83×83 exact)~~ — **REFUTED 2026-07-26.** That
   claim was about `build_ring.py` only, and a different construction beat it: a folded dispatcher
   plus variable-width feeder bands reach **82×82, box 6724** (`solutions/history-lesson/best/82x82.man`,

@@ -204,7 +204,7 @@ fn run_grade(args: &Args, rows: &[String]) {
         let mut cells: Vec<((i32, i32), u64)> =
             w.executed_cells.iter().map(|(k, v)| (*k, *v)).collect();
         cells.sort_by_key(|(_, count)| std::cmp::Reverse(*count));
-        eprintln!("PROFILE cells={:?}", &cells[..cells.len().min(60)]);
+        eprintln!("PROFILE cells={:?}", &cells[..]);
         let mut stalls: Vec<((i32, i32), u64)> =
             w.stall_cells.iter().map(|(k, v)| (*k, *v)).collect();
         stalls.sort_by_key(|(_, count)| std::cmp::Reverse(*count));

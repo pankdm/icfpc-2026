@@ -113,6 +113,7 @@ LOOP = 2              # scratch-loop horizontal legs; capacity must exceed the f
 SWCOL = 1             # SWAP entry column, offset into the display's bottom wall
 ZIG = 7               # ADDRM->DATAM zigzag width; pipe is 2*ZIG+2 cells
 ATOFF = 2             # ADDR turn row, rows below CTRL's bottom wall (>= 2)
+DZIG = 0              # DATA pipe detour depth; pipe is 2*DZIG+2 cells
 BASE_TICKS = 505      # measured: fixed overhead + 8 ticks x 18 pixels a round
 
 # Fixed vertical overhead, split so the two compressible parts are knobs:
@@ -461,7 +462,14 @@ def build(geom=None):
            (ax + 8 - z, adr.y1 + 3), (ax + 7, adr.y1 + 3)], end_direction="S")
     else:
         P([(ax + 8, adr.y1 + 1), (ax + 8, adr.y1 + 2)])
-    P([(dat.x1 + 1, dy + 3), (disp.x0 - 1, dy + 3)])                  # DATA
+    # DATA.  The ORDER constraint only fixes LX + LD, so length can be moved from
+    # the ADDRM->DATAM pipe to this one -- and only LX sits on the round-boundary
+    # critical path (sentinel -> DATAM -> SWAP -> frame commit -> next input).
+    # DZIG folds LD into the two free columns between DATAM and the display.
+    # The display reads the entry SIDE off the last two path cells, so the last
+    # leg has to stay horizontal -- climb first, then run east into the wall.
+    P([(dat.x1 + 1, dy + 3), (dat.x1 + 1, dy + 3 - DZIG),
+       (disp.x0 - 1, dy + 3 - DZIG)])
     # SWAP only has to arrive no EARLIER than the last DATA, so it is the one
     # pipe worth shortening: every cell of it is a tick of per-round drain.
     if SWAP_ROWS > 1:
@@ -485,12 +493,13 @@ if __name__ == "__main__":
     ap_.add_argument("--zig", type=int, default=ZIG)
     ap_.add_argument("--atoff", type=int, default=ATOFF)
     ap_.add_argument("--swcol", type=int, default=SWCOL)
+    ap_.add_argument("--dzig", type=int, default=DZIG)
     ap_.add_argument("--quiet", action="store_true")
     ap_.add_argument("--geom", default="")
     ap_.add_argument("--out", default="plotter-swar3.man")
     a_ = ap_.parse_args()
     GAP, SWAP_ROWS, SPACER = a_.gap, a_.swap_rows, a_.spacer
-    ZIG, ATOFF, SWCOL = a_.zig, a_.atoff, a_.swcol
+    ZIG, ATOFF, SWCOL, DZIG = a_.zig, a_.atoff, a_.swcol, a_.dzig
     p, info = build(tuple(int(v) for v in a_.geom.split(",")) if a_.geom else None)
     out = os.path.join(HERE, a_.out)
     p.save(out)

@@ -18,11 +18,11 @@ OUT = REPO + "/scratchpad/snake3"
 LIMIT = int(sys.argv[1]) if len(sys.argv) > 1 else 72
 DRAWS = int(sys.argv[2]) if len(sys.argv) > 2 else 40000
 SEED = int(sys.argv[3]) if len(sys.argv) > 3 else 1
-BUILDER = os.environ.get("SNAKE_BUILDER", REPO + "/solutions/snake/build_fold6.py")
+BUILDER = os.environ.get("SNAKE_BUILDER", REPO + "/solutions/snake/build_fold8.py")
 JOBS = int(os.environ.get("SNAKE_JOBS", "4"))
 LM = REPO + "/interp/target/release/lm"
 
-BASE = {'CW': 52, 'CXL': 0, 'ST_OUT': 23, 'ST_IN': 24, 'ST_X0': 19, 'ST_W': 9, 'FEED_W': 26, 'LOOPR': 39, 'LOOPX': 41, 'LOOPM': 40, 'D_REP': 12, 'D_COLL': 2, 'D_HY': 5, 'D_HX': 8, 'HW_RET': 48, 'HW_TICK': 37, 'HW_SPAWN': 31, 'HW_DIR': 36, 'D_EAT': 32, 'D_NOEAT': 23, 'DRV_OUT': 51, 'DRVX': 4, 'DEC1': 20, 'DEC2': 25, 'REPD': 44, 'BD_OUT': 36, 'BD_IN': 42, 'IN_IN': 46, 'WRAP_E': 50, 'CY0': 8}
+BASE = {'CW': 50, 'ST_OUT': 22, 'FEED_W': 33, 'LOOPR': 37, 'ST_X0': 19, 'D_REP': 27, 'HW_RET': 46, 'HW_TICK': 35, 'HW_SPAWN': 47, 'HW_DIR': 34, 'D_EAT': 30, 'D_NOEAT': 21, 'DRV_OUT': 49, 'DRVX': 6, 'CY0': 10, 'D_HY': 12, 'ST_IN': 23, 'D_HX': 13, 'IN_IN': 45, 'D_COLL': 8, 'CXL': 6}
 LSHIFT = ['D_COLL', 'D_HY', 'D_HX', 'D_REP']
 SHIFT = ['LOOPR', 'HW_RET', 'HW_TICK', 'HW_SPAWN', 'HW_DIR', 'D_EAT', 'D_NOEAT',
          'DRV_OUT', 'LOOPX', 'LOOPM', 'REPD', 'BD_OUT', 'BD_IN', 'IN_IN', 'WRAP_E']
@@ -61,17 +61,21 @@ def _build(params):
 
 def draw(rng):
     p = dict(BASE)
-    cxl = rng.randint(0, 8)
+    cxl = rng.randint(max(0, BASE['CXL'] - 6), BASE['CXL'] + 8)
+    d0 = cxl - BASE['CXL']
     for k in LSHIFT:
-        p[k] += cxl
+        if k in p:
+            p[k] += d0
     p['CXL'] = cxl
     d = rng.randint(-2, 2)
     if d:
         p['CW'] += d
         for k in SHIFT:
-            p[k] += d
+            if k in p:
+                p[k] += d
     for k in rng.sample(list(JITTER), rng.randint(1, 6)):
-        p[k] += rng.randint(-JITTER[k], JITTER[k])
+        if k in p:
+            p[k] += rng.randint(-JITTER[k], JITTER[k])
     return p
 
 

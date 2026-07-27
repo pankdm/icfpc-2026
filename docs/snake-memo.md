@@ -156,3 +156,35 @@ rows 14..31 DOWN into the dead lower-right rectangle, dropping width 71 -> ~62 s
 **The 1.79x to the leader is a DENSITY problem, not a shape problem**: 921 cells at 35% density is
 51x51 = 2,601, smaller than the leader's own 53x53. Both dimensions have to come down together,
 which is why the lever is reflow (fewer wraps => fewer rows), not rearrangement.
+
+
+## Shrink the room in the BINDING direction — the balance law (measured 2026-07-27, 67x67 build)
+
+`box = max(w,h)^2`, so only the binding dimension counts, and on snake the two dimensions are
+driven by DIFFERENT structures:
+
+    grid_h = 6  + controller_h     (6 = the top band: two 6x4 relays, the 3x3 input)
+    grid_w = 20 + controller_w     (20 = the driver 11x7 at x48..58 plus the display stack)
+
+Live champion `live-4d96c89f.man`: 67x67, box 4,489, 885 cells, 19.7% density; controller
+(room 4) is **47w x 61h** at x0..46, y6..66. Local 30,978,589 (5/5 oracle), server ~45.4e6.
+
+**Balance condition: `controller_h = controller_w + 14`.** The controller should stay 14 rows
+TALLER than it is wide, because the east stack costs 20 columns while the top band costs only 6
+rows. Shrinking the non-binding dimension moves the box by exactly zero — this is the whole
+reason a reflow must be aimed, not merely applied.
+
+What controller density buys, at ~800 controller cells:
+
+| controller density | controller | grid | box |
+|---|---|---|---|
+| 20% | 57x71 | 77x77 | 5,929 |
+| ~30% (today) | 46x60 | 66x66 | 4,356 |
+| 40% | 39x53 | 59x59 | 3,481 |
+| **50%** | **34x48** | **54x54** | **2,916** |
+
+The leader's 53x53 = 2,809 implies **~50% controller density**. So the target is not "make it
+smaller" but specifically: **hold `ch = cw + 14` while driving controller density from ~30% to
+~50%.** Two independent ways to move the east 20 columns are worth checking first, since they
+shrink WIDTH without touching the controller at all: the driver room (11x7) and the display
+stack sit entirely in the top-right, and rows below the driver leave that whole column band free.

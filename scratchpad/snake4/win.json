@@ -1,0 +1,27 @@
+{
+ "params": {
+  "CW": 50,
+  "ST_OUT": 22,
+  "FEED_W": 33,
+  "LOOPR": 37,
+  "ST_X0": 19,
+  "D_REP": 21,
+  "HW_RET": 46,
+  "HW_TICK": 35,
+  "HW_SPAWN": 47,
+  "HW_DIR": 34,
+  "D_EAT": 30,
+  "D_NOEAT": 21,
+  "DRV_OUT": 49,
+  "DRVX": 6,
+  "CY0": 10,
+  "D_HY": 6,
+  "ST_IN": 23,
+  "D_HX": 7,
+  "IN_IN": 45
+ },
+ "score": 35139802.800000004,
+ "box": 5041,
+ "ticks": 6970.8,
+ "cap": 51
+}

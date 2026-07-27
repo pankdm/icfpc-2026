@@ -173,6 +173,7 @@ pub struct World {
     pub stall_cells: HashMap<Pt, u64>,
     pub tap_pipes: Vec<usize>,
     pub fast_pipes: Vec<usize>,
+    pub trace_spec: Option<(usize, u64, u64)>,
 
     // IO / rounds
     input_tokens: Vec<i64>,      // flattened across all rounds
@@ -252,6 +253,13 @@ impl World {
             executed_cells: HashMap::new(), stall_cells: HashMap::new(),
             tap_pipes: std::env::var("LM_TAP").ok().map(|s| s.split(',').filter_map(|t| t.trim().parse().ok()).collect()).unwrap_or_default(),
             fast_pipes: std::env::var("LM_FASTPIPE").ok().map(|s| s.split(',').filter_map(|t| t.trim().parse().ok()).collect()).unwrap_or_default(),
+            // EXPERIMENT ONLY (LM_TRACE="room:from:to"): per-cell execution trace for one room.
+            trace_spec: std::env::var("LM_TRACE").ok().and_then(|s| {
+                let p: Vec<&str> = s.split(':').collect();
+                if p.len() == 3 {
+                    Some((p[0].parse().ok()?, p[1].parse().ok()?, p[2].parse().ok()?))
+                } else { None }
+            }),
             input_tokens: vec![], round_in_end: vec![], round_out_end: vec![],
             released_round: 0, input_read: 0, input_pipe: None, output_pipe: None,
             expected: vec![], expected_frames: vec![], round_frame_end: vec![], frame_w: 0, frame_h: 0,
@@ -1040,6 +1048,15 @@ impl World {
                 self.room_exec[room] += 1;
             }
             *self.room_glyph.entry((room, ch)).or_insert(0) += 1;
+            // EXPERIMENT ONLY (LM_TRACE="room:from:to"): one line per executed cell for the men
+            // of one room over a tick window. Read-only; unset => zero effect.
+            if let Some((tr, t0, t1)) = self.trace_spec {
+                if room == tr && self.step_count >= t0 && self.step_count <= t1 {
+                    let r = &self.runners[i];
+                    eprintln!("TRACE {} {} {} {} {} A={} B={} BP={}",
+                        self.step_count, r.id, x, y, ch, r.a, r.b, r.bp);
+                }
+            }
             // Literal content is a nop only ALONG the literal's own axis. A man crossing a
             // horizontal literal from above executes the digit he lands on (A = digit) --
             // only the closing backtick loads the whole literal.

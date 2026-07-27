@@ -109,6 +109,7 @@ def lay_ring(g, x, y, w, h, glyphs):
 # the build
 # ─────────────────────────────────────────────────────────────────────────────
 
+ZIG = 7               # ADDRM->DATAM zigzag width; pipe is 2*ZIG+2 cells
 BASE_TICKS = 505      # measured: fixed overhead + 8 ticks x 18 pixels a round
 
 # Fixed vertical overhead, split so the two compressible parts are knobs:
@@ -396,8 +397,12 @@ def build(geom=None):
     #     LA - 2 <= LX + LD < LA + cadence - 2
     # (LA/LD = ADDR/DATA pipe lengths, LX = this pipe, cadence = 8), so the cheap
     # place to add the missing delay is here, upstream of the split.
-    P([(ax + 8, adr.y1 + 1), (ax + 8, adr.y1 + 2), (ax, adr.y1 + 2),
-       (ax, adr.y1 + 3), (ax + 7, adr.y1 + 3)], end_direction="S")
+    z = ZIG
+    if z:
+        P([(ax + 8, adr.y1 + 1), (ax + 8, adr.y1 + 2), (ax + 8 - z, adr.y1 + 2),
+           (ax + 8 - z, adr.y1 + 3), (ax + 7, adr.y1 + 3)], end_direction="S")
+    else:
+        P([(ax + 8, adr.y1 + 1), (ax + 8, adr.y1 + 2)])
     P([(dat.x1 + 1, dy + 3), (disp.x0 - 1, dy + 3)])                  # DATA
     # SWAP only has to arrive no EARLIER than the last DATA, so it is the one
     # pipe worth shortening: every cell of it is a tick of per-round drain.

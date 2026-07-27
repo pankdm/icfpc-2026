@@ -31,6 +31,7 @@ from pathfinder_closed_wavefront import (
 from pathfinder_packet_stages import packet_stage, perimeter_slots
 from pathfinder_parent_query import parent_room
 from pathfinder_parent_query_compact import parent_room_compact
+from pathfinder_next_demux import next_demux_room_compact
 from pathfinder_stream_driver import LM, put_lane_path
 
 
@@ -154,9 +155,9 @@ def build(frontiers=None, states=None, layers=64, compact=False):
     merge_y = 20
     stage_y = (34, 46, 58, 70)
     parent_y = (82, 99, 116, 133) if compact else (82, 103, 124, 145)
-    next_y = 150 if compact else 166
+    next_y = 152 if compact else 166
     counter_x = 146 if compact else 196
-    counter_y = 165 if compact else 181
+    counter_y = 187 if compact else 181
 
     if frontiers is None:
         frontiers = [(lane % 8) + 1 for lane in range(LANES)]
@@ -232,37 +233,71 @@ def build(frontiers=None, states=None, layers=64, compact=False):
                 (parent_port_x, dest_y - 1),
             ])
 
-        # Drop mode, consume U/R/L/D, then return [state, frontier].
-        next_ops = ["@", "r", "0", "M"]
-        for _ in range(4):
-            next_ops += ["r", "|", "M"]
-        next_ops += ["r", "~", "s", "W", "S" if lane == LANES - 1 else "s"]
-        lane_loop_room(program, lane_x, next_y, 12, next_ops)
-        program.pipe([
-            (parent_port_x, parent_y[3] + parent_h),
-            (parent_port_x, next_y - 2),
-            (lane_x + 2, next_y - 2),
-            (lane_x + 2, next_y - 1),
-        ])
-        program.pipe([
+        if compact:
+            # Three-way NEXT: ordinary wavefront packets return below,
+            # reconstruction replies leave through a second top port, and
+            # reset mode zero is consumed.
+            next_x = lane_x - 1
+            next_demux_room_compact(
+                program, next_x, next_y, broadcast_last=lane == LANES - 1
+            )
+            program.pipe([
+                (parent_port_x, parent_y[3] + parent_h),
+                (parent_port_x, next_y - 1),
+            ])
+            # The reconstruction builder will attach NEXT's second output.
+            # This closed-wavefront probe exercises only the positive hot
+            # path; the negative output is oracle-tested independently.
+            return_pipe = [
+                (next_x + 3, next_y + 21),
+                (next_x + 3, next_y + 23),
+                (base + 1, next_y + 23),
+            ]
+        else:
+            # Drop mode, consume U/R/L/D, then return [state, frontier].
+            next_ops = ["@", "r", "0", "M"]
+            for _ in range(4):
+                next_ops += ["r", "|", "M"]
+            next_ops += [
+                "r", "~", "s", "W", "S" if lane == LANES - 1 else "s"
+            ]
+            lane_loop_room(program, lane_x, next_y, 12, next_ops)
+            program.pipe([
+                (parent_port_x, parent_y[3] + parent_h),
+                (parent_port_x, next_y - 2),
+                (lane_x + 2, next_y - 2),
+                (lane_x + 2, next_y - 1),
+            ])
+            return_pipe = [
+                (base + 2, next_y + 5),
+                (base + 1, next_y + 5),
+            ]
+        program.pipe(return_pipe + [
             # Attach beside the lowercase state send.  The old bottom
             # attachment became one cell farther than row 15's trigger after
             # adding the mode-drop op, so state silently selected the trigger.
-            (base + 2, next_y + 5),
-            (base + 1, next_y + 5),
             (base + 1, merge_y + 8),
             (base + 2, merge_y + 8),
             (base + 2, merge_y + 7),
         ])
 
         if lane == LANES - 1:
-            program.pipe([
-                (lane_x + 7, next_y + 1),
-                (lane_x + 8, next_y + 1),
-                (lane_x + 8, next_y + 3),
-                (lane_x + 7, next_y + 3),
-                (lane_x + 7, counter_y - 1),
-            ])
+            if compact:
+                program.pipe([
+                    (next_x + 9, next_y + 17),
+                    (next_x + 10, next_y + 17),
+                    (next_x + 10, counter_y - 2),
+                    (counter_x + 16, counter_y - 2),
+                    (counter_x + 16, counter_y - 1),
+                ])
+            else:
+                program.pipe([
+                    (lane_x + 7, next_y + 1),
+                    (lane_x + 8, next_y + 1),
+                    (lane_x + 8, next_y + 3),
+                    (lane_x + 7, next_y + 3),
+                    (lane_x + 7, counter_y - 1),
+                ])
 
     program.room(counter_x, counter_y, 19, 7)
     assert layers == 64 or 1 <= layers <= 9

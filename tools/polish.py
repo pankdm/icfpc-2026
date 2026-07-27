@@ -47,6 +47,7 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
 GRADER = REPO / "tools" / "grade_json.js"
+FAST_GRADER = REPO / "tools" / "grade_fast.py"
 
 
 # ---------------------------------------------------------------- grid helpers
@@ -153,10 +154,11 @@ def candidates(rows: list[str], box_only: bool) -> list[tuple[str, int, str]]:
 # ---------------------------------------------------------------- grading
 
 class Grader:
-    def __init__(self, slug, cap, cases, workdir, verbose=False):
+    def __init__(self, slug, cap, cases, workdir, verbose=False, engine="oracle"):
         self.slug, self.cap, self.cases = slug, cap, cases
         self.workdir = workdir
         self.verbose = verbose
+        self.engine = engine
         self.cache: dict[str, dict] = {}
         self.calls = 0
 
@@ -165,6 +167,22 @@ class Grader:
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as fh:
                 fh.write(text)
+            if self.engine == "fast":
+                # The WASM oracle OOMs ("Go program has already exited") on
+                # multi-million-tick programs such as LLLM, so those can only be
+                # polished with the Rust engine.  Same JSON envelope.
+                cmd = [sys.executable, str(FAST_GRADER), self.slug, tmp]
+                if self.cap:
+                    cmd += ["--cap", str(self.cap)]
+                p = subprocess.run(cmd, cwd=REPO, capture_output=True, text=True, timeout=1800)
+                line = ""
+                for ln in p.stdout.splitlines():
+                    ln = ln.strip()
+                    if ln.startswith("{"):
+                        line = ln
+                if not line:
+                    return {"error": (p.stderr or p.stdout or "no output").strip()[:200]}
+                return json.loads(line)
             cmd = ["node", str(GRADER), self.slug, tmp, "--failfast"]
             if self.cap:
                 cmd += ["--cap", str(self.cap)]
@@ -305,6 +323,9 @@ def main() -> int:
                     help="only try deletions in the dimension that binds max(w,h)")
     ap.add_argument("--max-waves", type=int, default=50)
     ap.add_argument("--dry-run", action="store_true", help="never write the output file")
+    ap.add_argument("--engine", choices=("oracle", "fast"), default="oracle",
+                    help="fast = tools/grade_fast.py (Rust); required for programs "
+                         "the WASM oracle OOMs on, e.g. LLLM")
     ap.add_argument("-v", "--verbose", action="store_true")
     args = ap.parse_args()
 
@@ -322,7 +343,8 @@ def main() -> int:
 
     with tempfile.TemporaryDirectory(prefix="polish-") as workdir:
         # --- baseline (uncapped, so the cap we derive is honest)
-        base_g = Grader(args.slug, None, args.cases, workdir, args.verbose)
+        base_g = Grader(args.slug, args.cap if args.engine == "fast" else None,
+                        args.cases, workdir, args.verbose, args.engine)
         base = base_g.grade(render(rows, trailing_nl))
         if not ok(base):
             print(f"BASELINE DOES NOT PASS: {json.dumps(base)[:300]}")
@@ -331,7 +353,7 @@ def main() -> int:
         cap = args.cap if args.cap is not None else max(1000, worst * 4)
         if cap == 0:
             cap = None
-        g = Grader(args.slug, cap, args.cases, workdir, args.verbose)
+        g = Grader(args.slug, cap, args.cases, workdir, args.verbose, args.engine)
         g.cache[render(rows, trailing_nl)] = base
 
         w0, h0, _ = footprint(rows)

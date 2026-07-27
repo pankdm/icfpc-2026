@@ -80,9 +80,15 @@ on one row.
   needs "any ready pipe", use a collector room (`R`, `s`) so every controller `r` has an
   unambiguous nearest pipe.
 
-- **Pipe length IS capacity.** The body ring was cut 85 → 65 and a 4,062-case fuzz found it
-  **deadlocks at snake length 66**. It passed 17/17 only because no graded case gets that long.
-  Size rings from the worst case, then fuzz before submitting.
+- **Pipe length is capacity AND latency — so size it, do NOT over-provision.** Measured on
+  pathfinder's frontier ring: the *same* ring costs **15.5 ticks/op at capacity 45 and 58.4 at
+  capacity 253** (~0.21 ticks/op per extra cell), so a "provably safe" 196-cell ring runs **3.8x
+  slower** than a sized one. But undersizing deadlocks: snake's body ring cut 85 → 65 was found by
+  a 4,062-case fuzz to **hang at snake length 66**, and it passed 17/17 only because no graded case
+  gets that long. Measure the true worst case, add a modest margin, then fuzz. Pathfinder's
+  frontier: measured max depth 30 adversarially, hard bound 196, built at **49**.
+  **Overflow is silent** — the single controller man's `s` blocks forever, so the case TIMES OUT
+  with no error rather than crashing.
 - **`grade_fast` averages avgTicks over PASSING cases only.** A candidate that does not pass every
   case has its average over a *different* case set and **is not comparable**. This produced a bogus
   2.13x claim elsewhere.

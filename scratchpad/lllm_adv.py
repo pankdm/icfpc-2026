@@ -198,6 +198,26 @@ A(make_case('all-op-classes', from_art(allops), [1] * 10,
             note='^ > v < digits M + - X H all present'))
 
 
+# ---------------------------- discriminators for M, +/- and the sign source
+# 'M' is B = A, NOT a swap: after '9M' a swap would leave A = 0 and the X would
+# not turn.  These read the difference out through the man's trajectory.
+A(make_case('M-not-swap', from_art(['+------+', '|@9MX  |', '|      |', '|      |',
+                                    '|      |', '+------+']), [1] * 6,
+            note="'9MX': B=A keeps A=9 so X turns CW; a swap would leave A=0"))
+A(make_case('M-then-arith', from_art(['+--------+', '|@9M0-X  |', '|        |',
+                                      '|        |', '|        |', '+--------+']),
+            [1] * 8, note="'9M0-' needs B to still hold 9 (A=-9, X turns CCW)"))
+A(make_case('plus-not-minus', from_art(['+--------+', '|@1M1+++X|', '|        |',
+                                        '|        |', '+--------+']), [1] * 8,
+            note="'+' must ADD: A=4>0 turns CW; if it subtracted A=-2 turns CCW"))
+A(make_case('minus-not-plus', from_art(['+---------+', '|@1M2----X|', '|         |',
+                                        '|         |', '+---------+']), [1] * 9,
+            note="'-' must SUBTRACT: A=-2<0 turns CCW"))
+A(make_case('X-reads-A-not-B', from_art(['+---------+', '|@2M0X    |', '|         |',
+                                         '|         |', '|         |', '+---------+']),
+            [1] * 8, note='A=0, B=2: X must NOT turn (sign of A, not of B)'))
+
+
 # ------------------------------------------------- '+'/'-' wall-vs-op traps
 A(make_case('swan-dive-clone', from_art(['+--------+', '|@8-+2MX |', '|        |',
                                          '|        |', '+--------+']), [1] * 8,
@@ -360,6 +380,17 @@ oos.append(make_case('oos-inset-room-br', from_art(
     ['          ', '          ', '   +-----+', '   |@   v|',
      '   |     |', '   |^   <|', '   +-----+']), [1] * 12,
     note='room pushed to the bottom-right of the program grid'))
+
+
+# --------------------------------------- worst case the private set can hold
+# 16x16, every interior cell carrying an op (maximum LOAD work), a 52-cell lap
+# so the man never halts, and the full 30 rounds / 200 ticks the spec allows.
+dense_ring = [list(r) for r in ring16]
+for y in range(2, 14):
+    for x in range(2, 14):
+        dense_ring[y][x] = OPS[(x * 5 + y * 3) % len(OPS)]
+A(make_case('worst-tick-dense16', [''.join(r) for r in dense_ring], [6] * 29,
+            note='densest 16x16 + 30 rounds: the most expensive shape the spec permits'))
 
 
 # --------------------------------------------- ZERO-delta consecutive frames

@@ -38,7 +38,28 @@ in the Rust engine), so grade only when you must:
           simulate.
   tier 2  anything equiv cannot prove (stairfold and fold deliberately change tick counts)
           falls through to `grade_fast`. Accepted only if it passes EVERY case AND scores
-          strictly lower.
+          strictly lower. **OFF BY DEFAULT — it is NOT SAFE.** See below.
+
+TIER 2 IS NOT SAFE, MEASURED 2026-07-26. Run on the gradebook champion, tier 2 accepted a
+`stairfold` + `fold` pair: box 13,456 -> 12,544, local public score 679,531,845 ->
+632,629,760, and the WASM ORACLE confirmed 7/7 public. Submitted, the server returned
+**2,323,323,161 against a live 203,387,211** — 20/20 cases, so nothing broke, but avgTicks
+over the full set went 15,115 -> 185,213. A private case got ~12x slower while every public
+case got slightly faster. The public set simply does not exercise what the private set
+does, and no amount of local grading can see it.
+
+So the honest rule this tool now enforces:
+
+  * TIER 1 IS SAFE. `equiv` proves the op sequence, path length and pipe structure are
+    unchanged, so behaviour is identical on EVERY case, public or private, by construction.
+  * TIER 2 IS A SEARCH HEURISTIC, NOT A GATE. It requires `--allow-graded`, and anything it
+    produces must be treated as a candidate to be validated against private behaviour —
+    by reasoning about what the transform did to timing, not by grading harder.
+
+The specific trap here: `fold` and `stairfold` change WALK LENGTHS, and a walk length is
+what feeds a delay-line pipe. Gradebook's 54-cell pipe 0->7 is a delay line whose LENGTH IS
+CAPACITY; shortening the walks around it changes arrival timing that only a bigger case
+reveals. Any transform that moves a man relative to a sized ring or delay line is suspect.
 
 `grade_fast` averages avgTicks over PASSING cases ONLY, so a partial pass is compared
 against a different case set and is NOT comparable. This driver therefore requires
@@ -197,6 +218,11 @@ def main():
     ap.add_argument("--cases", default=None)
     ap.add_argument("--only", default=None,
                     help="comma-separated subset of passes to run")
+    ap.add_argument("--allow-graded", action="store_true",
+                    help="enable TIER 2 (public-case grade gate). UNSAFE: measured to "
+                         "accept a gradebook change that was 11x WORSE on the server "
+                         "while passing 7/7 public and scoring 1.07x better locally. "
+                         "Treat anything it finds as a candidate, not a result.")
     ap.add_argument("--dry-run", action="store_true", help="never write the output file")
     ap.add_argument("-v", "--verbose", action="store_true")
     args = ap.parse_args()
@@ -255,6 +281,13 @@ def main():
                 continue
 
             # tier 2 — grade. Requires ALL cases; a partial pass is not comparable.
+            # Public grading CANNOT see a private regression: measured, this exact path
+            # accepted a gradebook change that scored 11x worse on the server.
+            if not args.allow_graded:
+                if args.verbose:
+                    print(f"  round {round_i} {name:10s} skipped "
+                          f"(not provably equivalent; needs --allow-graded)")
+                continue
             cok, cticks, cbox2, cnote = grade(
                 args.slug, cand, args.jobs, args.cap, args.cases)
             if not cok:
@@ -296,6 +329,11 @@ def main():
     out = args.out or os.path.splitext(args.man)[0] + "-shrunk.man"
     shutil.copy(current, out)
     print(f"wrote {out}")
+    if any(gate == "graded" for _, _, gate, _, _, _ in history):
+        print("WARNING: this result contains TIER 2 (public-grade-gated) changes. Those "
+              "are NOT proven safe — the same path once scored 11x worse on the server "
+              "while passing every public case. Do not submit it as an improvement "
+              "without reasoning about what the transform did to ring/delay-line timing.")
     print(f"NOW RE-GRADE WITH THE ORACLE: node tools/grade.js {args.slug} {out}")
 
 

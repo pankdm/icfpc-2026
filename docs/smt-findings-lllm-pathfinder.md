@@ -4,23 +4,24 @@ Companion to `docs/smt-optimization-guide.md`. Everything here was measured agai
 **live** downloaded submissions — LLLM `dae1e98e` (142x125) and pathfinder `637a8296`
 (151x174) — not against in-git variants.
 
-## 0. The enabling fix: the Rust engine could not load the LLLM champion
+## 0. The pipe-endpoint bug had a SECOND casualty: the LLLM champion
 
-`grade_fast.py` rejected the LLLM champion on all 10 cases with `display pipe bad side`
-while the wasm oracle ran it **10/10**. So every fast loop — smtplace, autotune, any
-search — was blind to that champion.
+The `border_cell_of_pipe_end` / `pipe_flow_dir` defect fixed on main (found via the snake
+champion) also made `grade_fast.py` reject the **LLLM champion** on all 10 cases with
+`display pipe bad side`, while the wasm oracle ran it **10/10**. Every fast loop —
+smtplace, autotune, any search — was therefore blind to that champion, which is why the
+sweeps below had to be re-run after the fix.
 
-Cause: a pipe may **turn on its last cell**. Pipe 5 arrives westward along row 124 and
-turns north at `^` (64,124) into the display's bottom wall (SWAP). Both
-`border_cell_of_pipe_end` and `pipe_flow_dir` derived the entry direction from
-`prev -> end`, giving `(-1,0)` and border `(63,124)` — a blank cell — instead of the
-arrowhead's own `(0,-1)` and border `(64,123)`. `trace_pipe` already guarantees the end
-cell is an arrow pointing into the room, so its glyph is authoritative.
+The LLLM instance, for the record: pipe 5 arrives westward along row 124 and turns north at
+`^` (64,124) into the display's bottom wall (SWAP). `prev -> end` gives `(-1,0)` and border
+`(63,124)`, a blank cell; the arrowhead's own direction gives `(0,-1)` and border
+`(64,123)`. With the fix, Rust matches the oracle exactly on that file (10/10, avgTicks
+285104.6, score 5,748,849,154) and `sim/difftest.js` is 61/61.
 
-Fixed in `interp/src/lib.rs`. Rust now matches the oracle exactly on that file (10/10,
-avgTicks 285104.6, score 5,748,849,154); `sim/difftest.js` 61/61. A sweep of every `.man`
-in the repo found **no other file whose load status changed** — LLLM was the only casualty,
-and `pipe_flow_dir` feeds `U`'s turn, so a turning endpoint would also have mis-aimed a man.
+A sweep of every `.man` in the repo found no *other* file whose load status changed, so
+snake and LLLM appear to be the only two casualties — but note both were found by accident,
+one per investigation. `trace_pipe` guarantees the end cell is an arrow pointing into the
+room, so the arrowhead is always authoritative.
 
 ## 1. LLLM: rigid placement is provably dead
 
@@ -96,10 +97,21 @@ rows**. Numbers from one do not transfer to the other.
 
 For the live build: `max(w,h) >= 165` (the tall room), so rigid packing alone is worth at
 most 174 -> 165, box 30276 -> 27225 = **1.11x**, with zero tick change. Round-trip is OK
-and the baseline grades 7/7 (13,706,745,351 on Rust), so it is a legitimate smtplace
-target — but note its printed lower bound is **area-only** (`M >= 132`) and ignores the
-trivial `M >= max(block_w, block_h) = 165`. Pass `--min-m 165` or Z3 wastes the whole
-budget below the floor; at default `--timeout 120` the first solve returns `unknown`.
+and the baseline grades 7/7 (13,706,745,351 on Rust), so it is a legitimate smtplace target.
+
+**But Z3 cannot solve it.** Two runs, both `unknown` with 0 sat / 0 unsat:
+
+| run | settings | result |
+|---|---|---|
+| 1 | `--gap 1 --extra 12 --timeout 120` | solver timeout at 120s |
+| 2 | + `--min-m 165` (the true floor), `--timeout 480` | solver timeout at 480s |
+
+So 24 blocks / 43 pipes is already past this encoding's reach at an 8-minute budget — the
+pathfinder win in `0b55bfe` came from a *sparser* instance, not a bigger budget. Note also
+that the printed lower bound is **area-only** (`M >= 132`) and ignores the trivial
+`M >= max(block_w, block_h) = 165`; adding that as a hard constraint (not just a printed
+hint) is the cheapest available improvement to the encoding, since it removes 33 hopeless
+values of M from the search.
 
 ## 5. The bitplane floor is 144, and 149 is only the controller's own width
 

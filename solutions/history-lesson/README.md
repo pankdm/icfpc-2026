@@ -436,6 +436,43 @@ Measured, so they are not retried.
   pinned at 5 slots per row in every case — the widest entry is a 17-digit
   packed 8-byte phrase, and two more like it exhaust the cap.
 
+- **A better dictionary packer does not tilt that trade.**  P1's table is
+  already at its floor.  Every entry costs an irreducible 3 cells (two
+  backticks and its own `s`) plus its decimal digits, and the builder's scheme —
+  sort by width descending, chunk into consecutive groups of `R`, slot width =
+  group max — is the optimal grouping for a shared profile.  Three variants,
+  all measured, all landing on 82:
+
+  | extra | feeder | group A | B fixed profile | B 2-row bands | B 4-row bands | total |
+  | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+  | 0 | 64 | 2 | **4** | 6 | 4 | 82 |
+  | 3 | 63 | 2 | **5** | 6 | 8 | 82 |
+  | 6 | 62 | 2 | **6** | 6 | 8 | 82 |
+  | 10 | 61 | 2 | **7** | 8 | 8 | 82 |
+
+  Giving group B the feeder's variable-width bands is *worse*, not better: a
+  2-row band amortises the 3-cell overhead over two entries where the current
+  4-to-7-row profile spreads it over four to seven.  Unifying groups A and B
+  into one table is never better either (6/7/8/9 rows, i.e. exactly the split).
+
+  The mechanism behind the flatness: a dictionary entry stores its phrase once
+  in P1 at ~2.1 digits per character plus 3, and removes `(m-2)` symbols per
+  occurrence from the stream at ~1.96 cells each.  A P1 row holds 73 cells and a
+  feeder row about 77 occupied ones, so ~3.3 entries buy a feeder row and ~3.3
+  entries cost a P1 row.  This is not a tuning artifact — the encoder already
+  takes the profitable phrases first, so the *marginal* entry is break-even by
+  construction, and re-ranking the phrase pool moves which entries are marginal,
+  not the margin.
+
+  One real defect found while checking this, worth fixing on its own: group A
+  pairs position `j+1` with position `16-j` because the two rows are walked in
+  opposite directions, and the encoder assigns the 16 direct entries in
+  frequency order, so the widths pair badly — `TA` sums to 47 where the
+  width-optimal permutation gives 38.  `build_vertical_p1.py` already solves
+  exactly this with its `LOGICAL_ORDER` permutation.  It buys 9 cells of P1
+  width, which is not a row (group A is 2 rows either way), so it is cleanup
+  rather than score.
+
 - **A pipe may not loop back into its own room.**  The loader rejects it
   outright: *"pipe loops back to the room it started from — pipes must connect
   two different rooms"* (`scratchpad/history-disp/selfloop.man`).  That kills

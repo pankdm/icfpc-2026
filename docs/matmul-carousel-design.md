@@ -380,3 +380,36 @@ fires once per MAC, rb = 4096-256. 16^3 = 65.5k lap + 14.4k prologue walks
 2. The flush mechanism for acc-men (see above) — THE structural win:
    lap 10 at P=1 = ~11.5k avg, and it removes the holder ring entirely.
 3. A real P=2 barrier (gate ring with pre-loaded GO tokens?) on top of 2.
+
+---
+
+# P2-CC design (2026-07-27 morning) — mechanics PROBED, layout in progress
+
+Probes in `scratchpad/p7m/` (all verified on the Rust engine):
+- **U-relay**: 6-cell loop `U s v / > @ ^` forwards exactly 1 value / 6 ticks
+  (vs 8 for the R-relay). Feeds must attach the wall OPPOSITE the U's exit;
+  an off-row (diagonal) feed on the same wall still turns horizontally away
+  — two feeds on one wall work.
+- **Two men on one lap**: share r/s pipes FIFO-correctly, order-preserving
+  (`two_men_loop.man`). Oldest-wins is per-contention and permanent.
+- **Ram-halt**: a walker reaching a parked man's cell halts BOTH, silently,
+  non-fatally (both reaped). Free at termination; fatal-to-correctness mid-run.
+- **Y**: copies land perpendicular to the parent's heading, FACING OUTWARD;
+  land them on turn cells. Right copy keeps the parent's age (leader).
+
+Architecture (fully specified, worker room + loops laid out in build_p2.py):
+workers = uncounted 9-op lap [rb sb M ra * M' rc + sc], a arrives as consumed
+COPIES on the ra-pipe; controller sits INSIDE the c-ring: steady loop
+[r s W s(Ha) W m d] (10 ticks/MAC), k-step boundary via K-ring reload + A-ring
+pop with 150-markers after each row; emit pass [r s(OUT) 0 s(cret) s(Ha) m d];
+conditional P=2 via a token as the first ra-pipe value (X-gate, Y for M*K>=97,
+absorb the right-copy's inert first pass with BP=K+1 once). Worker stall sites
+are staggered by construction (leader parks at rc, follower at ra) and the
+whole machine is deterministic -> exhaustively verifiable over all 4096
+(N,M,K) shapes since timing is value-independent.
+
+Remaining: the CTRL/seeder plumbing (b-seed track needs IN and bfS adjacent —
+the recurring corner; U-relay placement vs the gap corridors), then the debug
+ladder: seed-only -> solo mode -> P=2 -> exhaustive sweep -> fold.
+Projection: 16^3 ~= 45k, avg ~10.6k, ~42^2 box -> ~18M (leader 8.32M needs
+P>=3 = transport >1/5.3, or 32^2 density — out of tonight's reach).

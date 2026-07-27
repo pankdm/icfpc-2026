@@ -1,0 +1,69 @@
+{
+ "source": "p6v1.man room3 (C)",
+ "interior": {
+  "x": [
+   6,
+   15
+  ],
+  "y": [
+   12,
+   15
+  ],
+  "w": 10,
+  "h": 4
+ },
+ "cells": {
+  "0,0": "v",
+  "1,0": "s",
+  "2,0": "<",
+  "4,0": "0",
+  "5,0": "a",
+  "6,0": "q",
+  "7,0": "s",
+  "8,0": "N",
+  "9,0": "<",
+  "9,1": "}",
+  "0,2": "@",
+  "1,2": "v",
+  "2,2": "X",
+  "3,2": "5",
+  "4,2": "M",
+  "5,2": "U",
+  "6,2": "b",
+  "7,2": "m",
+  "8,2": "]",
+  "9,2": "x",
+  "0,3": ">",
+  "1,3": "U",
+  "2,3": "^",
+  "4,3": "0",
+  "5,3": "d",
+  "6,3": "q",
+  "7,3": "s",
+  "8,3": "}",
+  "9,3": "<"
+ },
+ "notes": [
+  "relative coords: (col,row) with row 0 = top interior row",
+  "row 1 holds exactly ONE cell: } at (9,1) - arithmetic right shift, no turn, no positional constraint. It sits on a vertical connector between rows 0 and 2 and exists only because there are 4 rows. Free to relocate onto any straight run.",
+  "all four branches (a,X,x,d) already lie within a 3-row span",
+  "U turns AWAY from the supplying pipe, so its outgoing direction depends on where the pipe attaches - fix pipe sides before placing U",
+  "wall pipe attachments in the source: (11,11) top, (16,14) right, (11,16) bottom (absolute coords)"
+ ],
+ "count": 29,
+ "branches": {
+  "5,0": "a",
+  "2,2": "X",
+  "9,2": "x",
+  "5,3": "d"
+ },
+ "pipe_ops": {
+  "1,0": "s",
+  "6,0": "q",
+  "7,0": "s",
+  "5,2": "U",
+  "1,3": "U",
+  "6,3": "q",
+  "7,3": "s"
+ }
+}

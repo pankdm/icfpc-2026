@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import multiprocessing
 import os
 import random
 import sys
@@ -206,10 +207,10 @@ def main():
         for state, (key, symbols) in best.items()
     )[:24]
     print(f"exact finalists={len(ranked)} best-proxy={ranked[0][0]}")
-    # ProcessPoolExecutor probes SC_SEM_NSEMS_MAX on macOS, which is denied in
-    # the contest workspace sandbox. There are only a few dozen finalists, so
-    # exact-grade them directly.
-    results = [exact_worker(item) for item in ranked]
+    # A plain multiprocessing pool works in the current workspace and cuts
+    # the expensive exact feeder stage from 24 serial DPs to four lanes.
+    with multiprocessing.Pool(4) as pool:
+        results = list(pool.imap_unordered(exact_worker, ranked))
     results.sort()
     for result in results[:8]:
         print("exact", result[:3])

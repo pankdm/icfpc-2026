@@ -41,7 +41,7 @@ RH = 13                              # reader rows 0..12
 
 READER = [
     "v     sN<      <",              # 1  return leg runs WEST; `N` then send -seq
-    " > rb]]]Y@r1M  ^",              # 2  main loop runs EAST into the fork at col 9
+    " > rb]]]Y  @r1M^",              # 2  main loop runs EAST into the fork at col 9
     ">^  v]]bxb]]v   ",              # 3  level 1; cols 1-2 are the loop's dip
     "  vbxbv   vbxbv ",              # 4  level 2
     "  ]   ]   ]   ] ",              # 5  reload shift

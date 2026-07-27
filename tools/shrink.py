@@ -116,7 +116,14 @@ def footprint(path):
 
 
 def grade(slug, path, jobs, cap, cases):
-    """Rust-engine grade. Returns (ok, avg_ticks, box, note)."""
+    """Rust-engine grade. Returns (ok, avg_ticks, box, score, note).
+
+    The SCORE comes from the grader, never from `box * avg_ticks`. Not every problem is
+    scored that way: `history-lesson` is FOOTPRINT-ONLY, where the grader reports 6,561 for
+    a build whose `box * avgTicks` is 1,409,519,313. Computing the objective here would
+    chase tick reductions worth exactly nothing and could reject a genuine box win whose
+    ticks happened to rise.
+    """
     cmd = [sys.executable, os.path.join(TOOLS, "grade_fast.py"), slug, path,
            "--jobs", str(jobs)]
     if cap:
@@ -127,12 +134,13 @@ def grade(slug, path, jobs, cap, cases):
     try:
         data = json.loads(proc.stdout.strip().splitlines()[-1])
     except Exception:
-        return False, None, None, "grade_fast produced no JSON"
+        return False, None, None, None, "grade_fast produced no JSON"
     passed, total = data.get("passed"), data.get("total")
     if passed != total:
         # Averaged over a different case set — deliberately not comparable.
-        return False, None, None, f"{passed}/{total} cases"
-    return True, data["avgTicks"], data["footprint"]["box"], f"{passed}/{total} cases"
+        return False, None, None, None, f"{passed}/{total} cases"
+    box = data["footprint"]["box"]
+    return (True, data["avgTicks"], box, data["score"], f"{passed}/{total} cases")
 
 
 def equivalent(before, after):
@@ -245,10 +253,10 @@ def main():
     current = os.path.join(work, "current.man")
     shutil.copy(args.man, current)
 
-    ok, ticks, box, note = grade(args.slug, current, args.jobs, args.cap, args.cases)
+    ok, ticks, box, score, note = grade(
+        args.slug, current, args.jobs, args.cap, args.cases)
     if not ok:
         sys.exit(f"baseline does not pass ({note}) — nothing to compare against")
-    score = box * ticks
     w, h, _, content = footprint(current)
     print(f"baseline {os.path.basename(args.man)}: {w}x{h} box {box:,} "
           f"avgTicks {ticks:,.0f} score {score:,.0f} ({note}), "
@@ -278,10 +286,13 @@ def main():
             # tier 1 — proof, no simulation. Only legal for move-only passes, and only
             # when the box actually falls (equal behaviour + equal box is worth nothing).
             if moves_only and cbox < box and equivalent(current, cand):
+                # Behaviour is identical, so ticks are unchanged and the score scales with
+                # the box under either scoring rule.
                 print(f"  round {round_i} {name:10s} ACCEPT (proved equivalent) "
                       f"box {box:,} -> {cbox:,}  [no grading]")
                 shutil.copy(cand, current)
-                box, score = cbox, cbox * ticks
+                score = score * cbox / box
+                box = cbox
                 history.append((round_i, name, "equiv", cbox, ticks, score))
                 improved = True
                 continue
@@ -292,12 +303,11 @@ def main():
                     print(f"  round {round_i} {name:10s} skipped "
                           f"(not provably equivalent; --proved-only)")
                 continue
-            cok, cticks, cbox2, cnote = grade(
+            cok, cticks, cbox2, cscore, cnote = grade(
                 args.slug, cand, args.jobs, args.cap, args.cases)
             if not cok:
                 print(f"  round {round_i} {name:10s} reject ({cnote})")
                 continue
-            cscore = cbox2 * cticks
             if cscore >= score:
                 print(f"  round {round_i} {name:10s} reject "
                       f"score {cscore:,.0f} >= {score:,.0f}")

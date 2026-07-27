@@ -33,6 +33,16 @@ are projected against the frozen boards using the archived exact scores.
 | 4 | [LLLM](best-submissions/little-little-little-man.man) | 140×125 | 5.59B | 10/62 | <a href="best-submissions/screenshots/little-little-little-man.png"><img src="best-submissions/screenshots/little-little-little-man.png" width="120" alt="LLLM submission"></a> |
 | 4 | [LLM](best-submissions/little-little-man.man) | 356×793 | 2.80T | 10/55 | <a href="best-submissions/screenshots/little-little-man.png"><img src="best-submissions/screenshots/little-little-man.png" width="120" alt="LLM submission"></a> |
 
+## Solution recordings
+
+Screen recordings of solutions running, captured on the final day (2026-07-27).
+
+| Recording | Problem |
+|---|---|
+| [Reverse a List — champion](docs/videos/reverse-a-list-champion.mov) | our top [Reverse a List](best-submissions/reverse-a-list.man) solution, 11×11, 13.8K, rank 2/181 |
+| [Memory — champion](docs/videos/memory-champion.mov) | our top [Memory](best-submissions/memory.man) solution, 79×79, 5.75M, rank 2/190 |
+| [Memory — alternative](docs/videos/memory-alternative.mov) | an alternative Memory construction, kept for comparison |
+
 ## Contents
 
 | Folder | Contents |

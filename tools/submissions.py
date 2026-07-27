@@ -16,10 +16,12 @@ DevTools -> Network -> any /api/v1/ request -> Request Headers -> Cookie, then e
   python3 tools/submissions.py --all      full history, newest first
   python3 tools/submissions.py --match    also match each best to a local solutions/*.man
                                           of the same dimensions
+  python3 tools/fetch_best_submissions.py atomically download all best programs plus
+                                          a manifest into best-submissions/
 
-NOTE: the submitted PROGRAM TEXT is not retrievable from any endpoint (checked: Bearer
-GET /submissions/:id and the dashboard both omit it). git is the only copy — so never
-submit a build that is not committed.
+The submitted program text is downloadable only through the dashboard session endpoint.
+The API key can read a submission's grader result, but it cannot list dashboard history
+or download source. See tools/fetch_best_submissions.py for the durable archive workflow.
 """
 import argparse
 import json

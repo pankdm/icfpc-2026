@@ -604,6 +604,27 @@ grows to roughly 7-8 content rows.  At height 78 that is affordable — a 9-row
 DISP room makes the service band 9 and the program 79; a 10-row room makes it
 80.  Both still score 6,400.
 
+The cell-level plan, worked out but **not yet built**:
+
+- Move the ring machinery from rows 3/4 down to rows 6/7.  That is what unlocks
+  the rest: today *no column* passes through row 3 (it is full from x0 to x20),
+  so the byte path cannot reach any new row.  Freeing row 3's x10..x20 opens a
+  descent from row 2 into rows 4-5.
+- The byte path enters at row 2 x1 with `A = 29^v`, `B = v`, `BP = v`, and row 2
+  x9 is already `-` (the classifier's descent cell, which cannot move —
+  it must sit between the head's `X` and the 3-way `X` on the same column).
+  That turns out to be free work: load `18` into `A` over x2..x5 (`B = v`
+  survives), and the `-` at x9 computes `18 - v` on the way past.  Use the
+  factors `(18-v)(23-v)` rather than `(v-18)(v-23)` — same product.
+- Continue east on row 2: `M` (B=18-v), `5`, `+` (A = 23-v), `*`, then `X`.
+  `A<0` is in-range and turns north; `A==0` (v = 18 or 23) and `A>0` both fall
+  through to the literal-byte path.
+- In-range for `19-22`: `BP` still holds `v`, so `m` `m` and drop to the rotate
+  entry.  For `60-65`, rebuild from `B` with `W`, `M`, literal, `+`, `b`.
+- The ESC lane (`>` `r` `b`) moves to row 5; its eastward corridor and the
+  `v <= 16` descent can share one riser column into the rotate entry, exactly as
+  x10 does today.
+
 #### CORRECTION: route A ties at 6,561, it does not reach 6,400
 
 Route A was built (`build_80x80()`, `alphabet(30, 31)`) and the projection above

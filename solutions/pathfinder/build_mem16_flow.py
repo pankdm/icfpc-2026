@@ -437,6 +437,7 @@ def build(
     side_apron=False,
     tight_apron=True,
     merge_nb=False,
+    centered_hub=False,
 ):
     p = lm.Program()
     flow = build_flow_one_ring() if merge_nb else build_flow()
@@ -488,7 +489,7 @@ def build(
     # parallel with controller code instead of being added below it.
     L = Layout(p)
     memory_x, memory_y = -58, 20
-    memory = mem16(L, memory_x, memory_y)
+    memory = mem16(L, memory_x, memory_y, centered=centered_hub)
     # The hub accepts its sole command pipe through the bottom wall. The
     # collector similarly sends through its bottom wall.
     hub_end = (memory_x + 20, memory["bottom"] + 1)
@@ -611,6 +612,7 @@ if __name__ == "__main__":
     parser.add_argument("--tight-apron", dest="tight_apron", action="store_true")
     parser.add_argument("--no-tight-apron", dest="tight_apron", action="store_false")
     parser.add_argument("--merge-nb", action="store_true")
+    parser.add_argument("--centered-hub", action="store_true")
     parser.set_defaults(tight_apron=True)
     parser.add_argument(
         "--output", default=os.path.join(HERE, "mem16-flow-v1.man")
@@ -631,6 +633,7 @@ if __name__ == "__main__":
         args.side_apron,
         args.tight_apron,
         args.merge_nb,
+        args.centered_hub,
     )
     program.save(args.output)
     print("saved", args.output, "footprint", program.footprint())

@@ -469,49 +469,39 @@ def build(CW=124, CY0=20, CBOT=900, save_to=None, verbose=False,
     A.endblock()
 
     A.block("D_PM")
-    S.get("val"); S.put(); T.push("v");
-    HOME()
-    T.pop("v"); op("M"); op("2"); op("*"); op("M")
-    op("1"); op("-")                             # A = 1 - 2*val
-    T.push("sg")
-    S.get("B_lm"); S.put(); T.push("b");
-    T.pop("sg"); op("M"); T.pop("b"); op("*"); op("M")
-    S.get("A_lm"); op("+"); S.put()
+    S.get("val"); S.put(); op("M"); op("2"); op("*")
+    op("M"); op("1"); op("-")                    # A = 1 - 2*val = sign
+    op("M"); S.get("B_lm"); S.put(); op("*")     # A = sign * B_lm
+    op("M"); S.get("A_lm"); op("+"); S.put()
     HOME()
     A.jump("ADVANCE")
     A.endblock()
 
     A.block("D_ARROW")
-    S.get("val"); S.put(); T.push("vA"); T.push("vB");
-    HOME()
-    K(14); op("M"); T.pop("vA"); op("-")         # A = val - 14
+    K(14); op("M"); S.get("val"); S.put(); op("-")   # A = val - 14
+    op("M"); HOME(); op("W")
     A.branch("X", up="D_DIR", down="D_XOP", straight="D_HALT")
 
     A.block("D_DIR")
-    S.get("dir"); T.pop("vB"); S.put()
+    S.get("val"); S.put(); op("M"); S.get("dir"); op("W"); S.put()
     HOME()
     A.jump("ADVANCE")
     A.endblock()
 
     A.block("D_XOP")
-    T.drop("vB")
-    S.get("A_lm"); S.put(); T.push("a1"); T.push("a2");
-    HOME()
-    K(63); op("M"); T.pop("a1"); op("}"); T.push("hi")
-    T.pop("a2"); op("N"); T.push("na")
-    K(63); op("M"); T.pop("na"); op("}"); T.push("lo")
-    T.pop("lo"); op("M"); T.pop("hi"); op("-")   # A = sign(A_lm)
-    T.push("sg")
-    S.get("dir"); T.push("d0")
-    T.pop("sg"); op("M"); T.pop("d0"); op("+")
-    T.push("nd"); K(3); op("M"); T.pop("nd"); op("&")
+    K(63); op("M"); S.get("A_lm"); S.put(); op("}")           # A = a >> 63
+    T.push("hi")
+    K(63); op("M"); S.get("A_lm"); S.put(); op("N"); op("}")  # A = (-a) >> 63
+    op("M"); T.pop("hi"); op("-")                             # A = hi - lo = sign(a)
+    op("M"); S.get("dir"); op("+")                            # A = dir + sign
+    op("M"); op("4"); op("+")                                 # A in 3..8
+    op("M"); op("4"); op("W"); op("%")                        # A = (dir+sign) mod 4
     S.put()
     HOME()
     A.jump("ADVANCE")
     A.endblock()
 
     A.block("D_HALT")
-    T.drop("vB")
     S.get("halted"); op("1"); S.put()
     HOME()
     A.jump("STEPLOOP")
@@ -524,22 +514,19 @@ def build(CW=124, CY0=20, CBOT=900, save_to=None, verbose=False,
     A.endblock()
 
     A.block("ADVANCE")
-    S.get("dir"); S.put(); T.push("d1"); T.push("d2");
-    HOME()
-    K(4); op("M"); T.pop("d1"); op("*"); T.push("sA")
-    K(4); op("M"); T.pop("d2"); op("*"); T.push("sB")
-    K(DXT); T.push("tbl")
-    T.pop("sA"); op("M"); T.pop("tbl"); op("}")
+    # sh is computed ONCE and the two table words are loaded with `K(); M` so
+    # the shift comes back out of scratch straight into B via `W` -- konst always
+    # clobbers B, which is why the table cannot simply be materialised after it.
+    S.get("dir"); S.put(); op("M"); op("4"); op("*")   # A = sh = 4*dir
+    T.push("shA"); T.push("shB")
+    K(DXT); op("M"); T.pop("shA"); op("W"); op("}")
     T.push("t"); K(15); op("M"); T.pop("t"); op("&")
-    T.push("t"); op("1"); op("M"); T.pop("t"); op("-")
-    T.push("dx")
-    K(DYT); T.push("tbl")
-    T.pop("sB"); op("M"); T.pop("tbl"); op("}")
+    op("M"); op("1"); op("-"); op("N")                 # A = dx
+    op("M"); S.get("x"); op("+"); S.put()
+    K(DYT); op("M"); T.pop("shB"); op("W"); op("}")
     T.push("t"); K(15); op("M"); T.pop("t"); op("&")
-    T.push("t"); op("1"); op("M"); T.pop("t"); op("-")
-    T.push("dy")
-    T.pop("dx"); op("M"); S.get("x"); op("+"); S.put()
-    T.pop("dy"); op("M"); S.get("y"); op("+"); S.put()
+    op("M"); op("1"); op("-"); op("N")                 # A = dy
+    op("M"); S.get("y"); op("+"); S.put()
     HOME()
     A.jump("STEPLOOP")
     A.endblock()

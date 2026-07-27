@@ -555,6 +555,9 @@ def build(
     port_cols=None,
     tight_state_ring=0,
     right_frontier=0,
+    driver_x_min=88,
+    frontier_drop=3,
+    state_lift=2,
 ):
     p = lm.Program()
     flow = build_flow_one_ring(eager_payload) if merge_nb else build_flow()
@@ -677,15 +680,20 @@ def build(
         nb_x = ports["Ns"][0] - 3 + ring_shift if not merge_nb else None
         if tight_state_ring:
             _tight_state_ring(p, ports["Ss"], ports["Sr"],
-                              drop=tight_state_ring, lift=2)
+                              drop=tight_state_ring, lift=state_lift)
         else:
             _short_ring(p, ports["Ss"], ports["Sr"], state_x, apron_y, 1)
         if right_frontier:
+            # Both lanes stay inside the driver+display band so the capacity
+            # pipe never widens the box.
+            drv_x = max(driver_x_min, layout["width"] + 4)
             _right_frontier_ring(
                 p, ports["Fs"], ports["Fr"],
+                drop=frontier_drop,
+                west_row=frontier_drop + 5, east_row=frontier_drop + 6,
                 top=right_frontier,
-                ascend_x=max(96, layout["width"] + 12),
-                descend_x=max(90, layout["width"] + 6),
+                ascend_x=drv_x + 27,
+                descend_x=drv_x + 21,
             )
         else:
             _frontier_ring(
@@ -712,7 +720,7 @@ def build(
         # Keep the driver's left-side trunk strictly beyond the controller's
         # right wall. Wider four-lane layouts otherwise overwrite the bottom
         # wall where that trunk used to cross at x=86.
-        driver_x, driver_y = max(88, layout["width"] + 4), 20
+        driver_x, driver_y = max(driver_x_min, layout["width"] + 4), 20
         _add_driver(
             p,
             ports["Ds"],
@@ -771,6 +779,9 @@ if __name__ == "__main__":
         "--tight-state-ring", type=int, default=0,
         help="drop (rows below the controller) for the minimal STATE relay; "
              "0 keeps the original _short_ring")
+    parser.add_argument("--driver-x-min", type=int, default=88)
+    parser.add_argument("--frontier-drop", type=int, default=3)
+    parser.add_argument("--state-lift", type=int, default=2)
     parser.add_argument(
         "--right-frontier", type=int, default=0,
         help="top row of the FRONTIER capacity pipe in the free band right of "
@@ -811,6 +822,9 @@ if __name__ == "__main__":
         pcols,
         args.tight_state_ring,
         args.right_frontier,
+        args.driver_x_min,
+        args.frontier_drop,
+        args.state_lift,
     )
     program.save(args.output)
     print("saved", args.output, "footprint", program.footprint())

@@ -1,0 +1,5 @@
+slug sort-numbers  public 7  stress 203
+base 174529
+round 0: 67 unique proposals
+  none improve
+no improvement

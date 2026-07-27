@@ -1,0 +1,7 @@
+slug sudoku-validity  public 6  stress 284
+base 1645747
+round 0: 943 unique proposals
+  accept blk[4-5]x[25-26]+3  1645747 -> 1643395
+round 1: 946 unique proposals
+  none improve
+WROTE scratchpad/sweep/sw_sud.man  1645747 -> 1643395  (0.14%)

@@ -21,30 +21,17 @@ def evaluate_rail(cols, op_slack=0, x0=0, y0=0, nrail=10, max_rail=80,
         [(n, c) for n, c in cols.items() if GLYPH[n] == 'r']))
     opmax = max(cols.values()) + op_slack
     labels = list(flow.blocks)
-    padded = set()
-    for _ in range(160):
-        try:
-            cursor, entry, items, intent = railflow._lay_once(
-                flow, labels, cols, GLYPH, bands, x0, y0, nrail, opmax,
-                (), pad_after=padded)
-        except boustro.Conflict as e:
-            return {'error': str(e)}
-        cells, blocked = railflow._allocate(items, entry, x0, nrail, padded)
-        if cells is not None:
-            break
-        if blocked - padded:
-            padded |= blocked
-            continue
-        nrail += 2
-        if nrail > max_rail:
-            return {'error': 'rails %d' % nrail}
-    else:
-        return {'error': 'rail no converge'}
+    try:
+        cursor, entry, cells, nrail, intent = railflow.solve(
+            flow, labels, cols, GLYPH, bands, x0, y0, nrail, opmax,
+            (), max_rail)
+    except boustro.Conflict as e:
+        return {'error': str(e)}
     max_y = max(y for _, y in cursor.cells)
     height = max_y + 1 - y0 + 1
     width = max(opmax, max(cols.values())) + 2 - x0
     return {'width': width, 'height': height, 'ncorr': nrail,
-            'cells': len(cursor.cells), 'npad': len(padded)}
+            'cells': len(cursor.cells)}
 
 
 if __name__ == '__main__':

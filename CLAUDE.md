@@ -470,6 +470,27 @@ samples), and **66 is the pre-shrink height floor**, i.e. box 4,225. Two ideas k
   pipe**. That pipe's latency is on the critical path: rounds withhold input until the frame
   commits, and the `r:I` stall is 8.7% of all ticks. Net zero.
 
+### Mechanical-pass sweep, 2026-07-27 11:xxZ — three slugs are at the GEOMETRY floor
+
+`tools/shrink.py` and `tools/compact_man.py` both find **nothing** on:
+
+| slug | champion | shrink | compact_man |
+|---|---|---|---|
+| sudoku-validity | `r2.man` (sud-aggregator), 28x28/784, local 1,645,747 | fixpoint | 28x28 → 28x28 |
+| tcp | `bx22x22-left-b.man`, 22x22/484 | fixpoint | 22x22 → 22x22 |
+| history-lesson | `candidates/79x80-stream.man` + `sq1-yp1-79x80.man` (hist-radix), 6400 | fixpoint | no change |
+
+So the `push12` result was not a general rule: shrink pays on **loose, emitter-generated**
+grids (snake's controller was 20% dense) and finds nothing on hand-folded ones — history
+lesson's champion is **95.2% dense**. Check density before spending a shrink run.
+
+For history-lesson specifically, `build_ring.build_streaming_squeezed(squeeze, weight, year_pad)`
+has `W = 79 - squeeze + year_pad`; a sweep of `weight` ∈ {1.0 … 1.5} shows 1.3/1.35/1.4/1.5 all
+reproduce 79x80/6400, and **weight ≤ 1.2 encodes to a 74x75 layout** — i.e. the *encoding* has
+another 12% in it — but it dies on `p1_room`'s `sum(TB) + 3*nB + 4 <= inner + 1`: the group-B
+dictionary rows no longer fit the P1 room's inner width. That is a real re-layout of P1, not a
+knob, and it is the first thing to try if this problem is ever reopened.
+
 ### Measured dead ends (2026-07-26) — do not repeat these
 
 

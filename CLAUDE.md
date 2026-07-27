@@ -418,6 +418,27 @@ but do not expect it to rescue a dense grid.
   replica is ready — a guarantee that gets *weaker* as the layout compacts.
 - **Snake box is at its floor**: `code_x` ∈ {10,20,40,60} × `op_slack` ∈ {0,10,40,100} ×
   `scalar_belts` × `cell_belts` all leave `ctrlH = 200` and best box 64,009 (= the champion).
+- **Snake `build_fold*` box floor is 5,329 = 73² and it is WIDTH-bound** (measured 2026-07-27).
+  width = CW + 21, and *both* terms are on their floor: the 21-column east strip is 18 display +
+  3 routing (SWAP descent, DATA descent, DATA's east-turn cell — 2 cannot do it, the SWAP descent
+  occupies the only column DATA could turn into), and **CW < 53 is real**: a 1.1M-sample hunt at
+  CW=52/51 found configs that build and pass, but every one costs 12–17 extra controller rows
+  (box 6,889–7,744). `shrink.py` mechanically folds one column, so 74→73 and no further. Height
+  is now 69 with 4 rows of pure slack: **row cuts are worth zero on snake's box, only on ticks.**
+- **Re-attaching snake's `r:I` off the single ATT row does NOT pay.** Moving the input attach to
+  column 32–33, between the state and body lanes, does what it promises — SPAWN 8→4 rows, INIT
+  9→7, its 15 wraps →8 — but it narrows `r:S` from 1..33 to 1..28 and shifts `r:B` to 41..51, and
+  the hot blocks pay it all back: DISPATCH +1, TICK +1, NOEAT +2, EAT +1, DIR +2. Net **62 → 63
+  controller rows**, i.e. worse. Left/bottom-wall attachment is worse still: with a 62-row
+  controller the y-term dominates, so any off-ATT attachment wins a huge pocket of rows next to
+  that wall and steals them from `r:S` on every row.
+- **Snake knob searches are silently wrong unless gated on generality.** A graded search on the
+  5 public cases reached 39.9M (74×70) — and 49/386 on the fuzz, *every* failure a north/west
+  death. Cause: the three death highways share one row and the deepest entrant walks east over
+  the others' pops, so moving `D_HY`/`D_HX` one column apart lets a pop group spill past the next
+  entry arrow. `build_fold3.py` now replays each highway's walk and counts the `r` cells it steps
+  on (exact, not a spacing heuristic). Gate every snake search on `tests/snake-sentinel.json`
+  (24 cases, 0.5 s); `tests/snake-{mini,stress}.json` are the 60- and 106-case versions.
 - ~~**History Lesson is at its layout floor** (83×83 exact)~~ — **REFUTED 2026-07-26.** That
   claim was about `build_ring.py` only, and a different construction beat it: a folded dispatcher
   plus variable-width feeder bands reach **82×82, box 6724** (`solutions/history-lesson/best/82x82.man`,

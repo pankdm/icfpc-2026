@@ -534,3 +534,49 @@ This means full-round integration does not need a 256-cell RAM or even a
 mutable bitplane reset.  Setup packs sixteen canonical OPEN words once; every
 round injects sixteen flag masks (fifteen zero, one selected column bit), and
 the existing feedback loop supplies all later state/frontier pairs.
+
+### Compact query kernel and its SMT floor
+
+The first queryable composition was 218×188 because every row used the
+spacious 10×18 proof service and the controller injected a positive mode
+token between adjacent lanes.  SMT showed this was not a floorplanning
+problem: nearest-port bands forced a 212-cell controller interior, hence a
+216-cell overall width.  The hierarchical model could only repack it to
+216×181, and inner-room SMT could only suggest 218→216.
+
+Two local rewrites remove that width:
+
+1. `pathfinder_parent_query_compact.py` drops the redundant literal zero on
+   the reset path (`X` already guarantees A=0) and folds the service to 9×14.
+   Its 22 deterministic/random streams all pass.
+2. The D priority stage uses its two previously empty perimeter slots for
+   `1,s`, producing `[1,U,R,L,D,state]` itself.  Controller-side mode
+   injection disappears completely.
+
+The resulting `pathfinder_closed_query_wavefront.py` compact build is
+167×172 and passes both dense and sparse 64-layer parent-state comparisons.
+Three composition traps were caught:
+
+- a first pipe segment collapsed horizontally and created an orphan endpoint
+  accepted by Rust but rejected by the oracle topology parser;
+- the next lane's return highway overwrote the previous parent room's corner;
+- at `tile0=2`, lane zero's compact D column landed on controller return
+  column x=1, so every later lap skipped its two seed receives.
+
+The shutdown gate also needs a real drain.  Lane 15 completing layer 64 does
+not imply every earlier lane has retired its last packet.  The controller now
+walks the otherwise empty bottom row, consuming final return pairs before H;
+lane zero receives one extra pair drain for the measured two-packet skew.
+
+SMT on the corrected artifact gives:
+
+```text
+exact rooms:       area lower bound side 143; no model before timeout
+hierarchical:      167×172 implementation -> 164×165 rigid envelope
+inner controller:  12 physical op rows as built; model needs 68
+```
+
+Thus only about 8% box remains in coarse floorplanning.  Applying `smtrows`
+would regress the grid to 167×226.  The credible large win is completing the
+round/setup/query/display shell around this low-tick kernel, then realizing
+the 164×165 envelope; it is not further generic controller repacking.

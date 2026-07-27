@@ -13,8 +13,12 @@ Encoded rules (all verified against the oracle elsewhere):
   * the last cell points into a wall cell of the destination room
   * a pipe may turn at the very next cell after the source
   * pipe cells may not overlap rooms or other pipes
-  * seq and drain must reach the checker on OPPOSITE walls (north/south) at the
-    SAME interior column -- that is what lets `U` tell them apart by its turn
+  * seq and drain must reach the checker on OPPOSITE walls (north/south), at
+    ANY interior column and independently of each other. `U`'s turn is
+    pipe_flow_dir = the END ARROWHEAD direction (lib.rs op_recv_any), i.e. the
+    direction the value flows INTO the room -- it does not depend on where `U`
+    stands or on the two pipes sharing a column. An earlier version of this
+    search wrongly pinned both to U's column.
 
 usage: bandsearch.py [width] [checker_h] [reader_h]
 """
@@ -103,9 +107,13 @@ def solve(W, CH, RH, verbose=False):
     for cy in range(0, H - CH + 1):
         checker = (READER_W, cy, 4, CH)
         cL, cR = READER_W + 1, READER_W + 2      # interior columns
-        for ux in (cL, cR):                       # U's column
-            north = (ux, cy)
-            south = (ux, cy + CH - 1)
+        # U's turn is pipe_flow_dir = the END ARROWHEAD direction (lib.rs
+        # op_recv_any/pipe_flow_dir), NOT the pipe's position relative to U.
+        # So seq only has to flow SOUTH into the north wall and drain NORTH into
+        # the south wall; their columns are independent of each other and of U.
+        for ux in (cL,):
+            north = {(cL, cy), (cR, cy)}
+            south = {(cL, cy + CH - 1), (cR, cy + CH - 1)}
             for iy in range(0, H - 3 + 1):
                 for ix in range(READER_W, W - 3 + 1):
                     iroom = (ix, iy, 3, 3)
@@ -123,8 +131,8 @@ def solve(W, CH, RH, verbose=False):
                                 allw |= walls(rm)
                             plans = [
                                 ('input', iroom, reader, None, allw, spurious_start),
-                                ('seq', reader, checker, lambda n: n == north, allw, spurious_start),
-                                ('drain', sweeper, checker, lambda n: n == south, allw, spurious_start),
+                                ('seq', reader, checker, lambda n: n in north, allw, spurious_start),
+                                ('drain', sweeper, checker, lambda n: n in south, allw, spurious_start),
                                 ('output', checker, oroom, None, allw, spurious_start),
                             ]
                             sol = try_all(plans, base, route, 0, {})

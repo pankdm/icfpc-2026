@@ -3,13 +3,13 @@
   "CW": 50,
   "ST_OUT": 22,
   "FEED_W": 25,
-  "LOOPR": 37,
+  "LOOPR": 31,
   "ST_X0": 19,
   "D_REP": 30,
   "HW_RET": 46,
   "HW_TICK": 35,
   "HW_SPAWN": 47,
-  "HW_DIR": 34,
+  "HW_DIR": 29,
   "D_EAT": 30,
   "D_NOEAT": 16,
   "DRV_OUT": 49,
@@ -22,8 +22,8 @@
   "D_COLL": 10,
   "CXL": 8
  },
- "score": 28150988.8,
- "box": 4096,
- "ticks": 6872.8,
+ "score": 27895719.599999998,
+ "box": 3969,
+ "ticks": 7028.4,
  "cap": 51
 }

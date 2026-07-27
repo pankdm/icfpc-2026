@@ -168,10 +168,33 @@ fn run_grade(args: &Args, rows: &[String]) {
         return;
     }
     let mut settle_tick: Option<u64> = None;
+    // LM_MTRACE="x0,y0,x1,y1[,t0,t1]" — env-gated man tracer (debug only; unset = zero effect).
+    let mtrace: Option<(i32, i32, i32, i32, u64, u64)> = std::env::var("LM_MTRACE").ok().and_then(|s| {
+        let p: Vec<i64> = s.split(',').filter_map(|t| t.trim().parse().ok()).collect();
+        if p.len() >= 4 {
+            Some((p[0] as i32, p[1] as i32, p[2] as i32, p[3] as i32,
+                  if p.len() > 4 { p[4] as u64 } else { 0 },
+                  if p.len() > 5 { p[5] as u64 } else { u64::MAX }))
+        } else { None }
+    });
     loop {
         if w.output_settled() && settle_tick.is_none() { settle_tick = Some(w.step_count); }
         if w.end != EndReason::Running { break; }
         if w.output_settled() { break; }
+        if let Some((x0, y0, x1, y1, t0, t1)) = mtrace {
+            let t = w.step_count;
+            if t >= t0 && t <= t1 {
+                for r in w.snapshot_runners() {
+                    if r.pos.0 >= x0 && r.pos.0 <= x1 && r.pos.1 >= y0 && r.pos.1 <= y1 {
+                        let g = rows.get(r.pos.1 as usize)
+                            .and_then(|l| l.chars().nth(r.pos.0 as usize)).unwrap_or(' ');
+                        eprintln!("MT {} {} {} {} {} {} {} {} {} {}",
+                            t, r.id, r.pos.0, r.pos.1, g, r.a, r.b, r.bp, r.dir.0, r.dir.1);
+                    }
+                }
+            }
+            if t > t1 { break; }
+        }
         w.step();
     }
     if w.output_settled() && settle_tick.is_none() { settle_tick = Some(w.step_count); }

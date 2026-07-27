@@ -7,7 +7,7 @@
               |v<         >----^|    |   >>|    1    |
               ^v          ^     v    v   ^ |>@r Xv   |
 +----------------------------------------+ |    >> sv|
-|                         v    <v-W1Mr<  | |^    sr <|
+|                    v         <v-W1Mr<  | |^    sr <|
 |                             vX<        | +---------+
 |                          v   <         |   v  v   v
 |                             >        v |v--<  |   |
@@ -19,33 +19,31 @@
 |> W~v> v                                ||  :                :
 |    >X               v                  ||  :                :
 |     > v                                ||  :                :
-|       >Ws~Mrsb        rs  mv           ||  :                :
-|                            > d v       ||  :                :
-|                              r         ||  :                :
-|                              s         ||  :                :
-|                              ~         ||  :                :
-|                            ^mX         ||  :                :
-| v                            <         ||  :                :
+|       >Ws~Mrsb        rsm v            ||  :                :
+|                   v       <            ||  :                :
+|                   >     v              ||  :                :
+|                         >    d v       ||  :                :
+| v                      <X~srm<         ||  :                :
 |                           vWsWr<       ||  :                :
 |                           >     s0sW  v||  :                :
 |                                v+M5s  <||  :                :
-|                                >s1Ns^  ||  +================+
-|                     >Ws         sv     ||   ^
-|        v+M5sWsN1M+1M r           <     |>---^
-|        >                        s1Ns^  |
-| >rrr > rrrrb               v           |
-|      v               <vb<  > d v       |
-|                      x<      r         |
-|                     v<       >  s9sv   |
-|                            ^m      <   |
+|                                >s1Ns^  ||  :                :
+|                     >Ws         sv     ||  :                :
+|     v  +M5sWsN1M+1M  r           <     ||  +================+
+|     >                           s1Ns^  ||   ^
+| >rrr > rrrrb            v              |>---^
+|                    > bv >    d v       |
+|      v               <       r         |
+|                      x<      >  s9sv   |
+|                     v<  ^   m      <   |
 |                             vN1<       |
 |                             >   sH     |
-|      > M2-NM5W{MrWsW rv                |
-|v srsr  srs}W1MWrsrs   <                |
+|      > M2-NM5W{MrWs  Wv                |
+|v srsr  srs}W1MWrsrs  r<                |
 |>                                    ^  |
-|                     >M3-  Mv           |
-|  vsrs  rsrsWrsrsrWsW r     <           |
-|  >                                  ^  |
+|                     >M3-M v            |
+|v srsr  srsWrsrsrWsW  r    <            |
+|>                                    ^  |
 |                  vs              rM4 < |
 |                  >               r{M  v|
 |v M+rs  rsrsrsrsrsrs  r                <|
@@ -56,7 +54,7 @@
 |                  vs               <    |
 |                  >               r{M  v|
 |v 1sWs  rs1Mrs-s++rs  r                <|
-|> srs               s            s5M+  v|
+|> srs                 s          s5M+  v|
 |                  vs              N1s  <|
 |                  >              s1v    |
 |                  vs               <    |

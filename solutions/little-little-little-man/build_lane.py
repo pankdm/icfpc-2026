@@ -70,6 +70,7 @@ from micro_asm import Asm, Ring, Scratch, konst_tokens     # noqa: E402
 
 COLW = 900518012169219          # colour nibble per hash slot
 VALW = 334255563538446          # operand nibble per hash slot
+M4W = 0x4444444444444444        # one nibble 4 per LLLM column
 DXT = 289                       # nibble[dir] = dx+1   (N,E,S,W)
 DYT = 4624                      # nibble[dir] = dy+1
 
@@ -140,9 +141,9 @@ def hw_columns(g, win, nhw, bias, pocket=8):
     return sorted(cols)
 
 
-def build(CW=165, CY0=20, CBOT=900, save_to=None, verbose=False,
-          NHW=62, HWBIAS=1.0, SPC=50, TPC=85, PPC=20, LAZY=True,
-          POCKET=8, MEN=1, SPAD=6, TPAD=0, PPAD=14):
+def build(CW=156, CY0=20, CBOT=900, save_to=None, verbose=False,
+          NHW=58, HWBIAS=1.0, SPC=45, TPC=80, PPC=12, LAZY=True,
+          POCKET=6, MEN=1, SPAD=6, TPAD=0, PPAD=14, AHEAD=True):
     g = mc.geometry(CW=CW, CY0=CY0, CBOT=CBOT, SPC=SPC, TPC=TPC, PPC=PPC, MEN=MEN,
                     SPAD=SPAD, TPAD=TPAD, PPAD=PPAD)
     win = mc.lane_windows(g)
@@ -152,12 +153,28 @@ def build(CW=165, CY0=20, CBOT=900, save_to=None, verbose=False,
     wrapcols = {freecols[0], freecols[1], freecols[-1], freecols[-2]}
     forbidden = hw + sorted(wrapcols)
     E = mc.Emit(L, g, win, forbidden, wrapcols=wrapcols)
-    A = Asm(L, E, g, [c for c in forbidden if c not in wrapcols])
+    A = Asm(L, E, g, [c for c in forbidden if c not in wrapcols], ahead=AHEAD)
     S = Ring(A, "S", LOAD_SLOTS)
     T = Scratch(A, "T", 9)
     A.S, A.T = S, T
     K, op = A.konst, A.op
     tok = E.tok
+
+    _mtmp = [0]
+
+    def MASK4():
+        """A := A & 15.
+
+        MEASURED DEAD END, recorded so nobody re-runs it: holding 15 in a STATE
+        RING SLOT instead (`M`, get k15, `W`, `&` -- every cell in the S lane, no
+        scratch at all) is WORSE, not better.  Nine sites x 2 scratch ops saved,
+        but the twelfth slot lengthens every OTHER ring access, and the extra
+        rotations eat the same S-window columns the wraps were coming from:
+        179 -> 185 rows and 305k -> 345k ticks.  Ring width beats lane crossings
+        here.  Keep the scratch round trip; just keep it in ONE place."""
+        _mtmp[0] += 1
+        nm = "m4t%d" % _mtmp[0]
+        T.push(nm); K(15); op("M"); T.pop(nm); op("&")
 
     def HOME():
         # With LAZY the ring keeps whatever head the block ends on and jump()
@@ -195,15 +212,15 @@ def build(CW=165, CY0=20, CBOT=900, save_to=None, verbose=False,
     K(29); op("M")
     T.pop("cB"); op("*")                         # A = 29c
     op("M"); op("6"); op("W"); op("}")           # A = 29c >> 6
-    T.push("h"); K(15); op("M"); T.pop("h"); op("&")     # A = hash slot
+    MASK4()     # A = hash slot
     op("M"); op("4"); op("*")                    # A = sh = 4h
     T.push("shB"); op("M")                       # B = sh
     S.get("COLW"); S.put(); op("}")              # A = COLW >> sh
-    T.push("t"); K(15); op("M"); T.pop("t"); op("&")
+    MASK4()
     op("M"); S.get("col"); op("W"); S.put()      # col := colour nibble
     T.pop("shB"); op("M")
     S.get("VALW"); S.put(); op("}")
-    T.push("t"); K(15); op("M"); T.pop("t"); op("&")
+    MASK4()
     op("M"); S.get("val"); op("W"); S.put()
     HOME()
     A.jump("ATTEST")
@@ -248,11 +265,6 @@ def build(CW=165, CY0=20, CBOT=900, save_to=None, verbose=False,
     op("b")
     HOME()
     A.tight(["0", "s:P", "s:P"])
-    A.jump("FIXSET")
-    A.endblock()
-
-    # ═══ WALL PASS: recolour the room's horizontal walls ═════════════════
-    A.block("FIXSET")
     K(16); op("b")
     HOME()
     A.jump("FIXHEAD")
@@ -292,31 +304,33 @@ def build(CW=165, CY0=20, CBOT=900, save_to=None, verbose=False,
 
     # ═══ hand the ring over to the STEP schema ═══════════════════════════
     A.block("STEPSET")
-    S.get("mani"); S.put(); T.push("mani");
-    S.get("W"); S.put(); T.push("Wc");
-    HOME()
-    for _ in range(len(LOAD_SLOTS)):
-        tok("r:S")
-    T.pop("Wc"); op("M")
-    T.pop("mani"); op("/")                       # A = many, B = manx
-    T.push("many"); op("W"); T.push("manx")
-    op("0"); tok("s:S")                          # halted
-    op("0"); tok("s:S")                          # k
-    T.pop("manx"); tok("s:S")                    # x
-    T.pop("many"); tok("s:S")                    # y
-    op("1"); tok("s:S")                          # dir = EAST
-    op("0"); tok("s:S")                          # A_lm
-    op("0"); tok("s:S")                          # B_lm
-    op("0"); tok("s:S")                          # val
-    op("0"); tok("s:S")                          # pa
-    op("0"); tok("s:S")                          # pc
+    # REWRITE THE RING IN PLACE.  Draining 11 slots and pushing 10 costs the
+    # same ops, but it needed both W and mani parked in SCRATCH across the drain
+    # -- eight T ops, i.e. eight crossings of the whole interior, and this was
+    # the fattest block in the program (11 rows, 10 wraps).
+    #
+    # B survives a rotation AND a digit (a digit writes A only), so W reaches the
+    # divide in B with no temp at all, and `/` hands back BOTH halves at once:
+    # A = mani/W = many, B = mani%W = manx.  Rewriting slot by slot as
+    # `r, value, s` then keeps manx alive in B across the two zero slots in front
+    # of it and `W` drops it into place; only `many` needs the one scratch trip.
+    S.get("W"); S.put(); op("M")                 # B = W
+    S.get("mani"); S.put(); op("/")              # A = many, B = manx
+    T.push("many")
+    tok("r:S")                                   # 11 live slots -> 10
+    for slot in STEP_SLOTS:
+        tok("r:S")                               # drop the stale LOAD slot
+        if slot == "x":
+            op("W")                              # A = manx  (B = 0)
+        elif slot == "y":
+            T.pop("many")
+        elif slot == "dir":
+            op("1")                              # EAST
+        else:
+            op("0")
+        tok("s:S")
     S2 = Ring(A, "S", STEP_SLOTS)
     A.S = S = S2
-    A.jump("FRAME")
-    A.endblock()
-
-    # ═══ FRAME: repaint all 256 pixels, draw the man, commit ═════════════
-    A.block("FRAME")
     K(16); T.push("rowc")
     A.jump("PAINTOUT")
     A.endblock()
@@ -340,7 +354,7 @@ def build(CW=165, CY0=20, CBOT=900, save_to=None, verbose=False,
     op("m")
     K(60); op("M")
     T.pop("w"); T.push("w2"); op("}")
-    T.push("nb"); K(15); op("M"); T.pop("nb"); op("&")
+    MASK4()
     tok("s:D")
     K(4); op("M"); T.pop("w2"); op("{")
     T.push("w")
@@ -370,23 +384,22 @@ def build(CW=165, CY0=20, CBOT=900, save_to=None, verbose=False,
 
     # ═══ MANDRAW: (re)read the colour under the man, draw him, commit ════
     A.block("MANDRAW")
+    # Same shape as TICK: shift first, so the plane word is masked the moment it
+    # comes off the ring and never crosses the interior in scratch.
+    K(4); op("M"); S.get("x"); S.put(); op("*"); op("N")
+    T.push("n4"); K(60); op("M"); T.pop("n4"); op("+")   # A = sh = 60 - 4x
+    T.push("sh1")
     K(2); op("M"); S.get("y"); S.put(); op("*"); op("b")
     A.tight(["r:P", "s:P"])
-    tok("r:P"); T.push("C"); tok("s:P")
+    tok("r:P"); tok("s:P"); op("M")              # B = C[y]
+    T.pop("sh1"); op("W"); op("}")               # A = C >> sh
+    MASK4()
+    op("M"); S.get("pc"); op("W"); S.put()       # pc := colour under the man
     K(2); op("M"); S.get("y"); S.put(); op("*"); op("N")
     T.push("n2"); K(31); op("M"); T.pop("n2"); op("+")   # A = 31 - 2y
     op("b")
     A.tight(["r:P", "s:P"])
     HOME()
-    A.jump("MFIN")
-    A.endblock()
-
-    A.block("MFIN")
-    K(4); op("M"); S.get("x"); S.put(); op("*"); op("N")
-    T.push("n4"); K(60); op("M"); T.pop("n4"); op("+")   # A = sh = 60 - 4x
-    op("M"); T.pop("C"); op("}")
-    T.push("t"); K(15); op("M"); T.pop("t"); op("&")
-    op("M"); S.get("pc"); op("W"); S.put()       # pc := colour under the man
     K(16); op("M"); S.get("y"); S.put(); op("*")
     op("M"); S.get("x"); S.put(); op("+")        # A = 16y + x
     op("M"); S.get("pa"); op("W"); S.put()       # pa := addr, A = addr
@@ -394,11 +407,6 @@ def build(CW=165, CY0=20, CBOT=900, save_to=None, verbose=False,
     op("M"); op("2"); op("+"); op("N"); tok("s:D")
     op("9"); tok("s:D")
     op("1"); op("N"); tok("s:D")                 # -1 -> SWAP 1 (preserve)
-    A.jump("RDK")
-    A.endblock()
-
-    # ═══ round loop ══════════════════════════════════════════════════════
-    A.block("RDK")
     tok("r:I"); op("M"); S.get("k"); op("W"); S.put()
     HOME()
     A.jump("STEPLOOP")
@@ -416,45 +424,45 @@ def build(CW=165, CY0=20, CBOT=900, save_to=None, verbose=False,
 
     # ═══ one LLLM tick ═══════════════════════════════════════════════════
     A.block("TICK")
+    # THE TWO PLANE WORDS NEVER TOUCH SCRATCH.  Reading C[y] into a temp, walking
+    # back for V[y], and only then computing the shift meant both 64-bit words
+    # crossed the whole interior twice.  Compute the shift FIRST, park the two
+    # copies it needs, and then each word is masked the instant it comes off the
+    # ring: `r,s` leaves it in A, `M` puts it in B, the scratch pop brings sh back
+    # into A and `W` turns them the right way round.
+    K(4); op("M"); S.get("x"); S.put(); op("*"); op("N")
+    T.push("n4"); K(60); op("M"); T.pop("n4"); op("+")   # A = sh = 60 - 4x
+    T.push("sh1"); T.push("sh2")
     K(2); op("M"); S.get("y"); S.put(); op("*")  # A = 2y
     op("b")
     A.tight(["r:P", "s:P"])
-    tok("r:P"); T.push("C"); tok("s:P")
-    tok("r:P"); T.push("V"); tok("s:P")
+    tok("r:P"); tok("s:P"); op("M")              # B = C[y]
+    T.pop("sh1"); op("W"); op("}")               # A = C >> sh
+    MASK4()
+    T.push("cA"); T.push("cB")                   # two copies of the colour
+    tok("r:P"); tok("s:P"); op("M")              # B = V[y]
+    T.pop("sh2"); op("W"); op("}")
+    MASK4()
+    op("M"); S.get("val"); op("W"); S.put()
     K(2); op("M"); S.get("y"); S.put(); op("*"); op("N")
     T.push("n2"); K(30); op("M"); T.pop("n2"); op("+")   # A = 30 - 2y
     op("b")
     A.tight(["r:P", "s:P"])
-    HOME()
-    A.jump("TICK3")
-    A.endblock()
-
-    A.block("TICK3")
-    K(4); op("M"); S.get("x"); S.put(); op("*"); op("N")
-    T.push("n4"); K(60); op("M"); T.pop("n4"); op("+")   # A = sh = 60 - 4x
-    T.push("sB"); op("M")
-    T.pop("C"); op("}")
-    T.push("t"); K(15); op("M"); T.pop("t"); op("&")
-    T.push("cA"); T.push("cB")                   # two copies of the colour
-    T.pop("sB"); op("M"); T.pop("V"); op("}")
-    T.push("t"); K(15); op("M"); T.pop("t"); op("&")
-    op("M"); S.get("val"); op("W"); S.put()
     HOME()
     K(8); op("M"); T.pop("cA"); op("-")          # A = col - 8
     A.branch("X", up="D_LOW", down="D_HIGH", straight="D_DIGIT")
 
     A.block("D_LOW")
     K(3); op("M"); T.pop("cB"); op("-")          # A = col - 3
-    A.branch("X", up="D_SPACE", down="D_WALL", straight="D_ARROW")
+    A.branch("X", up="ADVANCE", down="D_HALT", straight="D_ARROW")
 
     A.block("D_HIGH")
     K(12); op("M"); T.pop("cB"); op("-")         # A = col - 12
     A.branch("X", up="D_PM", down="HALTBLK", straight="D_M")
 
-    A.block("D_SPACE")
-    A.jump("ADVANCE")
-    A.endblock()
-
+    # D_SPACE was an empty block whose only job was to jump to ADVANCE, and
+    # D_WALL was byte-identical to D_HALT.  Both arms now name their real target,
+    # which deletes two block rows and two jumps.
     A.block("D_DIGIT")
     T.drop("cB")
     S.get("val"); S.put(); op("M"); S.get("A_lm"); op("W"); S.put()
@@ -507,12 +515,6 @@ def build(CW=165, CY0=20, CBOT=900, save_to=None, verbose=False,
     A.jump("STEPLOOP")
     A.endblock()
 
-    A.block("D_WALL")
-    S.get("halted"); op("1"); S.put()
-    HOME()
-    A.jump("STEPLOOP")
-    A.endblock()
-
     A.block("ADVANCE")
     # sh is computed ONCE and the two table words are loaded with `K(); M` so
     # the shift comes back out of scratch straight into B via `W` -- konst always
@@ -520,11 +522,11 @@ def build(CW=165, CY0=20, CBOT=900, save_to=None, verbose=False,
     S.get("dir"); S.put(); op("M"); op("4"); op("*")   # A = sh = 4*dir
     T.push("shA"); T.push("shB")
     K(DXT); op("M"); T.pop("shA"); op("W"); op("}")
-    T.push("t"); K(15); op("M"); T.pop("t"); op("&")
+    MASK4()
     op("M"); op("1"); op("-"); op("N")                 # A = dx
     op("M"); S.get("x"); op("+"); S.put()
     K(DYT); op("M"); T.pop("shB"); op("W"); op("}")
-    T.push("t"); K(15); op("M"); T.pop("t"); op("&")
+    MASK4()
     op("M"); op("1"); op("-"); op("N")                 # A = dy
     op("M"); S.get("y"); op("+"); S.put()
     HOME()
@@ -551,18 +553,19 @@ def build(CW=165, CY0=20, CBOT=900, save_to=None, verbose=False,
     op("0"); tok("s:S")                          # vw
     op("0"); tok("s:S")                          # n
     op("0"); tok("s:S")                          # mani
-    tok("r:I"); T.push("Wc"); tok("s:S")         # W
-    tok("r:I"); T.push("Hc"); tok("s:S")         # H
-    K(4)
-    for sh in (4, 8, 16, 32):                    # 4 -> 0x4444444444444444
-        T.push("v1"); T.push("v2")
-        K(sh); op("M")
-        T.pop("v1"); op("{"); op("M")
-        T.pop("v2"); op("|")
-    tok("s:S")                                   # m4
+    tok("r:I"); tok("s:S")                       # W
+    tok("r:I"); tok("s:S")                       # H
+    tok("#%d" % M4W); tok("s:S")                 # m4 = 0x4444444444444444
     tok("#%d" % COLW); tok("s:S")
     tok("#%d" % VALW); tok("s:S")
-    T.pop("Hc"); op("M"); T.pop("Wc"); op("*")
+    # Doubling 4 up to 0x4444... arithmetically cost sixteen SCRATCH ops -- and a
+    # scratch op is a full-width excursion, so INIT spent five rows building one
+    # constant that a backtick literal states in twenty-one cells on one row.
+    # (Both the literal and its westward reversal fit i64, which is the rule.)
+    # W and H likewise never need parking: B survives every rotation between the
+    # two reads, so the ring itself carries them to the multiply.
+    S.get("H"); S.put(); op("M")
+    S.get("W"); S.put(); op("*")
     op("b")                                      # BP = W*H
     A.jump("LOADHEAD")
     A.endblock()
@@ -588,7 +591,7 @@ def build(CW=165, CY0=20, CBOT=900, save_to=None, verbose=False,
     return p, A, caps, used
 
 
-def autobuild(CW=165, CY0=20, save_to=None, verbose=False, **kw):
+def autobuild(CW=156, CY0=20, save_to=None, verbose=False, **kw):
     """Build once to learn the row count, then again with the room trimmed."""
     _, _, _, rows = build(CW=CW, CY0=CY0, CBOT=2000, **kw)
     return build(CW=CW, CY0=CY0, CBOT=CY0 + 1 + rows,

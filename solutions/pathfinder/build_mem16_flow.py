@@ -183,24 +183,29 @@ class OneRingFlow(Flow):
 
     def txn1(self, state_count, keep_index):
         """Probe A, optionally leaving the index behind persistent state."""
+        return self.txn1_start(state_count, keep_index).e("Cr")
+
+    def txn1_start(self, state_count, keep_index):
+        """Send q/mask, leaving B=shift before payload and reply."""
         self.e("Ss").c16().rotate(state_count).e("Sr")
         if keep_index:
             self.e("Ss")
-        return self.e(
-            "/", "Hs", "W", "M", "4", "*", "M", "7", "{", "Hs", "Cr"
-        )
+        return self.e("/", "Hs", "W", "M", "4", "*", "M", "7", "{", "Hs")
 
 
-def build_flow_one_ring():
+def build_flow_one_ring(eager_payload=False):
     f = OneRingFlow()
 
     f.at("START").const(0).e("Ss").go("SETUP")
     f.at("SETUP")
     # STATE [i] -> [i,wall], then probe i while retaining both values.
     f.e("Sr", "Ds", "Ss", "Ir", "Ss", "M", "7", "*", "Ds")
-    f.e("Sr").txn1(1, True)
+    f.e("Sr")
+    (f.txn1_start(1, True) if eager_payload else f.txn1(1, True))
     # STATE [wall,i].  Write (4*wall)<<shift, advance i, and compare 256.
     f.e("Sr", "{", "M", "4", "*", "Hs")
+    if eager_payload:
+        f.e("Cr")
     f.e("Sr", "M", "1", "+", "Ss")
     f.const(256).e("M", "Sr", "Ss", "-")
     f.br("SETUP", "SETUP_DONE", "SETUP")
@@ -216,7 +221,10 @@ def build_flow_one_ring():
     f.const(1).e("N", "Hs")
     # Probe/write the flag without retaining a second scratch copy.
     f.rotate(1).e("Sr", "Ss")
-    f.txn1(2, False).const(1).e("{", "Hs")
+    if eager_payload:
+        f.txn1_start(2, False).const(1).e("{", "Hs", "Cr")
+    else:
+        f.txn1(2, False).const(1).e("{", "Hs")
     # Rotate robot, take/reappend flag, draw it, and seed (flag,tag=1).
     f.rotate(1).e("Sr", "Ss", "Ds").const(9).e("Ds")
     f.rotate(1).e("Sr", "Ss", "Fs").const(1).e("Fs").go("BFS_POP")
@@ -239,15 +247,28 @@ def build_flow_one_ring():
         # Rotate CUR to the tail. txn1 leaves NB after the four persistent
         # values: [next_tag,robot,flag,cur,nb].
         f.at(f"BFS_{name}").e("Sr", "Ss").delta1(delta, 4)
-        f.txn1(4, True).br(busy, free, busy)
+        if eager_payload:
+            # Rotate NEXT_TAG once while materializing the eager payload.
+            # B retains the unshifted tag across Cr for the free path.
+            f.txn1_start(4, True).e("Sr", "Ss", "{", "Hs", "}", "M", "Cr")
+        else:
+            f.txn1(4, True)
+        f.br(busy, free, busy)
 
         # Drop the tail scratch, then rotate next_tag/robot/flag to restore
         # [cur,next_tag,robot,flag].
-        f.at(busy).const(0).e("Hs").rotate(4).e("Sr").rotate(3).go(nxt)
+        f.at(busy)
+        if eager_payload:
+            f.rotate(3).e("Sr").rotate(3)
+        else:
+            f.const(0).e("Hs").rotate(4).e("Sr").rotate(3)
+        f.go(nxt)
 
         # Consume next_tag for the payload.  The resulting order places NB
         # after robot/flag/cur, so three rotations recover it directly.
-        f.at(free).e("Sr", "Ss", "{", "Hs", "}", "M")
+        f.at(free)
+        if not eager_payload:
+            f.e("Sr", "Ss", "{", "Hs", "}", "M")
         f.rotate(3).e("Sr", "Fs", "W", "Fs").rotate(3).go(nxt)
 
     f.at("BFS_NEXT").e("Sr", "Sr").go("BFS_POP")
@@ -266,8 +287,14 @@ def build_flow_one_ring():
         # [robot,want,flag] -> [want,flag,robot,nb].  Decode the shifted
         # field in-place and compare it with want.
         f.at(f"WALK_{name}").e("Sr", "Ss").delta1(delta, 3)
-        f.txn1(3, True).e("}", "M", "Sr", "Ss", "~", "M")
-        f.const(0).e("Hs", "W").br(mismatch, match, mismatch)
+        if eager_payload:
+            f.txn1_start(3, True).const(0).e("Hs", "Cr")
+        else:
+            f.txn1(3, True)
+        f.e("}", "M", "Sr", "Ss", "~", "M")
+        if not eager_payload:
+            f.const(0).e("Hs")
+        f.e("W").br(mismatch, match, mismatch)
 
         # Drop NB and restore [robot,want,flag].
         f.at(mismatch).rotate(2).e("Sr").rotate(2).go(next_probe)
@@ -439,9 +466,10 @@ def build(
     merge_nb=False,
     centered_hub=False,
     memory_y=20,
+    eager_payload=False,
 ):
     p = lm.Program()
-    flow = build_flow_one_ring() if merge_nb else build_flow()
+    flow = build_flow_one_ring(eager_payload) if merge_nb else build_flow()
     port_spec = {}
     for name, spec in PORTS.items():
         if merge_nb and name in ("Ns", "Nr"):
@@ -491,11 +519,19 @@ def build(
     # parallel with controller code instead of being added below it.
     L = Layout(p)
     memory_x = -58
-    memory = mem16(L, memory_x, memory_y, centered=centered_hub)
+    memory_wrow = 7 if eager_payload else 6
+    memory = mem16(
+        L,
+        memory_x,
+        memory_y,
+        WROW=memory_wrow,
+        centered=centered_hub,
+        eager_payload=eager_payload,
+    )
     # The hub accepts its sole command pipe through the bottom wall. The
     # collector similarly sends through its bottom wall.
     hub_end = (memory_x + 20, memory["bottom"] + 1)
-    collector_bottom = memory_y + 6 + 6 * 16 - 1
+    collector_bottom = memory_y + 6 + memory_wrow * 16 - 1
     coll_start = (memory_x + 53, collector_bottom + 1)
     p.pipe([
         ports["Hs"], (ports["Hs"][0], bottom + 3),
@@ -616,6 +652,7 @@ if __name__ == "__main__":
     parser.add_argument("--merge-nb", action="store_true")
     parser.add_argument("--centered-hub", action="store_true")
     parser.add_argument("--memory-y", type=int, default=20)
+    parser.add_argument("--eager-payload", action="store_true")
     parser.set_defaults(tight_apron=True)
     parser.add_argument(
         "--output", default=os.path.join(HERE, "mem16-flow-v1.man")
@@ -638,6 +675,7 @@ if __name__ == "__main__":
         args.merge_nb,
         args.centered_hub,
         args.memory_y,
+        args.eager_payload,
     )
     program.save(args.output)
     print("saved", args.output, "footprint", program.footprint())

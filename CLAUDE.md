@@ -213,7 +213,52 @@ caught by **zero** public cases. `lane3-178x220.man`, the CW=144 rebuild, `polis
 `champion-a33a42bd` all pass — a private LLLM failure is now very unlikely, so spend the
 remaining time on BOX.
 
+### LLM row budget — measured on the CHAMPION, 2026-07-27 (four ideas killed)
+
+**Measure the CHAMPION, not whatever the builders regenerate.** I claimed LLM had 294 rows of
+branch overhead (98 `br` x 3). That is `tools/boustro.py`'s `Cursor.branch3`, whose build is
+**1137x277 and is NOT the champion**. The live 735x428 build already spends **exactly one row
+per branch** — verified by decoding the grid: 100 rows contain an `X`, 102 `X` glyphs, 98 `br`.
+The 294-row saving does not exist.
+
+**There is NO GENERATOR for the 735x428 champion in ANY of the 23 worktrees** (every
+`solutions/little-little-man/*.man` was dimensioned). The smallest regenerable build is
+1137x277. So an emitter change cannot currently be applied to the champion at all — that is
+the first thing to fix before any LLM layout work.
+
+Real row budget of the champion (688 interior controller rows, 9,175 ops):
+
+| rows | what |
+|---|---|
+| 170 | block-entry op rows |
+| **289** | **WRAP / continuation op rows — 42%, THE REAL DRIVER** |
+| 98 | branch dispatch (1 per `br`, already optimal) |
+| 131 | pure-control rows (102 `go` + branch north arms) |
+
+Four ideas probed against the ORACLE and killed (rigs in `scratchpad/rowbranch/`):
+
+- **In-row 3-way `X`** — worth **0 rows**; the champion already does it. Confirmed working both
+  ways though: heading EAST the terminator sits in the block's own op row (`probeA2.man`,
+  ZERO extra rows), A>0 -> south, A<0 -> north, A==0 -> continues east.
+- **BP trie (`b ] x ] x`)** — executes correctly (4/4 on the oracle) but **costs rows**: `x`
+  ALWAYS turns, so it leaves the current axis by construction and a depth-d trie spans ~d rows.
+  4-way = 5 rows vs `X`'s 3-way in 1 row. Two stacked `X` give 9 ways in 2 rows. Killed.
+- **`Y` for control flow** — dead twice over. Contention among parked men resolves by
+  **CREATION ORDER (FIFO by age), not reading order** — measured, the *bottom* man won — so a
+  broadcast cannot address block L of 200. And a genuinely parked man is blocked on `r`/`s` and
+  therefore **cannot execute `q`**, so he cannot observe the broadcast at all.
+- **Zero-row `go`** — real but small. Continuing EAST costs 0 rows (a `v`/`^` in an east
+  corridor column inside the block's own op row); a WESTWARD return costs 1 row and there is no
+  zero-row 180-degree reversal (a turn is only observed after a move). Applying it needs the CFG
+  2-COLOURED so east-running blocks hand off to west-running ones: 200 blocks / 396 edges gave
+  **62 monochromatic edges** after local search, so 131 -> ~62 rows, ~69 rows saved = **1.10x**.
+
+Everything together is 736 -> ~667 rows, box 444,889, **1.21x**. Not worth a rewrite. The row
+that matters is the WRAP row (289 of 688), and op rows average 20 ops over a 101-column span
+inside a 387-column room.
+
 ### Measured dead ends (2026-07-26) — do not repeat these
+
 
 - **Boustrophedon band widening / replica ports (LLM, Snake, Pathfinder).** 870 of LLM's 994
   controller rows come from band conflicts in `boustro.Cursor.place()`, and Snake/Pathfinder are

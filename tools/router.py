@@ -534,8 +534,9 @@ def fold_path(grid, cells, required, src, dst, forbid=(), bound=None,
     for _ in range(passes):
         if slack <= 0:
             break
+        prev = slack
         cur, slack = _comb_pass(grid, cur, slack, src, dst, forbid, bound, grow)
-        if slack == required - n:            # a whole pass made no progress
+        if slack == prev:                    # a whole pass made no progress
             break
     if slack != 0:
         return FoldFailure("insufficient-free-area",
@@ -877,11 +878,15 @@ class Router:
         return self
 
     # ---- nets ----------------------------------------------------------------
-    def add_pipe_net(self, src, dst, nearest_for=None, name=None):
+    def add_pipe_net(self, src, dst, nearest_for=None, name=None,
+                     exact_len=None, min_len=None):
         """Register a pipe to route from border cell `src` to border cell `dst`.
-        `nearest_for` = op cells that must resolve to THIS pipe (nearest-pipe check)."""
+        `nearest_for` = op cells that must resolve to THIS pipe (nearest-pipe check).
+        `exact_len`   = the pipe must end up with EXACTLY this many cells (capacity and
+                        latency preserved — the transform is then equiv-provable).
+        `min_len`     = a floor only; a naturally longer route is kept."""
         net = PipeNet(name or self._name("pipe"), tuple(src), tuple(dst),
-                      tuple(map(tuple, nearest_for or ())))
+                      tuple(map(tuple, nearest_for or ())), exact_len, min_len)
         self.pipe_nets.append(net)
         return net
 
@@ -929,9 +934,18 @@ class Router:
 
             # --- pipes (exclusive: every cell counts) ---
             for net in pipes:
-                res = route_pipe(self.grid, net, extra_cost=econ)
-                if res is None:
-                    return UnroutableNet(net.name, "no FREE pipe route to border",
+                if net.exact_len is not None:
+                    res = route_pipe_len(self.grid, net, net.exact_len,
+                                         extra_cost=econ, mode="exact")
+                elif net.min_len is not None:
+                    res = route_pipe_len(self.grid, net, net.min_len,
+                                         extra_cost=econ, mode="min")
+                else:
+                    res = route_pipe(self.grid, net, extra_cost=econ)
+                if not res:
+                    why = (f"{res.reason}: {res.detail}" if isinstance(res, FoldFailure)
+                           else "no FREE pipe route to border")
+                    return UnroutableNet(net.name, why,
                                          self._region_around(net.src, net.dst))
                 cells, dirs = res
                 proutes[net.name] = (cells, dirs)

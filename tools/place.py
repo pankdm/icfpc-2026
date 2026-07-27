@@ -458,10 +458,16 @@ class Plan:
         lo_x, lo_y, hi_x, hi_y = bound
         while need > 0:
             grew = False
-            # never bulge the first or last two edges: those cells ARE the straight run
-            # the oracle measures `nearest pipe` against, and bending them silently
-            # retargets every r/s/q in the room.
-            for i in range(2, max(2, len(cells) - 3)):
+            # EDGE 0 is the only forbidden fold site.  A tooth at edge i turns cells[i]
+            # into a bend, so folding edge 0 would change cells[0]'s arrowhead direction
+            # and its backward neighbour would stop being the source border (an invalid
+            # pipe).  Every OTHER edge is safe for nearest-pipe binding: the engine
+            # measures `s`/`r` against path[0] and path[-1] ONLY
+            # (interp/src/lib.rs nearest_outgoing/nearest_incoming -> src_cell/dst_cell),
+            # and no tooth ever moves those two cells.  The old window (2 .. len-4)
+            # excluded three more edges for no reason and is what made `--pipe-len exact`
+            # fail: on gradebook it cost 20/60 valid floorplans -> 2/60.
+            for i in range(1, max(1, len(cells) - 1)):
                 a, b = cells[i], cells[i + 1]
                 d = (b[0] - a[0], b[1] - a[1])
                 for perp in ((d[1], d[0]), (-d[1], -d[0])):

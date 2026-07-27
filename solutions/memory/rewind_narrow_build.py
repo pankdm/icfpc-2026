@@ -1,80 +1,26 @@
 #!/usr/bin/env python3
-"""memory rewind INCELL -- v14's geometry, re-costed one CELL at a time.
+"""memory rewind NARROW -- a WIDTH component, banked, NOT the champion.
 
-Box is UNCHANGED at 576 (24x24).  Every gain here is ticks, and every one of
-them came from deleting ops or moving them onto cells the man already walked:
+rewind-incell with MEM's three 2-relay counted rings replaced by TWO 4-relay
+rings (rotation base 6 -> 8).  Two rings need one fork instead of two, so the
+fork2 spine column and the whole h2 ring disappear:
 
-    avgTicks 3588.9 -> 3341.7  (-6.9%),  local 2,067,182 -> 1,924,827
-    7/7 public, 89/89 fuzz streams.
+    MEM interior cols 16 and 17 become EMPTY -- MEM can be 17 wide, not 19.
+    ticks pay for it: avgTicks 3341.7 -> 3552.0 (+6.3%), local 1.92M -> 2.05M.
 
-*** 1. B = 100 IS A LOOP INVARIANT, SO `%` NEEDS NO OPERAND SETUP. ***
-Row 3 was `r M `100` W % M 6 W /` -- 13 cells, five of them the literal.  But
-`%` leaves B alone, so if B already holds 100 the whole preamble vanishes and
-the row is `r % M 6 W /` -- 6 cells.  Only `/` clobbers B (it lands the
-remainder there), so B is restored ONCE per lap on the row-11 return corridor,
-which the man already crossed as eight blank glide cells: the restore is free.
-The init path gets its own copy on row 2 cols 3-7, cells that are walked
-exactly once (the `d` at (8,2) sends every earlier lap back north).
+At box 576 that is a straight loss, which is why the champion stays
+rewind-incell.man.  It is kept because a 23x23 layout would need exactly this
+(MEM <= 17 wide) and the engine is validated 7/7 here.
 
-    TRAP: backtick COLUMNS, not just rows.  Two backticks anywhere in the same
-    column open a VERTICAL literal that swallows the ops between them, and the
-    first attempt died with "expected a digit or a space between backticks, but
-    found 'M'" -- (5,1) and (5,11) had paired across the whole room.  Row 1
-    owns cols 2/5, row 2 cols 3/7, row 11 cols 4/8, all disjoint.
+Both rings must share top=4 because a 4-relay ring is 8 rows tall and MEM's
+interior is 11 rows, so the helper is the MIRROR ring entered eastbound
+straight off fork1's east copy, and MAIN's guard IS fork1's west copy's birth
+cell.  Rate 8/14 = 0.571 val/tick, still under HOP's 0.667, which is the
+invariant that keeps MEM the bottleneck.
 
-*** 2. THE FORK SPINE FOLLOWS ROW 3 WEST: col 16 -> col 13. ***
-Fork1 sat at col 16 only because the 13-cell rot expression pushed `b` out to
-col 15.  With `b` at col 12 the spine turns south at col 13, and the east copy
-no longer needs the col-17 detour -- it is born onto (15,4) and drops straight
-to fork2.  The WEST copy is now born ON MAIN's guard (12,4) and executes it on
-its first tick, which is identical to arriving from the east.
-col 13 is the FLOOR for fork1: MAIN's guard cannot move west of col 12 because
-the remainder ring is pinned to cols 7/8 by the CMD/P2 (6.5) and OUT/P1 (7.5)
-midpoints, and `W`/`b` need the two cells between MAIN's exit and that guard.
-Row 3's walk: 16 cells -> 13, every op.
-
-*** 3. THE RETURN CLIMBS COL 2, NOT COL 1. ***
-Row 3 re-entry is a bare `>` at (2,3), so the climb and the row-11 run each
-lose a cell.  (1,3) stays `>` for the init drop.
-
-*** 4. THE INIT SEND RING IS FOLDED OVER BOTH ROWS. ***
-5 sends on row 1 + a 5-cell blank return was a 14-cell lap; 3 sends on row 1
-and 2 on row 2 is a 10-cell lap for the same 5 sends.  20 laps x 5 = 100 zeros
-either way, so this is 80 ticks off EVERY case -- and the init is a large share
-of the small cases (358t, 596t).  0.5 val/tick still sits under HOP's 0.667.
-
-*** WHAT IS NOT REACHABLE FROM HERE -- measured, do not re-derive. ***
-23x23 needs width 23 AND height 23; v14 already showed height 23 is free.
-Width 23 is blocked by the belt, and by one rule this build measured:
-
-    NO INTERMEDIATE PIPE CELL MAY BE ADJACENT TO THE ROOM THE PIPE TERMINATES
-    AT -- but hugging any OTHER room, including the source room, is fine.
-    Re-routing p2's snake onto col 19 (flush with MEM's east wall at col 18),
-    at IDENTICAL length and with every other cell unchanged, is a load error:
-    "pipe loops back to the room it started from" -- and ONE such cell is
-    enough.  Meanwhile p2 already hugs HOP's west wall (col 14), HOP's east
-    wall (col 23) and CONTROL's east wall (col 13) for 7 cells each and always
-    has.  p2 MAY terminate on MEM's east wall provided the last segment points
-    INTO the wall.  Full experiment table: scratchpad/rewind/flushprobe.py.
-    So the column beside MEM is permanently dead, and MEM effectively costs
-    MEM_W + 1 columns.
-
-p2's floor is EXACTLY 99 cells, bisected on both length parities (98 fails,
-99 passes; and a short belt degrades non-monotonically -- 95 passes 6/7 -- so
-one sample proves nothing).  Best routable p2 at 23x23, over every arrangement
-tried (MEM 17-19 wide; HOP at rows 15-21 or 16-22; CONTROL 10 wide; p2 ending
-on MEM's bottom or east wall):  82 to 94 cells.  Short by 5 to 17.
-The binding geometry is what closes the door: CMD must stay west/bottom while
-the belt reads sit east, ROW 14 is the only corridor joining the west half to
-the east block and p1 must cross it, and the attachment row above the rooms is
-poison for anything but attachment cells.  The two ways out are both
-architecture changes, not layout ones:
-  (a) PACK TWO MEMORY CELLS PER BELT VALUE (values are |v| <= 1e6, i64 holds a
-      pair).  100 cells -> 50 belt values, so p2 needs >= 49 -- the budget
-      stops binding entirely -- AND the rotation distance halves, which is
-      ~40 ticks/op on top.  Cost: the tap must split/merge a pair and carry the
-      address parity past the rings, where only B survives.
-  (b) A 6-ROW HOP, which needs two men without a spawn lane.
+WHY IT DOES NOT ACTUALLY REACH 23x23: the belt floor is 99 p2 cells (bisected,
+see scratchpad/rewind/flushprobe.py) and no 23x23 arrangement routes more than
+~94.  See rewind_incell_build.py's docstring for the full budget.
 """
 import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'tools'))
@@ -130,7 +76,7 @@ def build():
     # 13 cells -> 6.  `/` is the only thing that clobbers B, and the return
     # corridor (row 11) restores it on cells the man already glides over.
     P(2, 3, '>')                              # return-climb re-entry (col 2)
-    for i, c in enumerate("r%M6W/"):          # d%100 -> 6a + r6
+    for i, c in enumerate("r%M8W/"):          # d%100 -> 6a + r6
         P(3 + i, 3, c)
     for x in range(9, 12):
         P(x, 3, ' ')
@@ -156,18 +102,20 @@ def build():
     # `b` sits at col 13 and the spine turns south at col 14.  The east copy no
     # longer needs the col-17 detour either -- it is born straight onto (15,4)
     # and drops to fork2.  Row 3's walk goes 16 cells -> 14 every single op.
-    P(13, 4, 'Y')                          # fork1, parent heading south
-    # The west copy is born ON MAIN's guard (12,4) and executes it on its first
-    # tick -- identical to arriving from the east, and col 13 is the floor for
-    # fork1 because MAIN's guard cannot move west of col 12 (the remainder ring
-    # is pinned to cols 7/8 by the CMD/P2 and OUT/P1 midpoints).
-    P(14, 4, '>'); P(15, 4, 'v'); P(15, 5, ' ')   # east copy -> fork2 at (15,6)
-    P(16, 4, ' '); P(17, 4, ' ')
-    P(16, 5, ' '); P(17, 5, ' ')
-    P(15, 6, 'Y')                          # fork2: births BOTH helper guards
-    vring(P, 12, 11, 4, 2)                 # MAIN: 2 relays / 10-cell lap
-    vring(P, 14, 13, 6, 2); P(13, 6, 'H')  # helper 1, born west-heading on `a`
-    vring_mirror(P, 16, 17, 6, 2); P(17, 6, 'H')  # helper 2, born east-heading
+    # TWO counted rings of 4 relays instead of THREE of 2.  Base 8, lap 14, so
+    # MEM runs at 8/14 = 0.571 val/tick -- still under HOP's 0.667, which is the
+    # invariant that keeps MEM the bottleneck and MEM's men off the brakes.
+    # This is a WIDTH move: 3 rings + 2 forks need 7 columns (MAIN, h1, spine,
+    # h2), 2 rings + 1 fork need 5, and fork2's spine column goes with them.
+    # Both rings are 8 rows tall (top..top+7) so they must share top=4; h1 is
+    # therefore the MIRROR ring, entered eastbound straight off fork1's east
+    # copy, and MAIN's guard is fork1's west copy's birth cell.
+    P(13, 4, 'Y')                          # the only fork
+    vring(P, 12, 11, 4, 4)                 # MAIN: 4 relays / 14-cell lap
+    vring_mirror(P, 14, 15, 4, 4); P(15, 4, 'H')   # helper, born eastbound
+    for x in (16, 17):
+        for y in range(1, 12):
+            P(x, y, ' ')
     P(10, 4, 'W')                          # A = r6 (B survived the relays)
     P(9, 4, 'b')                           # BP = r6
     # The remainder ring cannot go further west than cols 7/8: its `s` lands on
@@ -336,6 +284,6 @@ def pipelen(pts):
 
 if __name__ == '__main__':
     prog = build()
-    out = os.path.join(os.path.dirname(__file__), 'rewind-incell.man')
+    out = os.path.join(os.path.dirname(__file__), 'rewind-narrow.man')
     prog.save(out)
     print(out, prog.footprint())

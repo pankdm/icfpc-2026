@@ -71,3 +71,20 @@ if __name__ == "__main__":
         r = solve(tot)[0]
         print(f"  syms={tot:5d} -> box {r[0]:5d}  ({r[1]}w x {r[2]}h) "
               f"rows={r[3]} sym/row={r[4]} slots={r[5]}")
+
+# ---------------------------------------------------------------- 2026-07-27
+# WHY THE RADIX CANNOT BE LOWERED IN THE CURRENT DISP
+# disp_stream_rows() maps a literal-byte symbol to ASCII with the affine cell
+# `31`+ : symbols THRESHOLD+1..radix-1 become ASCII sym+31.  icfp-history.txt's
+# highest byte is 122, so the top symbol must be 91 and RADIX >= 92 regardless
+# of THRESHOLD.  decoder_rows(radix) only rewrites a two-digit constant, so the
+# `radix` parameter is NOT a usable knob: radix 28/40/48 needs a third escape
+# level in DISP, or all 63 used bytes >= 48 promoted into the ring (P1 grows
+# from ~35 to ~100 entries).  Both are new rooms, not parameters.
+#
+# AND the feeder axis pays nothing on its own once height <= width:
+#   box = max(W, ceil(payload_cells / (W - 5)) + M)^2
+# with W = 79 fixed by the service band (12+1+29+11+3+23) and M ~ 9.  At
+# today's 5122 payload cells that is max(79, 74)^2 = 6241; at the 4733 my
+# optimiser reaches it is max(79, 69)^2 = 6241 -- IDENTICAL.  Cutting payload
+# cells only converts into box once W drops:  C=4733 -> W=76 gives 76x76=5776.

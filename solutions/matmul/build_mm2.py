@@ -30,26 +30,35 @@ def row(y, x0, x1):
     return [(x, y) for x in range(min(x0, x1), max(x0, x1) + 1)]
 
 
+# Every pipe gets an EXPLICIT corridor.  Shortest-path BFS picks lanes that seal a
+# room's attachment into a pocket; stating the lane per net is what makes the whole
+# grid routable at once.  CREL and PCNT are deliberately FAR from ACC: the C ring only
+# needs >= K capacity and CTL is low-traffic, so neither has to contend for the lane
+# west of ACC that AR needs.
+def col(x, y0, y1):
+    return [(x, y) for y in range(min(y0, y1), max(y0, y1) + 1)]
+
+
+def row(y, x0, x1):
+    return [(x, y) for x in range(min(x0, x1), max(x0, x1) + 1)]
+
+
 AP_LEAD = row(5, 10, 11) + col(10, 2, 5) + [(9, 2)]
-AP_EXIT = [(9, 33)] + col(10, 33, 35) + row(35, 10, 17)
-BR_LEAD = row(18, 62, 63) + col(63, 2, 18) + [(64, 2)]
-BR_EXIT = [(64, 33)] + col(64, 33, 57) + row(57, 28, 64) + col(28, 41, 57) + \
-          row(41, 27, 28) + [(27, 40)]
+AP_EXIT = [(9, 33)] + col(10, 32, 33) + row(32, 10, 41) + col(41, 32, 35)
+BR_LEAD = row(6, 58, 59) + col(59, 2, 6) + [(60, 2)]
+BR_EXIT = [(60, 33)] + col(59, 33, 41) + row(41, 27, 59) + [(27, 40)]
 
 CORR = {
     'IN':  col(13, 0, 1),
-    'SD':  col(28, 8, 15) + row(15, 28, 47) + col(47, 15, 18),
-    'CP':  col(20, 12, 14) + row(14, 20, 33) + col(33, 12, 14) + row(12, 31, 33),
-    'AR':  col(22, 35, 40) + row(35, 22, 27),
-    'BF':  col(23, 34, 37) + row(34, 23, 58) + col(58, 24, 34),
-    'PP':  row(37, 32, 33) + col(33, 35, 37) + row(35, 33, 60) + col(60, 35, 41) +
-           row(41, 52, 60),
-    'CF':  row(38, 34, 35) + col(34, 38, 41) + row(41, 33, 34) + col(33, 41, 43) +
-           row(43, 32, 33),
-    'CR':  [(34, 43), (34, 42), (35, 42), (35, 41)],
-    'OUT': row(38, 52, 53),
-    'CTL': col(36, 12, 13) + row(13, 36, 62) + col(62, 13, 55) + row(55, 39, 62) +
-           col(39, 52, 55),
+    'SD':  row(8, 28, 29) + col(29, 6, 8) + row(6, 29, 43),
+    'BF':  row(37, 22, 23) + col(22, 33, 37) + row(33, 22, 54) + col(54, 12, 33),
+    'AR':  row(40, 34, 35) + col(34, 35, 40) + row(35, 27, 34),
+    'PP':  row(37, 32, 33) + col(33, 37, 51) + row(51, 32, 33),
+    'OUT': row(48, 32, 34) + col(34, 44, 48),
+    'CF':  row(48, 14, 15) + col(14, 48, 51) + row(51, 4, 14),
+    'CR':  row(56, 4, 15) + col(15, 51, 56),
+    'CP':  col(20, 12, 30) + row(30, 20, 49) + col(49, 30, 58),
+    'CTL': col(42, 64, 65) + row(65, 14, 42) + col(14, 58, 65) + row(58, 14, 15),
 }
 
 
@@ -59,24 +68,28 @@ def outside(allowed, box=(-3, -3, 80, 72)):
             if (x, y) not in a]
 
 
-def outside(allowed, box=(-4, -5, 78, 60)):
+def outside(allowed, box=(-4, -5, 74, 70)):
     a = set(allowed)
     return [(x, y) for x in range(box[0], box[2]) for y in range(box[1], box[3])
             if (x, y) not in a]
 
 
-def build(ap_rect=(9, 2, 10, 32, False), br_rect=(64, 2, 10, 32), verbose=False):
+def build(ap_rect=(9, 2, 10, 32, False), br_rect=(60, 2, 10, 32), verbose=False):
     rt = RT.Router()
     g = RGrid(rt)
     rt.add_input_room(12, -3)
     spl = R.spl(g, 12, 2)
-    brel = R.brel(g, 48, 14)
-    pcnt = R.pcnt(g, 30, 2)
-    arel = R.arel(g, 12, 36)
+    brel = R.brel(g, 44, 2)
+    # BR has no nearest-pipe constraint (BREL has one outgoing pipe), so the BUILDER
+    # re-attaches it to suit the floor plan -- never mm2rooms.py, which unit.py pins.
+    brel.attach('BR', 'R', 6, 'out')
+    pcnt = R.pcnt(g, 36, 54)
+    pcnt.attach('CP', 'R', 58, 'in')
+    arel = R.arel(g, 36, 36)
     mul = R.mul(g, 24, 36)
-    crel = R.crel(g, 30, 44)
-    acc = R.acc(g, 36, 36)
-    rt.add_output_room(54, 37)
+    crel = R.crel(g, 2, 52)
+    acc = R.acc(g, 16, 46)
+    rt.add_output_room(35, 43)
 
     A = lambda r, n: (r.pipes[n][0], r.pipes[n][1])
     W = lambda r, n: r.walls[n]
@@ -138,7 +151,7 @@ def build(ap_rect=(9, 2, 10, 32, False), br_rect=(64, 2, 10, 32), verbose=False)
         ('PP', A(mul, 'PP'), A(acc, 'PP'), 'W'),
         ('CF', A(acc, 'CF'), A(crel, 'CF'), 'S'),
         ('CR', A(crel, 'CR'), A(acc, 'CR'), 'E'),
-        ('OUT', A(acc, 'OUT'), (53, 38), 'E'),
+        ('OUT', A(acc, 'OUT'), (34, 44), 'E'),
         ('CP', A(spl, 'CP'), A(pcnt, 'CP'), 'E'),
         ('CTL', A(pcnt, 'CTL'), A(acc, 'CTL'), 'N'),
     ]
@@ -150,8 +163,8 @@ def build(ap_rect=(9, 2, 10, 32, False), br_rect=(64, 2, 10, 32), verbose=False)
         stamped = []
         if allow:
             keep = set(allow) | {sp, dp}
-            for x in range(-4, 80):
-                for y in range(-5, 62):
+            for x in range(-4, 76):
+                for y in range(-5, 72):
                     if (x, y) not in keep and g.get(x, y) == ' ':
                         g.put(x, y, '\x03', force=True)
                         stamped.append((x, y))

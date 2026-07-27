@@ -8,7 +8,7 @@ def put(p,x,y,ch):
     p.put(x,y,ch)
 
 def build_driver(p, dvx, dvy, cmd_attach_from, dispw=16, disph=16, swap_value=1,
-                 room_h=26, entry_off=13, disp_gap=30):
+                 room_h=26, entry_off=13, disp_gap=30, swap_tail=5):
     """`room_h`/`entry_off`/`disp_gap` shrink the driver block's HEIGHT.
 
     The stock 26-row room only ever writes rows T, T+2, T+13..T+17 and B, so
@@ -39,7 +39,7 @@ def build_driver(p, dvx, dvy, cmd_attach_from, dispw=16, disph=16, swap_value=1,
     dRow=D.iy0+4
     p.pipe([(Cd,DR.y1+1),(Cd,dRow),(D.x0-1,dRow)])
     sBcol=DX+ (dispw//2+1)
-    p.pipe([(Cswap,DR.y0-1),(Cswap,DR.y0-3),(D.x1+3,DR.y0-3),(D.x1+3,D.y1+5),(sBcol,D.y1+5),(sBcol,D.y1+1)])
+    p.pipe([(Cswap,DR.y0-1),(Cswap,DR.y0-3),(D.x1+3,DR.y0-3),(D.x1+3,D.y1+swap_tail),(sBcol,D.y1+swap_tail),(sBcol,D.y1+1)])
     if cmd_attach_from is not None:
         p.pipe([cmd_attach_from,(DR.x0-1,rENTRY)])
     return {"D":D,"DR":DR,"rENTRY":rENTRY}

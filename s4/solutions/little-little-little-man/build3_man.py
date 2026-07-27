@@ -39,7 +39,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(HERE, '..', '..', 'tools'))
 import littleman as lm            # noqa: E402
-import lllm_build2 as B           # noqa: E402
+import importlib                  # noqa: E402
+B = None                          # op stream module, chosen by --stream
 import driver16                   # noqa: E402
 
 E, W = 1, -1
@@ -61,8 +62,14 @@ DEFAULT_PORTS = {'INP': 2, 'COUT': 6, 'CIN': 16, 'CMD': 31,
                  'SOUT': 64, 'SIN': 69}
 OPPORT = {'ri': 'INP', 'rc': 'CIN', 'r': 'SIN',
           'cmd': 'CMD', 'sc': 'COUT', 's': 'SOUT'}
-OPMIN = 6
-MAXDEPTH = 4                      # rails live in columns 1..MAXDEPTH
+# Loop back-edge rails live in columns 1..MAXDEPTH, one per nesting depth, and
+# the op area starts two columns further east (opmin-1 is the newline turn
+# column).  The v2 op stream nests three deep (FOREVER > LOOPX > BPLOOP), and
+# every column between a rail and opmin is walked TWICE on every iteration of
+# the loop that owns it -- the fetch loop runs ~7,280 times per case, so those
+# columns are worth ~15k ticks each.
+MAXDEPTH = 3
+OPMIN = MAXDEPTH + 2
 
 
 def voronoi(sites):
@@ -295,6 +302,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('out', nargs='?', default=os.path.join(HERE, 'v3.man'))
     ap.add_argument('--gw', type=int, default=120)
+    ap.add_argument('--stream', default='lllm_build2')
     ap.add_argument('--split', type=int, default=1)
     ap.add_argument('--cell-legs', type=int, default=7)
     ap.add_argument('--cell-h', type=int, default=22)
@@ -304,10 +312,14 @@ def main():
     ap.add_argument('--drv-h', type=int, default=26)
     ap.add_argument('--drv-entry', type=int, default=13)
     ap.add_argument('--drv-gap', type=int, default=30)
+    ap.add_argument('--drv-swap-tail', type=int, default=5)
+    ap.add_argument('--drv-dy', type=int, default=4)
     for name in DEFAULT_PORTS:
         ap.add_argument('--p' + name.lower(), type=int, default=None)
     ap.add_argument('--dvx', type=int, default=None)
     args = ap.parse_args()
+    global B
+    B = importlib.import_module(args.stream)
 
     p = lm.Program()
     _put = p.put
@@ -366,9 +378,10 @@ def main():
     dvx = args.dvx if args.dvx is not None else portcol['CMD'] + 3
     # dvy >= SOUTH+3: the SWAP pipe bulges three rows ABOVE the driver room and
     # would otherwise be drawn inside the code room.
-    info = driver16.build_driver(p, dvx, SOUTH + 4, None, 16, 16,
+    info = driver16.build_driver(p, dvx, SOUTH + args.drv_dy, None, 16, 16,
                                  room_h=args.drv_h, entry_off=args.drv_entry,
-                                 disp_gap=args.drv_gap)
+                                 disp_gap=args.drv_gap,
+                                 swap_tail=args.drv_swap_tail)
     rENTRY = info['rENTRY']
     DR = info['DR']
     assert DR.x0 > portcol['CMD'], "driver room west of its cmd pipe"

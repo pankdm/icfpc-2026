@@ -55,6 +55,11 @@ def main():
             print(f"{' '.join(tag):46s} GRADE FAIL")
             sys.stdout.flush()
             continue
+        if g['passed'] != g['total'] or g.get('avgTicks') is None:
+            bad = [r['name'] for r in g['results'] if r['status'] != 'pass']
+            print(f"{' '.join(tag):46s} {g['passed']}/{g['total']} FAIL {bad[:3]}")
+            sys.stdout.flush()
+            continue
         rows.append((g['score'], tag, g, out))
         print(f"{' '.join(tag):46s} {g['passed']}/{g['total']} "
               f"box {g['footprint']['box']:7d} ticks {g['avgTicks']:10.0f} "

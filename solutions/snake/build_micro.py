@@ -326,7 +326,7 @@ def _lit(v):
     return ["8", "M", "+"] + (["N"] if v < 0 else [])
 
 
-def build(save_to=None, CBOT=100, CW=60, CY0=16,
+def build(save_to=None, CBOT=93, CW=60, CY0=16,   # CBOT=93 is the tightest that fits
           BD_OUT=44, BD_IN=50, ST_OUT=22, ST_IN=24, IN_IN=56, DRV_OUT=58,
           BODY_X0=31, BODY_W=29, BODY_LO=36, BODY_Y=13, RELAY_Y=5,
           DRVX=None, DISX=None, LOOPX=49, LOOPM=48, LOOPR=46,

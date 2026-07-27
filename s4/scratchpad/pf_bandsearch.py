@@ -27,7 +27,7 @@ sys.path.insert(0, os.path.join(FORK, "solutions", "pathfinder"))
 import railflow  # noqa: E402
 import stateflow  # noqa: E402
 from boustro import voronoi_bands, Conflict  # noqa: E402
-import build_bitset5  # noqa: E402
+import build_bitset6 as build_bitset5  # noqa: E402
 from build_reflow_banked import alias_empty_gotos  # noqa: E402
 
 FLOW = alias_empty_gotos(build_bitset5.build_flow())

@@ -13,7 +13,7 @@ FORK = os.path.dirname(HERE)
 sys.path.insert(0, os.path.join(FORK, "tools"))
 sys.path.insert(0, os.path.join(FORK, "solutions", "pathfinder"))
 
-import build_rail  # noqa: E402
+import build_rail6 as build_rail  # noqa: E402
 import manlint  # noqa: E402
 import railflow  # noqa: E402
 import stateflow  # noqa: E402

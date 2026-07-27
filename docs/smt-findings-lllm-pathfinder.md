@@ -173,3 +173,38 @@ with a **6x smaller box**. Our 4499-op controller cannot fit in a 56x56 interior
 LLLM leader is also looping where we unroll. Its 6.8x gap is ~6x box, ~1.1x ticks, and
 section 3's ideal-packing ceiling (3.0x, box 6724 = 82x82) still lands ABOVE the leader's
 3364 — packing alone cannot get there either.
+
+## 7. Where LLM's box actually goes — and the exact 1.14x tuck
+
+Block decomposition of the live 356x793 (`live-2b320f4f`, 27 blocks / 48 pipes):
+
+* **r0 = 318x742** at x 0..317, y 0..741 — the controller, **742 of the 793 rows**, and it
+  has **0 fully blank interior rows** (so `roomfit`/`polish`/`fold` have nothing: every row
+  carries content, one op-row per CFG block).
+* **bottom band y 742..792** (51 rows): 26 rooms + an 18x18 display spanning x 51..355 —
+  a whole I/O complex (two symmetric groups of 6x10 + 7x8 + eight 4x6 + 8x4, plus two
+  15x38 rooms and a 3x3), **3551 content cells**.
+* **right margin x 318..355, y 0..741: completely empty — 0 cells**, i.e. 38 x 742 =
+  **28,196 free cells**.
+
+Since `max(w,h) >= 742` (r0's own height), the rigid-placement ceiling is exactly
+742^2 = 550,564 vs 628,849 = **1.14x**, reached by emptying the 51-row band into the
+margin. The band fits ~8x over by area and its widest block is the 18-wide display, well
+under 38 — so this is *not* an area or aspect problem.
+
+**What makes it hard is cliff #1, not the packing.** The controller's ports are coplanar on
+its BOTTOM wall. Re-attaching the satellites on r0's *right* wall would re-resolve
+nearest-pipe binding for every one of its ~4000 port ops — silently. The move must
+therefore keep each pipe's attachment cell on the bottom wall at the same x, leave the
+room downward, run east below y=741, and only then turn north into the margin. That costs
+~2 extra rows (box ~= 744^2 = 553,536, still 1.14x) and needs **length-preserving** routes,
+i.e. the folded router from `be429ed`.
+
+Do not expect `smtplace` to find this: it timed out (`unknown`) on pathfinder's 24 blocks
+at 480s, and LLM has 27. This is a `place.py --plan` job with a hand-written plan, gated by
+`equiv.py` (a move-only transform cannot change the tick count, so it is provable without
+grading — which matters because LLM's 28 cases OOM the wasm oracle and Rust is the only
+grader).
+
+And keep it in proportion: 1.14x on a problem that is **15x** off the lead, where the whole
+remaining prize is 0.17 pts. Section 6 is the reason — LLM's gap is architectural.

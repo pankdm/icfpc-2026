@@ -198,6 +198,28 @@ rooms bind distinct state/candidate/output pipes correctly.  An attempted
 shared room was load-invalid because a room may contain only one initial `@`;
 using a shared hall would require a runtime `Y` splitter.
 
+That shared-hall requirement is now closed.  The zero-cost fork work exposed
+a useful Pathfinder-specific floor-plan primitive:
+`scratchpad/pathfinder_fork_relay_hall.py` uses one initial man and a diagonal
+`Y` runway to create sixteen permanent, column-aligned `r -> s` relays in one
+room.  Every north copy continues to the next fork one row higher; every south
+copy falls into an independent eight-tick relay lap.  Sixteen round-trip
+testers prove strict nearest-port ownership in the Rust interpreter:
+
+```text
+pathfinder_fork_relay_hall.py   146×37  16/16 shared-room relays
+```
+
+The relay hall itself is 146×25; the remaining twelve rows are test fixtures.
+This removes the one-`@` reason for sixteen parent-ring relay rooms while
+preserving the nine-column row pitch.  It does not remove the BFS layer
+dependency, and it should not introduce a central ring: the intended use is
+one row-local four-word ring per relay, all sixteen updating concurrently.
+The other promising Pathfinder fork is the independently addressable setup
+stream (OPEN packing and initial display painting), where producer and
+consumer can run ahead without the pointer-chase failure that killed the LLM
+experiment.
+
 The third probe deletes the separate TAKE pipes.  Each stage forwards the
 earlier TAKE prefix, applies its candidate, and appends its own TAKE plus the
 reduced state:

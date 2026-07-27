@@ -248,3 +248,28 @@ Height 173 is in fact set by **pipes** at y171/y172, not by rooms (max room y = 
 local-span search (`--span 8`, 6000 tries) found only **2** legal floorplans, neither
 better than baseline; `pipe 41` is the usual casualty. smtplace `--min-m 164` times out as
 before. This build is at its rigid-placement optimum.
+
+## 9. matmul `e55c808d` (42x42): the same floor, now with the reason visible
+
+Newer than `b53230d6`: same 42x42 box, 73.4% dense (was 75.0%), rooms tightened (r3 9x8,
+r6 15x15), 7/7 Rust at avgTicks 11136.86, **score 19,645,416**. All three passes agree it
+is done:
+
+| pass | result |
+|---|---|
+| `smtplace` | 16 SAT models at M=39/40/41, **all 16 `pipe N unroutable`**, then UNSAT at 42 |
+| `peep` (superoptimizer) | 22 rewrites, **59 freed cells**, box/ticks/score IDENTICAL |
+| `fold` | **0 row folds, 0 column folds** — on the peeped file too |
+
+**Why 42 is structural, and it is not the rooms.** Rooms reach only y32; rows 33..41 are
+pure pipe. Printing the grid shows the reason immediately: rows 36..41 are an **accordion
+serpentine** (`^---<` / `>---^` alternating across x7..41) and rows 0..11 are another on
+the left. Those are LENGTH-PADDING pipes, and pipe length is capacity AND latency, so their
+cell count is load-bearing and cannot be reduced. Rooms total ~655 cells against ~640 cells
+of pipe; the box is a near-square packing of rooms plus a FIXED quantity of pipe, which is
+why Z3 keeps fitting the rooms into 39x39 and the router keeps failing to thread the pipes.
+
+**Do not submit a peeped matmul.** peep frees cells at *identical* score (its own docs: a
+shorter op run does not save ticks — the man walks the same cells and the freed ones become
+blanks), the freed cells do not line up into a deletable row/column, and `fold` cannot use
+them. It would spend a submission slot for a guaranteed zero.

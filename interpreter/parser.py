@@ -278,7 +278,10 @@ def _parse_pipes(
     used_cells: set[Point] = set()
     for start, source_room in sorted(starts, key=lambda item: (item[0][1], item[0][0])):
         if start in used_cells:
-            raise LoadError(f"overlapping pipes at {start}")
+            # A bend/end arrow may itself look like another source arrow beside a
+            # room.  The reference loader assigns it to the first pipe traced in
+            # reading order and does not start a second, overlapping pipe there.
+            continue
         cells = [start]
         direction = DIRECTIONS[grid[start[1]][start[0]]]
         current = start

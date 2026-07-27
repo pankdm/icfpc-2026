@@ -277,29 +277,42 @@ class Plan:
 
     # ---- routing -------------------------------------------------------------
     def route_all(self, layout, pipe_len="free", margin=8, order=None, retries=3,
-                  tighten=False):
+                  tighten=False, routing_bound=None, force_reroute=None,
+                  pipe_modes=None):
         """Route every net; on failure, RE-ORDER and try again (negotiated congestion,
         lite). One greedy order is not enough: plotter's 116-cell delay line takes the
         shortest lane and walls off the 60-cell one, and only pulling the loser to the
         front of the queue fixes it."""
         last = None
         for k in range(retries):
-            paths, bad = self._route_pass(layout, pipe_len, margin, order, tighten)
+            paths, bad = self._route_pass(
+                layout, pipe_len, margin, order, tighten, routing_bound,
+                force_reroute, pipe_modes,
+            )
             if paths is not None:
                 return paths, None
             last = bad
             if order is None:
-                order = self._default_order(layout, pipe_len)
+                order = self._default_order(layout, pipe_len, pipe_modes)
             order = [bad] + [i for i in order if i != bad]   # loser routes first next time
         return None, last
 
-    def _default_order(self, layout, pipe_len):
-        return sorted(range(len(self.pipes)),
-                      key=lambda i: (-(self.pipes[i].length if pipe_len != "free" else 0),
-                                     -sum(abs(a - b) for a, b in
-                                          zip(*self.ends(layout, self.pipes[i])))))
+    def _default_order(self, layout, pipe_len, pipe_modes=None):
+        def key(i):
+            mode = (pipe_modes or {}).get(i, pipe_len)
+            constrained_length = mode if isinstance(mode, int) else self.pipes[i].length
+            endpoint_span = sum(
+                abs(a - b) for a, b in zip(*self.ends(layout, self.pipes[i]))
+            )
+            return (
+                -(constrained_length if mode != "free" else 0),
+                -endpoint_span,
+            )
 
-    def _route_pass(self, layout, pipe_len="free", margin=8, order=None, tighten=False):
+        return sorted(range(len(self.pipes)), key=key)
+
+    def _route_pass(self, layout, pipe_len="free", margin=8, order=None, tighten=False,
+                    routing_bound=None, force_reroute=None, pipe_modes=None):
         """Route every pipe over the free cells left by the placed blocks.
 
         Nets are routed longest-first (the classic ordering heuristic: a long net has the
@@ -307,7 +320,7 @@ class Plan:
         and a failed net is retried once after the others have committed."""
         offsets = layout[0]
         occ = self.occupancy(offsets)
-        bound = self.bound(offsets, margin)
+        bound = routing_bound or self.bound(offsets, margin)
         core = self.bound(offsets, 0)
         # bake the adjacency guard into routing: a cell that touches a room border is
         # only usable by the pipe that attaches THERE, so the router never has to be told
@@ -335,17 +348,23 @@ class Plan:
         if order is None:
             # hardest-first: under a length floor the ORIGINAL length is what makes a net
             # hard (it has to claim room to bulge into), not how far apart its ends are.
-            order = self._default_order(layout, pipe_len)
+            order = self._default_order(layout, pipe_len, pipe_modes)
         deferred = []
         for pi in order:
             p = self.pipes[pi]
             src, dst = self.ends(layout, p)
-            keep = self._reuse(p, src, dst, occ, taken, core if tighten else None)
+            reuse_bound = routing_bound if routing_bound is not None else (
+                core if tighten else None
+            )
+            keep = None if force_reroute and pi in force_reroute else self._reuse(
+                p, src, dst, occ, taken, reuse_bound
+            )
             if keep is not None:      # nothing moved -> keep the champion's own route
                 paths[pi] = keep
                 taken |= set(keep[0])
                 continue
-            r = self._route_len(src, dst, occ, taken, p, pipe_len, bound, core,
+            mode = (pipe_modes or {}).get(pi, pipe_len)
+            r = self._route_len(src, dst, occ, taken, p, mode, bound, core,
                                 graze, src, dst)
             if r is None:
                 deferred.append(pi)
@@ -355,7 +374,8 @@ class Plan:
         for pi in deferred:
             p = self.pipes[pi]
             src, dst = self.ends(layout, p)
-            r = self._route_len(src, dst, occ, taken, p, pipe_len, bound, core,
+            mode = (pipe_modes or {}).get(pi, pipe_len)
+            r = self._route_len(src, dst, occ, taken, p, mode, bound, core,
                                 graze, src, dst)
             if r is None:
                 return None, pi
@@ -368,17 +388,21 @@ class Plan:
 
         Re-deriving a route that already exists is pure downside: the router will happily
         find a different path of the same length whose glyphs the oracle then parses as a
-        different number of pipes. Only nets that actually moved get re-routed."""
+        different number of pipes. A rigid translation is equally safe and is important
+        when a complete floorplan is normalized into a smaller target square."""
         osrc = (p.cells[0][0] - p.dirs[0][0], p.cells[0][1] - p.dirs[0][1])
         odst = (p.cells[-1][0] + p.dirs[-1][0], p.cells[-1][1] + p.dirs[-1][1])
-        if tuple(src) != osrc or tuple(dst) != odst:
+        ds = (src[0] - osrc[0], src[1] - osrc[1])
+        dd = (dst[0] - odst[0], dst[1] - odst[1])
+        if ds != dd:
             return None
-        for c in p.cells:
+        cells = [(c[0] + ds[0], c[1] + ds[1]) for c in p.cells]
+        for c in cells:
             if c in occ or c in taken:
                 return None
             if core and not (core[0] <= c[0] <= core[2] and core[1] <= c[1] <= core[3]):
                 return None      # this route is what pushes the box out — re-derive it
-        return list(p.cells), list(p.dirs)
+        return cells, list(p.dirs)
 
     def bound(self, offsets, margin):
         xs0 = min(o[0] for o in offsets) - margin
@@ -400,16 +424,21 @@ class Plan:
         r = self._route_one(src, dst, occ, taken, 2, None, bound, core, ok_graze)
         if r is None or pipe_len == "free":
             return r
+        target_length = pipe_len if isinstance(pipe_len, int) else p.length
         cells, dirs = r
-        if len(cells) == p.length or (pipe_len == "min" and len(cells) > p.length):
+        if len(cells) == target_length or (
+            pipe_len == "min" and len(cells) > target_length
+        ):
             return r
-        if len(cells) > p.length:
+        if len(cells) > target_length:
             return None                      # cannot make a route shorter than shortest
         # bulge inside the blocks' own bounding box if at all possible: padding that
         # escapes the box costs max(w,h), which is squared in the score.
         for pad_box in (core, bound):
-            r2 = self._pad(cells, dst, p.length, occ, taken, src, pad_box, ok_graze,
-                           pipe_len)
+            r2 = self._pad(
+                cells, dst, target_length, occ, taken, src, pad_box,
+                ok_graze, "exact" if isinstance(pipe_len, int) else pipe_len,
+            )
             if r2 is not None:
                 return r2
         return None
@@ -672,14 +701,22 @@ class Plan:
         return (max(w, h) ** 2, w * h, span)
 
     # ---- one full candidate --------------------------------------------------
-    def build(self, layout, pipe_len="free", guard=None, margin=8, tighten=False):
+    def build(self, layout, pipe_len="free", guard=None, margin=8, tighten=False,
+              routing_bound=None, force_reroute=None, pipe_modes=None):
         offsets = layout[0]
         if guard is None:
             guard = self.adjacency_ok_base
         if not self.blocks_disjoint(offsets):
             return None, "blocks overlap", None
-        paths, bad = self.route_all(layout, pipe_len=pipe_len, margin=margin,
-                                    tighten=tighten)
+        paths, bad = self.route_all(
+            layout,
+            pipe_len=pipe_len,
+            margin=margin,
+            tighten=tighten,
+            routing_bound=routing_bound,
+            force_reroute=force_reroute,
+            pipe_modes=pipe_modes,
+        )
         if paths is None:
             return None, f"pipe {bad} unroutable", None
         if guard and not self._adjacency_clean(layout, paths):

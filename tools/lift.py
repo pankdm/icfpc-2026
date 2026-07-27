@@ -33,6 +33,8 @@ import subprocess
 import sys
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if REPO not in sys.path:
+    sys.path.insert(0, REPO)
 
 # The instruction set (PROBLEM.md). Anything else in a room interior is routing or padding.
 OPS = set("0123456789`MWbmq]+-*%/N&|~{}XdaxYHsSrRU")
@@ -76,7 +78,55 @@ def analyze(rows):
     try:
         return json.loads((r.stdout or "").strip().splitlines()[-1])
     except (ValueError, IndexError):
-        return {"type": "error", "message": (r.stderr or "analyze failed")[:200]}
+        # The organizer WASM is intentionally gitignored and is not present in every
+        # checkout.  Placement only needs static room/pipe topology, which the local
+        # parser exposes directly, so do not make all geometry tools depend on a
+        # downloaded oracle.  The emitted candidate is still re-parsed and simulated
+        # before it is accepted.
+        try:
+            return _analyze_local(rows)
+        except Exception as exc:  # noqa: BLE001
+            message = (r.stderr or "oracle analyze failed").strip()[:160]
+            return {"type": "error", "message": f"{message}; local parser: {exc}"}
+
+
+def _analyze_local(rows):
+    """Return the subset of oracle ``analyze`` consumed by the layout tools."""
+    from interpreter.parser import DIRECTIONS, parse_program
+
+    program = parse_program("\n".join(rows))
+    rooms = []
+    displays = []
+    room_map = {}
+    for room in program.rooms:
+        item = {
+            "min": [room.left, room.top],
+            "max": [room.right, room.bottom],
+        }
+        if room.kind == "display":
+            room_map[room.id] = -1
+            displays.append(item)
+        else:
+            room_map[room.id] = len(rooms)
+            rooms.append(item)
+
+    pipes = []
+    for pipe in program.pipes:
+        direction = None
+        path = []
+        for point in pipe.cells:
+            ch = program.cell(point)
+            if ch in DIRECTIONS:
+                direction = DIRECTIONS[ch]
+            if direction is None:
+                raise ValueError(f"pipe {pipe.id} has no initial direction")
+            path.append({"pos": list(point), "dir": list(direction)})
+        pipes.append({
+            "src": room_map[pipe.source_room],
+            "dst": room_map[pipe.destination_room],
+            "path": path,
+        })
+    return {"type": "ok", "rooms": rooms, "displays": displays, "pipes": pipes}
 
 
 class Lift:

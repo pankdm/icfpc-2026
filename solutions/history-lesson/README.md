@@ -556,7 +556,45 @@ the budget for whatever the classifier change costs.  W=79 does not go further
 because P1's width cap tightens (`sum(TB) + 3*nB <= 72`) and pushes its table
 from 6 rows to 7.
 
-Two notes for whoever implements it.
+#### Two routes, and what each one actually costs
+
+Costed with P1 as it is really built — group A (the direct positions, which
+must preload *first*) then group B — not as one unified table
+(`scratchpad/history-dict/split.py`, `split2.py`):
+
+| route | direct | symbols | feeder | group A | group B | height | box | slack |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| today | 9 | 2042 | 64 | 2r | 4r | 82 | 6,724 | — |
+| **A.** threshold T=30, ESC=31 | 15 | 1951 | 61 | **3r** | 4r | 80 | **6,400** | 0 |
+| **A.** threshold T=31, ESC=33 | 16 | 1947 | 61 | **4r** | 3r | 80 | **6,400** | 0 |
+| **B.** runs `19-22`+`60-65` | 19 | 1926 | 60 | 2r | 4r | 78 | **6,400** | 2 |
+
+**Route A — raise the threshold.**  DISP's classifier keeps its exact shape;
+only two literals change (`17` → `30`, and the ESC constant `92`→29 becomes
+`13`→31 read westward).  The threshold must be a *free* symbol, so T=23 is
+invalid — token 23 is `'6'` and occurs.  The cost lands in `p1_room`: group A
+now carries T−1 positions instead of 16, so its hardcoded 2 rows × 8 slots and
+`TA = [max(szA[j], szA[15-j])]` pairing must generalise to R rows × nB slots,
+the same shape group B already has.  Zero height slack.
+
+**Route B — recycle two free runs.**  Better on every axis except DISP: group A
+and group B keep their exact row counts (only group B's `nB` goes 5 → 6, which
+the builder already computes), and it leaves two rows of slack.  But the DISP
+side hits a hard constraint: **`A` and `B` are both live across the test and
+`BP` is write-only.**  On the byte path `B` holds `v` and `A` holds the ESC
+test's residue; any range test needs a second constant, which can only go in
+`B`, which destroys the only readable copy of `v`.  `BP` cannot be read back —
+only `b`, `m`, `]`, `q` touch it — so it cannot serve as the spare.  Rebuilding
+`v` afterwards costs an `M`/literal/`+` triple per test.  Budget ~22-25 cells
+against DISP's 19 free interior cells, so DISP grows a row or two — which is
+exactly what the two rows of slack are for.
+
+One cheap trick that survives, worth keeping: for the `19-22` run the ring
+position is `v − 2`, and `BP` already holds `v`, so `m` `m` sets it — no
+arithmetic and no registers touched.  It is the second run that needs the
+expensive path, because `60-65` maps to positions 21-26 (offset 39).
+
+Two more notes for whoever implements it.
 
 - The `19-22` run is reachable *without* a second test: DISP computes `A = v−17`
   and treats `A == 0` as a fatal reserved value.  Raising the threshold to 23

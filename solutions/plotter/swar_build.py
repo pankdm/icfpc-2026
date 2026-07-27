@@ -111,6 +111,31 @@ def lay_ring(g, x, y, w, h, glyphs):
 
 BASE_TICKS = 505      # measured: fixed overhead + 8 ticks x 18 pixels a round
 
+# Fixed vertical overhead, split so the two compressible parts are knobs:
+#   6 (top band) + IH + 2 (CTRL walls) + GAP + 26 (display) + SWAP_ROWS
+# GAP    rows between CTRL's bottom wall and the MOD/display top walls.  It
+#        carries CTRL->MOD (cols 3..5) and the ADDR riser (col 9, then east to
+#        col 15) -- disjoint column ranges, so they fit on ONE row.
+# SWAP_ROWS  rows below the display for the SWAP return.  DATAM's bottom wall is
+#        flush with the display's, so a single row reaches the bottom wall if the
+#        loader tolerates pipe cells running under it.
+GAP = 3
+SWAP_ROWS = 2
+# Blank rows between CTRL's tail row and the top of the 4x4 ramp ring.  Pure
+# walking cells: the man leaves the tail row heading south and the ring's `>`
+# turns him east whether he lands on it after 1 nop or 0.
+SPACER = 1
+
+
+def vfixed():
+    return 34 + GAP + SWAP_ROWS
+
+
+def ih_of(L):
+    """CTRL interior height actually consumed: L+1 serpentine rows, the tail
+    row, SPACER, the 4-row ramp ring and the return row."""
+    return L + 7 + SPACER
+
 
 def geometry(npre, ntail, bw):
     """Pick (L, k, W).  The branch block occupies columns 1..bw but only on the
@@ -119,7 +144,7 @@ def geometry(npre, ntail, bw):
     That hole was 29x6 of unused floor before this."""
     best = None
     for L in range(5, 20):
-        IH = max(2 * L + 1, L + 8)
+        IH = ih_of(L)
         if IH > 2 * L + 2:
             continue
         for k in range(1, L - 1):
@@ -132,7 +157,7 @@ def geometry(npre, ntail, bw):
                 if pre_cap < npre or tail_cap < ntail:
                     continue
                 pad = pre_cap - npre + (0 if trows < 2 else (tail_cap - ntail) % 2)
-                w, h = W + 2, IH + 39
+                w, h = W + 2, IH + vfixed()
                 cand = (max(w, h) ** 2 * (BASE_TICKS + pad), L, k, W, IH)
                 if best is None or cand < best:
                     best = cand
@@ -141,10 +166,9 @@ def geometry(npre, ntail, bw):
 
 
 def build(geom=None):
-    pre, px, py, tail = SS.segments()
-    tail_body, tail_fin = tail[:-4], tail[-4:]
-    assert [k for _, k in tail_fin] == [SS.OUT, SS.READ, SS.OP, SS.READ]
-    assert all(len(t) == 1 for t, _ in pre + px + py + tail)
+    pre, px, py, tail_body, tail_fin = SS.segments()
+    assert not any(k == SS.SCRATCH for _, k in tail_fin)
+    assert all(len(t) == 1 for t, _ in pre + px + py + tail_body + tail_fin)
     BW = max(len(px), len(py)) + 2               # X column + ops + merge column
     L, k, W, IH = geom or geometry(len(pre), len(tail_body), BW)
     assert k % 2 == 1, "branch row heads west, so the block sits on the left"
@@ -191,9 +215,14 @@ def build(geom=None):
     assert dirs[k] == "W" and dirs[k + 2] == "E"
 
     # left bound of each row: rows 1..k must clear the branch block
+    # Rows 1..k-1 share a left bound (a westward row exits where the eastward
+    # row under it enters), so raising it absorbs PRE slack two cells at a time
+    # -- slack left as trailing '.' would be walked every round.
+    pre_min = (W - 3) + (k - 1) * (W - BW - 3) + (W - BW - 2)
+    bump = max(0, (pre_min - len(pre)) // (2 * max(1, k - 1)))
     lb = {0: 1}
     for j in range(1, k + 1):
-        lb[j] = BW + 1
+        lb[j] = BW + 1 + (bump if j < k else 0)
     trows = L - k - 1
     slack = trows * (W - 3) - len(tail_body)
     x = 1 + (slack // 2 if trows > 1 else 0)     # shorten the last pair evenly
@@ -253,16 +282,17 @@ def build(geom=None):
         g.row(*C(W - 2, R), fin, -1)
         rrx = W - 2 - len(fin) - 1
     else:
-        g.put(*C(1, R), ">")
-        g.row(*C(2, R), fin)
-        rrx = 2 + len(fin)
+        g.put(*C(lb[L], R), ">")
+        g.row(*C(lb[L] + 1, R), fin)
+        rrx = lb[L] + 1 + len(fin)
     # Ramp ring: 4x4, TWO pixels per lap (three edge cells s/m/+ and one turning
     # test `d` each, and a rectangle has four corners).  Both `d`s exit when BP
     # hits 0, one east and one west, so the exits merge on the row below before
     # the `0 ; s` sentinel -- which is what keeps this to 7 rows, not 8.
     g.put(*C(rrx, R), "v")
-    g.put(*C(rrx, R + 1), ".")
-    rry = R + 2
+    for j in range(1, SPACER + 1):
+        g.put(*C(rrx, R + j), ".")
+    rry = R + 1 + SPACER
     lay_ring(g, *C(rrx, rry), 4, 4,
              [">", "s", "m", "d", "+", ".", "<", "s", "m", "d", "+", "."])
     ret = rry + 4
@@ -286,16 +316,18 @@ def build(geom=None):
     # The chain sits LEFT of the display.  Routing is planar only if ADDR leaves
     # ADDRM upward on a column that clears MOD (col 9, MOD is only 7 wide) while
     # CTRL -> MOD runs west one row higher and drops into MOD's TOP wall.
-    DY = CT + IH + 5
+    DY = CT + IH + 2 + GAP
     mod = g.p.room(0, DY, 7, 8)
     adr = g.p.room(0, DY + 10, 12, 6)
     dat = g.p.room(0, DY + 19, 12, 7)
     disp = g.p.display(14, DY, 34, 26)
 
-    mx, my = mod.ix0, mod.iy0                    # MOD: r(Jc) M ; ring r % s X
+    # MOD: r(mind) M ; then r(4096*maxL) N + M forms Jc while walking down the
+    # descent column it was gliding through anyway.  Ring: r % s X.
+    mx, my = mod.ix0, mod.iy0
     g.row(mx, my, ">@rMv")
-    for j in range(1, 5):
-        g.put(mx + 4, my + j, ".")
+    for c, ch in zip(range(1, 5), "rN+M"):
+        g.put(mx + 4, my + c, ch)
     g.put(mx + 4, my + 5, "<")
     for c in range(3, 0, -1):
         g.put(mx + c, my + 5, ".")
@@ -332,14 +364,30 @@ def build(geom=None):
       end_direction="N")                                             # CTRL -> ECHO
     P([(CX + 6, ech.y1 + 1), (CX + 6, ech.y1 + 2), (CX + 10, ech.y1 + 2)],
       end_direction="S")                                             # ECHO -> CTRL
-    P([(CX, DY - 3), (CX, DY - 2), (3, DY - 2), (3, DY - 1)])         # CTRL -> MOD
+    # CTRL -> MOD.  Head west on the FIRST gap row (cols 3..5), then drop col 3
+    # into MOD's top wall.  The ADDR riser turns on its own row at col 9+, so the
+    # two never share a cell however thin the gap gets.
+    # MEASURED: exactly ONE pipe cell may touch CTRL's bottom wall.  Running the
+    # westward leg on the first gap row puts cols 3,4,5 against that wall, the
+    # loader then attaches the pipe at col 3, the |x-cx| term in `s`'s nearest
+    # -pipe test stops cancelling, and CTRL's scratch/ramp split collapses
+    # (grades 0/6, display-addr).  So drop one row first, THEN head west.
+    gm = [(CX, DY - GAP), (CX, DY - GAP + 1), (3, DY - GAP + 1)]
+    if GAP > 2:
+        gm.append((3, DY - 1))
+        P(gm)
+    else:                       # last leg runs west ON the row above MOD's wall
+        P(gm, end_direction="S")
     P([(mx + 2, mod.y1 + 1), (mx + 2, adr.y0 - 1)])                   # MOD -> ADDRM
     # ADDR and DATA are two branches of the same pixel; the display consumes
     # ADDR before DATA only if they ARRIVE in that order, so the two pipe lengths
     # have to be balanced against the 4-tick head start ADDR gets in ADDRM's ring
     # and the 8-tick pixel cadence.  ADDR = 19 cells, DATA = 17.
-    P([(ax + 8, adr.y0 - 1), (ax + 8, DY - 2), (disp.x0 + 1, DY - 2),
-       (disp.x0 + 1, DY - 1)])                                       # ADDR
+    AT = DY - min(GAP, 2)                     # ADDR's turn row (keeps LA at 19)
+    ap = [(ax + 8, adr.y0 - 1), (ax + 8, AT), (disp.x0 + 1, AT)]
+    if AT != DY - 1:
+        ap.append((disp.x0 + 1, DY - 1))
+    P(ap)                                                            # ADDR
 
     # ADDRM -> DATAM is deliberately 18 cells long.  The display sees ADDR_k,
     # DATA_k, ADDR_{k+1} in that order only if
@@ -351,16 +399,28 @@ def build(geom=None):
     P([(dat.x1 + 1, dy + 3), (disp.x0 - 1, dy + 3)])                  # DATA
     # SWAP only has to arrive no EARLIER than the last DATA, so it is the one
     # pipe worth shortening: every cell of it is a tick of per-round drain.
-    P([(dx + 5, dat.y1 + 1), (dx + 5, disp.y1 + 2), (disp.x0 + 3, disp.y1 + 2),
-       (disp.x0 + 3, disp.y1 + 1)])                                   # SWAP
+    if SWAP_ROWS > 1:
+        P([(dx + 5, dat.y1 + 1), (dx + 5, disp.y1 + SWAP_ROWS),
+           (disp.x0 + 3, disp.y1 + SWAP_ROWS), (disp.x0 + 3, disp.y1 + 1)])
+    else:                       # single row: run east under the display's floor
+        P([(dx + 5, dat.y1 + 1), (disp.x0 + 3, disp.y1 + 1)],
+          end_direction="N")                                          # SWAP
     return g.p, dict(L=L, k=k, W=W, IH=IH,
-                     ops=len(pre) + len(px) + len(tail),
-                     cells=len(pre) + len(px) + len(py) + len(tail))
+                     ops=len(pre) + len(px) + len(tail_body) + len(tail_fin),
+                     cells=len(pre) + len(px) + len(py) + len(tail_body) + len(tail_fin))
 
 
 if __name__ == "__main__":
+    import argparse
+    ap_ = argparse.ArgumentParser()
+    ap_.add_argument("--gap", type=int, default=GAP)
+    ap_.add_argument("--swap-rows", type=int, default=SWAP_ROWS)
+    ap_.add_argument("--spacer", type=int, default=SPACER)
+    ap_.add_argument("--out", default="plotter-swar3.man")
+    a_ = ap_.parse_args()
+    GAP, SWAP_ROWS, SPACER = a_.gap, a_.swap_rows, a_.spacer
     p, info = build()
-    out = os.path.join(HERE, "plotter-swar3.man")
+    out = os.path.join(HERE, a_.out)
     p.save(out)
     print(info, p.footprint())
     print(subprocess.run([sys.executable, os.path.join(HERE, "..", "..", "tools",

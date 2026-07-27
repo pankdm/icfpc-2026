@@ -297,15 +297,18 @@ def setup_tail(e):
         P0 = ((1 - 2*maxL) << 10) + addr0        cnt = L + 1
         maxL = L - ((L-1) >> 5)   -- max(L,1); L = 0 is the single-pixel case,
         where an unclamped Jc would be tiny and `%` would mangle P0.
-    """
+
+    Split in two.  Everything up to the last scratch push has to sit in the half
+    of CTRL that binds `s` to ECHO; everything AFTER it is pure reads and
+    arithmetic, so it can live on the tail row in the MOD half -- which has ~40
+    free cells and costs no serpentine width.  Ic is therefore computed LAST and
+    left in B, instead of being pushed and fetched back (it was paying five fifo
+    rotations, ten ticks, purely to survive)."""
     u = e.use
     e.op("1"); e.op("M")
     u("L", keep=True); e.op("-"); e.push("Lm")
     e.op("5"); e.op("M")
     u("Lm"); e.op("}"); e.push("sg")
-    e.op("6"); e.op("M")
-    u("S"); e.op("{"); e.op("{"); e.op("M")           # B = 4096*S
-    u("majd"); e.op("+"); e.push("Ic")
     e.op("1"); e.op("M")
     u("L", keep=True); e.op("+"); e.op("b")           # BP = cnt = L + 1
     u("sg"); e.op("M")
@@ -316,16 +319,20 @@ def setup_tail(e):
     e.op("5"); e.op("M")
     u("f0"); e.op("{"); e.op("{"); e.op("M")          # B = f0 << 10
     u("addr0"); e.op("+"); e.push("P0")
-    # Jc = -4096*maxL + mind is computed in MOD, not here: MOD is parked on its
-    # `r` for the whole of CTRL's setup, so those ten ops are free there, and
-    # every op removed from CTRL narrows the serpentine (and the box) as well as
-    # the round.  CTRL just ships the two ingredients.
+    # ---- no scratch beyond this point: it all lands on the tail row ----
+    # Jc = mind - 4096*maxL needs both terms live at once, and B is taken by the
+    # shift -- but only if CTRL forms it.  Ship the two terms instead and let
+    # MOD subtract them: MOD is parked on this read anyway and its descent
+    # column already had four idle '.' cells.  Shipping them also lets the fifo
+    # stay in its NATURAL order here, which is worth more than the op: `arrange`
+    # can only rotate, and a rotation would clobber the value in A.
+    e.arrange(["mind", "maxL", "S", "majd", "P0"])
+    e.fetch("mind"); e.out()
     e.op("6"); e.op("M")
-    u("maxL"); e.op("{"); e.op("{"); e.op("N"); e.op("M")
-    u("mind"); e.op("+")                              # Jc
-    e.arrange(["Ic", "P0"])
-    e.out()                                           # Jc -> MOD (round header)
-    e.fetch("Ic"); e.op("M")                          # B = Ic
+    e.fetch("maxL"); e.op("{"); e.op("{"); e.out()    # 4096*maxL
+    e.op("6"); e.op("M")
+    e.fetch("S"); e.op("{"); e.op("{"); e.op("M")     # B = 4096*S
+    e.fetch("majd"); e.op("+"); e.op("M")             # B = Ic
     e.fetch("P0")                                     # A = P0
     return e
 
@@ -354,8 +361,12 @@ def segments():
     assert a.path == "x" and b.path == "y"
     assert a.toks[:a.split] == b.toks[:b.split]
     assert a.toks[a.merge:] == b.toks[b.merge:], "shared tail must be identical"
+    # The tail splits at its LAST scratch push: everything after it is pure
+    # reads and arithmetic and can live on the tail row, in CTRL's MOD half.
+    tail = a.toks[a.merge:]
+    cut = max(i for i, (_, kind) in enumerate(tail) if kind == SCRATCH) + 1
     return (a.toks[:a.split], a.toks[a.split:a.merge],
-            b.toks[b.split:b.merge], a.toks[a.merge:])
+            b.toks[b.split:b.merge], tail[:cut], tail[cut:])
 
 
 def run(x0, y0, x1, y1):

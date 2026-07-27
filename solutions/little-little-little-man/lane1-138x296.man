@@ -1,0 +1,296 @@
+                                  +-------+                                                     +-+
+                                  |@>Rv   |                                                     |I|
+                                  | ^s<   |                                                     +-+  >-----v
+                                  +-------+                                                      v   |     |
+                                    ^--< v                                                       |   |     |
+                                       | |                                                       |   |     v
+                                       | |                                                       |   |    +---------+
+                                       | |                                                       |   |    |         |
+                                       | |                                                       |   |    |         |>-----v
+        +-------+                      | |                                                       |   |    |vs     < |      v
+        |@>Rv   |                      | |                                                       |   |    |         |   +================+
+        | ^s<   |                      | |                                                       |   |    |         |   :                :
+        +-------+                      | |                                                       |   |    |         |   :                :
+          ^--< v                       | |                  +-------+                            |   |    |       - |   :                :
+             | |                       | |                  |@>Rv   |                            |   |    |       W |   :                :
+             | |                       | |                  | ^s<   |                            |   |    |       1 |   :                :
+             | |                       | |                  +-------+                            |   |    |       M |   :                :
+             | |                       | |                    ^--< v                             |   |    |       N |   :                :
+             | |                       | |                       | |                             |   |    |  >rM1+Xv|>->:                :
+             ^ v                       ^ v                       ^ v                             v   ^    |       W |   :                :
++------------------------------------------------------------------------------------------------------+  |       s |   :                :
+| >  dv                                                                                                |  |  ^    < |   :                :
+|  v <                                                                                                 |  |         |   :                :
+|  > m                                                                              rv                 |  |         |   :                :
+|                                                v  *-  9M  ss  -r  M{  6M  3s  ss   <                 |  |         |   :                :
+|         v                                     <                                                      |  |vs      <|   :                :
+|         v                                     X<                                                     |  |         |   :                :
+|      v                                        <                                                      |  |> ^      |   +================+
+|         >                                             rr  sr  sr  v                                  |  |@ ^      |       ^
+|                   vr  s8  r                                       <                                  |  +---------+       |
+|                   >                                   rs  rv                                         |    v               |
+|   vs  rs  rs  rs  rs  rs                                   <                                         |    >---------------^
+|   >r  sr  sr  sr  sv                                                                                 |
+|          v         <                                                                                 |
+|      >                                                rs  rs  rr  3M  4{  -M  r*  v                  |
+|                                                   vs  rM  *5  M3  s}  rs  rM  6s  <                  |
+|                                                   >   r&  ss  4M  rs  r*  s4  Mr  *v                 |
+|   vs  rs  rs  rs  rs  rs  r                                                    s   <                 |
+|   >r  sr  sr  sr                                   s  v                                              |
+|                       vs                              <                                              |
+|                       >                               rs  rM  rs  r}  s3  M5  *M  v                  |
+|                        v  r                                        s  &r  sr  sr  <                  |
+|                        >                           s  v                                              |
+|                       vs                              <                                              |
+|                       >                               rs  rM  rs  r}  s3  M5  *M  v                  |
+|                        v  r                                        s  &r  sr  sr  <                  |
+|                        >                              rs  rv                                         |
+|                    v  rs                                   <                                         |
+|                    >                                  rv                                             |
+|   vs  rs  rs  rs  rs  rs                               <                                             |
+|   >r  sr  sr  sr  sv                                                                                 |
+|          v         <                                                                                 |
+|          >4M  {M                                      r-  MN  |s  7M  9*  Mr  }M  1+  v              |
+|                        v  r                                                    s      <              |
+|                        >                           s  v                                              |
+|                    v  rs                              <                                              |
+|                    >                               s  v                                              |
+|           v*  rM  *M  4s                              <                                              |
+|           >                                        s  rs  rM  rs  r+  v                              |
+|           v*  rM  *M  4s                                              <                              |
+|           >                                        s  rs  rM  r+  v                                  |
+|                    v  rs                                          <                                  |
+|                    >                               s  M1  +s  v                                      |
+|                       vs                                      <                                      |
+|                       >                               rM  r*  Mv                                     |
+|                   vr  s+  r                                    <                                     |
+|                   >                                s  v                                              |
+|                       vs                              <                                              |
+|                       >                               rs  rM  r%  sv                                 |
+|           vs  rs  rs  rs  r                                        <                                 |
+|           >                                           r   v                                          |
+|             v                                              <                                         |
+|                                                           >X  v                                      |
+| ^                                                          <                                         |
+|              v                                                <                                      |
+|              >4M  {                                s  v                                              |
+|   vs  rs  rs  rs  rs  rs  r                           <                                              |
+|   >r                                               s  v                                              |
+|                       vs                              <                                              |
+|                       >                               rs  rM  4*  Mr  -s  sr  Mv                     |
+|   vs  rs  rs  rs  rs  rs  r                                                    <                     |
+|   >r  {                   s0  v                                                                      |
+|                       vs      <                                                                      |
+|                       >                               rM  v                                          |
+|                       v{  r                               <                                          |
+|                       >   s0  v                                                                      |
+|   vs  rs  rs  rs  rs  rs      <                                                                      |
+|   >r  sr  sv                                                                                         |
+| ^          <                                                                                         |
+|     > 4M  *                                        s  v                                              |
+|   vs  rs  rs  rs  rs  rs  r                           <                                              |
+|   >r  sr                                           s  v                                              |
+|                       vs                              <                                              |
+|                       >                               rs  rM  r-  bv                                 |
+|               vs  rs  rs  r                                        <                                 |
+|               > v                                                                                    |
+|                 > d v                                                                                |
+|                  v<                                                                                  |
+|                  >m0      ss  v                                                                      |
+|                 ^             <                                                                      |
+|                     > 4M  *b  v                                                                      |
+|                      v        <                                                                      |
+|                      >d  v                                                                           |
+|                       > v                                                                            |
+|                         > mr                       s  ss  1M  r}  sv                                 |
+|   vs  rs  rs  rs  rs  rs  r                                        <                                 |
+|   >r  sr  sr                                       s  v                                              |
+|               vs  rs  rs                              <                                              |
+|               >                                       rs  rs  rs  rM  r&  sr  sr  &v                 |
+|                                                            v   ~  &r  sr  Mr  ss   <                 |
+|                             v                             <                                          |
+|                              v                            X<                                         |
+|             v                                             <                                          |
+|                              >                        rs  rr  v                                      |
+|                                 v                             <                                      |
+|                             >                         rr  v                                          |
+|                                 v                         <                                          |
+|                                 > sr  sv                                                             |
+|                      ^                 <                                                             |
+|                          >rv                                                                         |
+|    v  rs  rs  rs  rs  rs   <                                                                         |
+|    >                                               s  v                                              |
+|                    v  rs                              <                                              |
+|                    >                               s  v                                              |
+|   vr  rs  rs  rs  rs  rs                              <                                              |
+|   >r  rr  rr  rr  rr                                  rs  rM  r/  sW  s0  v                          |
+|                   vs  0s                                                  <                          |
+|                   >                                   rs  rv                                         |
+|                       vs                                   <                                         |
+|                       >                               rv                                             |
+|       vs  0s  0s  0s  1s                               <                                             |
+|       >                          v                                                                   |
+|                                  >4M  *            s  v                                              |
+|                                     v                 <                                              |
+|                                     >                 rs  s1  Mr  -s  r   v                          |
+|             v                                                              <                         |
+|                                                                           >X  v                      |
+|                                      v                                     <                         |
+|                                         v                                     <                      |
+|                                      >r            s  v                                              |
+|                                        v  b*  M4  s   <                                              |
+|                                        > v                                                           |
+|                                          >d  v                                                       |
+|                                           > v                                                        |
+|                                             > m4  M{  -M  rs  rs  }s  3M  5*  Mr  v                  |
+|                                                                       v&  rs  rs  <                  |
+|                                                                       >           s4  Mv             |
+|                                          ^                             s  {r  sr       <             |
+|                                              >        rs  rv                                         |
+|                                     ^             sr       <                                         |
+|                                         >             rv                                             |
+|                v  rs  rs  r                            <                                             |
+|                >                                   s  v                                              |
+|                    v  rs                              <                                              |
+|                    >                               s  v                                              |
+|v   M  4s  rs  rs  rs  rs                              <                                              |
+|>   *  M                                               rs  r*  Mr  +M  2+  N       s9  s1  Ns  v      |
+|                                                 v                                             <      |
+|                                                 >                                 rv                 |
+|                    v  rs  r                                                    s   <                 |
+|                    >                                  rv                                             |
+|   vs  rs  rs  rs  rs  rs                               <                                             |
+|   >r  s                                          v                                                   |
+|                                                  >v                                                  |
+|                        v  r                       <                                                  |
+|                        >                           s  v                                              |
+|   vs  rs  rs  rs  rs  rs                              <                                              |
+|   >r  sr  s                                           r   v                                          |
+|             v                                              <                                         |
+|                                                           >X  v                                      |
+|                                  ^                         <                                         |
+|                                                     v         <                                      |
+|                    v  rs  r                         <                                                |
+|                    >                               s  s1  Mr  -v                                     |
+|   vs  rs  rs  rs  rs  rs                                       <                                     |
+|   >r  s                                               r   v                                          |
+|             v                                              <                                         |
+|                                                           >X  v                                      |
+|                                                      v     <                                         |
+|                                  ^                            <                                      |
+|            v  rs  rs  rs  r                          <                                               |
+|            >                                       s  sv                                             |
+|   vM  2s  rs  rs  rs  rs                               <                                             |
+|   >                                                   r*  bv                                         |
+|                                                         v  <                                         |
+|                                                        v<                                            |
+|                                                        >  d v                                        |
+|                                                          v<                                          |
+|                                                v  sr   m <                                           |
+|                                                >        ^                                            |
+|                                                   vr        <                                        |
+|                                                   >s  v                                              |
+|                                               vr  s   <                                              |
+|                                               >    s  v                                              |
+|                                        v  *6  M5  s   <                                              |
+|                                        >           s  2M  r*  Mr  sr  sr  -b  v                      |
+|                                                              v                <                      |
+|                                                            v <                                       |
+|                                                            >  d  v                                   |
+|                                                               > v                                    |
+|                                                v  sr           m<                                    |
+|                                                >             ^                                       |
+|                v  rs  rs  r                            s  -{  M4 <                                   |
+|                >                                   s  v                                              |
+|                   vM  4s                              <                                              |
+|                   >                                   rs  rs  rs  r*  Mr  sr  sr  -v                 |
+|                                            v  M*  5M  3s  }r  sr  Mr  sr  sr  ss   <                 |
+|                                            >          rs  rs  r&  ss  rs  rM  rs  v                  |
+|                                                    v  sr  sr  M*  5M  3s  }r  sr  <                  |
+|                                                    >  r&  sv                                         |
+|        v  rs  rs  rs  rs  r                                <                                         |
+|        >                                              rs  rs  rv                                     |
+|                   vM  8s                                       <                                     |
+|                   >                                   r-  v                                          |
+|                                                            >        v                                |
+|                                                           >X            v                            |
+|                                                            >         v                               |
+|                                                            v  -r  M3<                                |
+|                                                           >                 v                        |
+|                                                        v  X<                                         |
+|                                                           >              v                           |
+|                                                        >                     v                       |
+|                                                        v  -r  M+  M6 <                               |
+|             v                                         <                                              |
+|                                                    v  X<                                             |
+|                                                       >                         v                    |
+|                                                    >                             v                   |
+|                                                                        v <                           |
+|                                                                        >            v                |
+|   vs  rs  rs  rs  rs  rs  r                                            r<                            |
+|   >r  sr                                           s  v                                              |
+|   vs  rs  rs  rs  rs  rs                              <                                              |
+|   >r                                                  rv                                             |
+|               vs  rs  rs                               <                                             |
+|               >                                                                     v                |
+|    v  rs  rs  rs  rs  rs  r                                                      <                   |
+|    >                                               s  v                                              |
+|                    v  rs                              <                                              |
+|                    >                                  rv                                             |
+|                   vs  rs                               <                                             |
+|                   >                                                                 v                |
+|   vs  rs  rs  rs  rs  rs  r                                                     <                    |
+|   >r  sr                                           s  v                                              |
+|                       vs                              <                                              |
+|                       >                               rM  2*  M1  -s  v                              |
+|   vs  rs  rs  rs  rs  rs  r                                           <                              |
+|   >r                                               s  v                                              |
+|                       vs                              <                                              |
+|                       >                               rM  r*  Mv                                     |
+|   vs  rs  rs  rs  rs  rs  r                                    <                                     |
+|   >r  +s  rs  rs                                                                    v                |
+|   vs  rs  rs  rs  rs  rs  r                                                  <                       |
+|   >r  sr                                           s  sv                                             |
+|               vM  +M  7s                               <                                             |
+|               >                                       r-  v                                          |
+|                                                            >                         v               |
+|                                                           >X                             v           |
+|                                                            >                            v            |
+|        v  rs  rs  rs  rs  r                                                          <               |
+|        >                                              rv                                             |
+|           vs  rs  rs  rs                               <                                             |
+|           >                                                                         v                |
+|    v  rs  rs  rs  rs  rs  r                                                    r        <            |
+|    >                                               s  sv                                             |
+|    v  M*  9M  7s  rs  rs                               <                                             |
+|    >                                                  r}  sr  Ns  7M  9*  Mr  sr  }v                 |
+|        v  rs  rs  rs  rs  r                                       s-  rM  rs  rs   <                 |
+|        >                                           s  rM  r+  s3  Mr  &v                             |
+|           vs  rs  rs  rs                                               <                             |
+|           >                                                                         v                |
+|   vr  sr  sr  sr  sr  s1  r                                                    r         <           |
+|   >s  rs  rs                                     ^                                                   |
+|   vr  sr  sr  sr  sr  s1  r                                                 <                        |
+|   >s  rs  rs                                     ^                                                   |
+|        v  rs  rs  rs  rs  r                                                         <                |
+|        >                                           s  sv                                             |
+|       vM  4s  rs  rs  rs                               <                                             |
+|       >                                               r*  s4  Mr  *s  8M  9+  M*  v                  |
+|                                                   vs  rM  *5  M3  s}  rs  rM  rs  <                  |
+|                                                   >   r&  s1  Mr  sr  -s  4M  {+  M*  v              |
+|                                                   vs  rM  *5  M3  s}  rs  rM  rs      <              |
+|                                                   >   r&  s1  Mr  sr  -s  rM  v                      |
+|            v  s+  rs  rs  r                                                   <                      |
+|            >                                          rM  v                                          |
+|    v  sr  sr  sr  sr  s+  r                               <                                          |
+|    >                                             ^                                                   |
+|             > H                                                                                      |
+|@ 0s0s0s0s0s0s                                                                    rv                  |
+|                        vs                                                        s<                  |
+|                        >                                                         rv                  |
+|                       v4s                                                        s<                  |
+|                       >                            ss4Mrsrsr{Mr|ss8Mrsrsr{Mr|ss4M*Mv                 |
+|      vs`912961210815009`s                               |rM{rsrsrM{8M2ss|rM{rsrsr  <                 |
+|      >`334255563538446`s                             rsrMr*bv                                        |
+| ^                                                           <                                        |
++------------------------------------------------------------------------------------------------------+

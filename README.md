@@ -1,6 +1,6 @@
-# ICFPC 2026 — littleman
+## ICFPC 2026 — littleman
 
-## Team "Snakes, Monkeys, and Two Smoking Lambdas"
+# Team "Snakes, Monkeys, and Two Smoking Lambdas"
 
 Programming language of choice:
 * Claude Code

@@ -220,6 +220,29 @@ stream (OPEN packing and initial display painting), where producer and
 consumer can run ahead without the pointer-chase failure that killed the LLM
 experiment.
 
+The diagonal runway is useful but not height-optimal.  A binary fork tree
+splits disjoint horizontal intervals on four consecutive rows:
+
+```text
+pathfinder_fork_tree_relay_hall.py  146×18  16/16 relays
+                                         146×8   core hall
+pathfinder_fork_parent_rings.py     146×44  16 concurrent U/R/D/L rings
+```
+
+At each level, a south-facing `Y` sends children west and east to the centres
+of the two half-intervals; each child turns south and splits again on the next
+row.  The leaf relay laps are mirrored to preserve their arrival directions.
+This is a general floor-plan result: a linear `Y` runway costs one row per
+worker, while a non-crossing binary fork tree costs one row per doubling.
+
+The parent-ring proof broadcasts two four-HIT layers and a zero-query rotation
+to all sixteen row updaters.  Every ring finishes in canonical U/R/D/L order
+with `[17,34,68,136]`.  Thus four parent bands can be replaced by one updater
+band plus the eight-row shared hall without serializing unrelated rows.  In
+the solver, the updater's completed send should also be broadcast as an ACK;
+NEXT must drain four ACKs before releasing the next row pair so parent updates
+cannot lag into the following layer.
+
 The third probe deletes the separate TAKE pipes.  Each stage forwards the
 earlier TAKE prefix, applies its candidate, and appends its own TAKE plus the
 reduced state:

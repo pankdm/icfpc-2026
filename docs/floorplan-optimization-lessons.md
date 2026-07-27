@@ -162,3 +162,58 @@ A safe sweep is:
 
 Record failures too.  The boundary between a load error, a silent deadlock,
 and a valid layout often explains the next useful routing constraint.
+
+## Retune geometry after changing a protocol
+
+A protocol change alters controller block sizes and wrap points even when the
+same logical ports remain.  Old placement constants are therefore evidence,
+not an optimum.
+
+Pathfinder changed MEM16 from request/reply/payload to
+request/eager-payload/reply.  The worker discards the queued payload when the
+queried field was already occupied, so the controller no longer waits for the
+reply before choosing whether to send a value.  The worker grew by one row,
+but a fresh port-spacing sweep found a smaller, exactly square controller:
+
+```text
+183×184, box 33,856, 642,791 average ticks
+180×180, box 32,400, 610,675 average ticks
+```
+
+The best memory placement was again the last valid row before a route became
+dangling.  Reusing the previous port base would have hidden most of the win.
+
+When a protocol or CFG changes:
+
+1. re-sweep controller port spacing;
+2. re-sweep service-room alignment;
+3. optimize the full `box × ticks` product, not either number alone;
+4. keep the old protocol as the default until byte-identical regeneration is
+   checked.
+
+## Score factorization can expose a floor-plan race
+
+For `n` graded cases, a published score satisfies
+
+```text
+score × n = side² × total_ticks
+```
+
+Enumerating square divisors does not uniquely recover a competitor's layout,
+but several nearby scores can disambiguate it.  Pathfinder's leading scores
+admitted the coherent decomposition:
+
+```text
+141² × 160,382.667 = 3,188,567,796
+154² × 160,078.167 ≈ 3,796,413,801
+138² × 214,044.222 = 4,076,258,168
+```
+
+The first two have average ticks within 0.2% but boxes differing by 19.3%.
+That is a strong signature of related algorithms separated mainly by layout.
+The third is 4.2% smaller than the leader but 33.5% slower, consistent with a
+compact variant that gave up parallelism.
+
+Use this only as a target envelope, never as proof of an exact architecture.
+Prefer the factor family that explains relationships across several teams,
+not merely one mathematically valid factorization.

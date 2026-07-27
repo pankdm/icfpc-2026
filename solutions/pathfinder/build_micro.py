@@ -65,7 +65,7 @@ K_MASK = 0x4444444444444444
 # ═══════════════════════════════════════════════════════════ MEM16 device ══
 def mem16(
     L, X0, Y0, NW=16, WROW=6, WY0=6, HUBW=30, WW=14, T=8, RC=20,
-    centered=False,
+    centered=False, eager_payload=False,
 ):
     p = L.p
     WX = X0 + HUBW + 4
@@ -164,12 +164,37 @@ def mem16(
         w(1, 4, "^")
         for dx, ch in enumerate(">N&M", start=4):
             w(dx, 1, ch)
-        w(12, 1, "v")
-        w(12, 4, "<")
-        for dx, ch in enumerate(">&sr|M", start=4):
-            w(dx, 3, ch)
-        w(10, 3, "v")
-        w(10, 4, "<")
+        if eager_payload:
+            # Join reset and both transaction arms only on row 5; none of
+            # their horizontal walks crosses another arm's receive site.
+            w(8, 1, "v")
+            w(8, 2, ">")
+            for dy in range(2, 5):
+                w(12, dy, "v")
+            w(12, 5, "<")
+            w(1, 5, "^")
+        else:
+            w(12, 1, "v")
+            w(12, 4, "<")
+        if eager_payload:
+            assert WROW >= 7
+            # The controller has already queued the intended payload.  Branch
+            # on the field locally: a non-zero field consumes and ignores it;
+            # a zero field consumes and applies it before replying.
+            for dx, ch in enumerate(">&sX", start=4):
+                w(dx, 3, ch)
+            for dx, ch in enumerate(">rv", start=7):
+                w(dx, 4, ch)
+            w(9, 5, "<")
+            for dx, ch in enumerate("r|Mv", start=8):
+                w(dx, 3, ch)
+            w(11, 4, "v")
+            w(11, 5, "<")
+        else:
+            for dx, ch in enumerate(">&sr|M", start=4):
+                w(dx, 3, ch)
+            w(10, 3, "v")
+            w(10, 4, "<")
         p.pipe([(X0 + HUBW, lrow(i)), (WX - 1, lrow(i))])
         p.pipe([(WX + WW, orow(i)), (CX - 1, orow(i))])
 

@@ -39,9 +39,9 @@ Screen recordings of solutions running, captured on the final day (2026-07-27).
 
 | Recording | Problem |
 |---|---|
-| [Reverse a List — champion](docs/videos/reverse-a-list-champion.mp4?raw=1) | our top [Reverse a List](best-submissions/reverse-a-list.man) solution, 11×11, 13.8K, rank 2/181 |
-| [Memory — champion](docs/videos/memory-champion.mp4?raw=1) | our top [Memory](best-submissions/memory.man) solution, 79×79, 5.75M, rank 2/190 |
-| [Memory — alternative](docs/videos/memory-alternative.mp4?raw=1) | an alternative Memory construction, kept for comparison |
+| [Reverse a List — champion](docs/videos/reverse-a-list-champion.mov) | our top [Reverse a List](best-submissions/reverse-a-list.man) solution, 11×11, 13.8K, rank 2/181 |
+| [Memory — champion](docs/videos/memory-champion.mov) | our top [Memory](best-submissions/memory.man) solution, 79×79, 5.75M, rank 2/190 |
+| [Memory — alternative](docs/videos/memory-alternative.mov) | an alternative Memory construction, kept for comparison |
 
 ## Contents
 

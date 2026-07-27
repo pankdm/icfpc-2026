@@ -126,3 +126,38 @@ routing, guaranteed to succeed), get it graded to prove the engine, and only the
 fold the channel out. A 2x rebuild is worth +0.04 so the folded version is the point,
 not the channel version — but the channel version is what turns "designed" into
 "measured".
+
+
+## Measured after shipping (2026-07-27) — read before optimising mm2 again
+
+Server 87,760,942 -> 51,942,741 in one session, all of it BOX. The box levers are
+exhausted; the two tick levers below were measured and are dead or small.
+
+### The `ticks/MAC = 6 + 4/U` unroll is INFEASIBLE. Do not attempt it.
+The formula is right about walk tax and wrong about what constrains the ring.
+`r`/`s` lock onto the NEAREST pipe, so with U copies of the cycle on one loop, AR
+must beat BR at *every* `r_AR` cell and lose at every `r_BR` cell. On a closed loop
+consecutive copies traverse in opposite directions, so copy 1 has `r_AR` at a lower
+column than `r_BR` and copy 2 has it higher — no attachment pair can satisfy both.
+`scratchpad/mm2/unroll_search.py` enumerates every ring shape, every rotation, every
+spare-cell placement and every attachment pair: **U=1 feasible, U>=2 zero solutions.**
+10 ticks/MAC is the floor for both MUL and ACC, and both already run it.
+
+### ACC's blank ticks are an excursion, not dead ring cells
+Profiling attributes 6,461 blank ticks to ACC and it is tempting to read that as
+~1.6 dead cells per MAC lap. It is not: **ACC's MAC ring is exactly 10 cells with no
+blanks** (`scratchpad/mm2/acc_prof.py` shows all ten at 4,096 executions). The blanks
+are the merge excursion, which runs once per OUTPUT element — 256 times at 31 ticks,
+of which 28 are walk. It is long because the room stacks OUT ring / MAC ring / SEED
+ring / merge vertically and `r_CTL` must sit deep south to beat `r_CR` on the
+Manhattan test. Shortening it needs the CTL attachment moved to the left wall AND the
+three rings interleaved; worth ~4% and it is the only tick lever left.
+
+### Box floor of this floor plan
+With the A band `w x h` in the west strip, SD descending one column west of it and the
+east edge set by the two lanes clearing the output room:
+
+    width = 46 + w      height = h + 43      A ring = w*h + 32 >= ~290
+
+Balance needs `h = w + 3`, and `15 x 18` is the only integer solution — hence 61x61.
+Going below needs fewer CELLS (8-bit packing of the two channels), not better routing.

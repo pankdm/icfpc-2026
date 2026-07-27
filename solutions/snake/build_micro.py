@@ -326,11 +326,22 @@ def _lit(v):
     return ["8", "M", "+"] + (["N"] if v < 0 else [])
 
 
-def build(save_to=None, CBOT=93, CW=60, CY0=16,   # CBOT=93 is the tightest that fits
+def build(save_to=None, CY0=8, CBOT=None, CW=60,
           BD_OUT=44, BD_IN=50, ST_OUT=22, ST_IN=24, IN_IN=56, DRV_OUT=58,
-          BODY_X0=31, BODY_W=29, BODY_LO=36, BODY_Y=13, RELAY_Y=5,
+          ST_X0=24, ST_W=7, BD_X0=33, BD_W=16,
+          FEED_E=49, FEED_W=31, RET_E=54,
           DRVX=None, DISX=None, LOOPX=49, LOOPM=48, LOOPR=46,
           DEC1=48, DEC2=53, REPD=52):
+    # The TOP BAND is rows 0..ATT.  Rows 0..3 hold the two relay rooms and the
+    # input room; rows 4..ATT-1 are the horizontal pipe highways and row ATT
+    # carries every controller-side pipe terminal (that is what makes the s/r
+    # binding a function of the column alone -- see BINDING above).
+    #
+    # HEIGHT = CY0 + 78, so every row saved in this band is a row off the box.
+    # The band used to be 16 rows deep because the body ring was folded into a
+    # 9-column serpentine there; routing that ring along the FULL WIDTH of the
+    # band instead gets the same 56 cells of capacity out of three rows.
+    CBOT = CY0 + 77 if CBOT is None else CBOT
     DRVX = CW + 2 if DRVX is None else DRVX
     DISX = DRVX + 11 if DISX is None else DISX
     g = geometry(CY0=CY0, CW=CW, CBOT=CBOT, BD_OUT=BD_OUT, BD_IN=BD_IN,
@@ -342,36 +353,41 @@ def build(save_to=None, CBOT=93, CW=60, CY0=16,   # CBOT=93 is the tightest that
 
     # ---- rooms ----------------------------------------------------------
     p.room(g["CX0"], CY0, CW, CBOT - CY0 + 1)          # controller
-    p.room(BODY_X0, 0, BODY_W, 4)                      # body relay
-    p.room(ST_OUT - 1, RELAY_Y, 6, 4)                  # state relay
-    p.input_room(IN_IN - 1, RELAY_Y + 1)
+    p.room(BD_X0, 0, BD_W, 4)                          # body relay
+    p.room(ST_X0, 0, ST_W, 4)                          # state relay
+    p.input_room(IN_IN - 1, 0)
     p.room(DRVX, 10, 9, 22)                            # display driver
     p.display(DISX, 12, 18, 18)
 
-    for x, y in ((BODY_LO, 1), (ST_OUT, RELAY_Y + 1)):
+    for x, y in ((BD_X0 + 1, 1), (ST_X0 + 1, 1)):
         L.put(x, y, "@"); L.put(x + 1, y, ">"); L.put(x + 2, y, "R")
         L.put(x + 3, y, "v")
         L.put(x + 1, y + 1, "^"); L.put(x + 2, y + 1, "s"); L.put(x + 3, y + 1, "<")
 
     # ---- pipes ----------------------------------------------------------
-    p.pipe([(IN_IN, RELAY_Y + 4), (IN_IN, ATT)])                    # input -> ctrl
-    p.pipe([(ST_OUT, ATT), (ST_OUT, RELAY_Y + 4)])                  # ctrl  -> state
-    p.pipe([(ST_IN, RELAY_Y + 4), (ST_IN, ATT)])                    # state -> ctrl
-    feed = [(BD_OUT, ATT), (BD_OUT, BODY_Y), (BODY_LO, BODY_Y),
-            (BODY_LO, BODY_Y - 2), (BD_OUT, BODY_Y - 2), (BD_OUT, BODY_Y - 4),
-            (BODY_LO, BODY_Y - 4), (BODY_LO, BODY_Y - 6), (BD_OUT, BODY_Y - 6),
-            (BD_OUT, BODY_Y - 8), (BODY_LO, BODY_Y - 8), (BODY_LO, 4)]
-    ret = [(BD_IN, 4), (BD_IN, ATT)]
-    p.pipe(feed)                                                    # ctrl  -> body
+    p.pipe([(IN_IN, 3), (IN_IN, ATT)])                              # input -> ctrl
+    p.pipe([(ST_OUT, ATT), (ST_OUT, 4), (ST_X0 + 1, 4)],            # ctrl  -> state
+           end_direction="N")
+    p.pipe([(ST_X0 + ST_W - 2, 4), (ST_X0 + ST_W - 2, 5),           # state -> ctrl
+            (ST_IN, 5), (ST_IN, ATT)])
+    # The body ring: one lap of the band's three free rows.  It has to dodge the
+    # state pipes (columns ST_OUT..ST_X0+ST_W-2 on rows 4/5) and the input pipe
+    # (column IN_IN, rows 3..ATT), so the feed runs east on row 6, west on row 5
+    # and east again on row 4, and the return leaves the body room's RIGHT wall
+    # and comes back down column BD_IN through rows 3..ATT.
+    feed = [(BD_OUT, ATT), (BD_OUT, 6), (FEED_E, 6), (FEED_E, 5),
+            (FEED_W, 5), (FEED_W, 4), (BD_X0 + BD_W - 5, 4)]
+    ret = [(BD_X0 + BD_W, 1), (RET_E, 1), (RET_E, 3), (BD_IN, 3), (BD_IN, ATT)]
+    p.pipe(feed, end_direction="N")                                 # ctrl  -> body
     p.pipe(ret)                                                     # body  -> ctrl
     cap = pipelen(feed) + 1 + pipelen(ret)
     # >= 50 covers the worst case a 100-round case can reach (each growth costs a
     # spawn round plus a tick round).  A bigger ring is pure safety margin but it
     # costs ticks: at snake length 1 a pushed cell has to travel cap-1 cells
-    # before it can be popped again.  BODY_LO trades the two off; 65 measured
-    # 90.7M against 89.6M at 55 and 93.7M at 85.
+    # before it can be popped again.  65 measured 90.7M against 89.6M at 55.
     assert cap >= 55, "body ring capacity %d too small" % cap
-    p.pipe([(DRV_OUT, ATT), (DRV_OUT, 12), (DRVX - 1, 12)])            # ctrl -> driver
+    p.pipe([(DRV_OUT, ATT), (DRV_OUT, 4), (DRVX - 1, 4), (DRVX - 1, 12)],
+           end_direction="E")                                       # ctrl -> driver
 
     # ---- driver man -----------------------------------------------------
     off = DRVX - 38                                    # driver block was built at x=38

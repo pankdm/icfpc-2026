@@ -217,6 +217,11 @@ What it found so far, and what that tells you:
 - **tcp: the builder no longer runs** — `sweep_build.py --full2` dies with
   `layout.Collision at (3,21)`, so `tcp-sweep2.man` cannot be regenerated at all.
 
+**BUG (measured on tcp, 2026-07-26): autotune's accept path disagrees with the `.man` it
+writes.** Two post-sweep "finds" both failed 5/6 on re-grade. **Always re-grade an autotune
+result from its written `.man` before trusting or submitting it** — the reported score is not
+evidence.
+
 Use it on *fresh* or *recently hand-built* solutions (Semester 4), where nobody has yet
 swept the geometry by hand; it is largely wasted on the old, heavily hand-folded ones.
 Ticks measured on public cases are a proxy — pass `--cases stress.json` when a design's

@@ -482,3 +482,24 @@ with the persistent parent in B; the first query walked into a wall.  The
 positive/negative/zero protocol removes that state-preservation problem
 entirely.  The 58×18 four-room proof passes 23 deterministic and randomized
 update/query/reset streams on the Rust interpreter.
+
+`scratchpad/pathfinder_closed_query_wavefront.py` composes those services with
+the complete fixed-64-layer kernel.  The correctness-first build uses a
+13-column lane pitch and measures 218×188.  Both a dense asymmetric seed and a
+sparse three-source seed finish all 64 layers with every U/R/L/D parent word
+matching the Python reference.
+
+Two ownership bugs appeared only after composition:
+
+- Widening pitch 9→13 moved the D-append send from 4-vs-5 cells (previous
+  packet wins) to 8-vs-5 (current packet wins).  Moving the send into the
+  inter-lane gap restores a strict 6-vs-7 previous-packet win.
+- Adding NEXT's leading mode-drop shifted the lowercase state send around its
+  perimeter.  On row 15 it became one cell nearer the layer-trigger pipe than
+  the ordinary return, so the counter advanced on state and the controller
+  deadlocked waiting for the missing second return word.  Moving the ordinary
+  return attachment beside the state send restores unambiguous ownership.
+
+The dense seed hid the second bug for many layers; the sparse seed deadlocked
+on layer three.  Always include a sparse wavefront when changing port pitch or
+adding even one operation before a multi-pipe send.

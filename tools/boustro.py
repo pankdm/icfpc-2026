@@ -202,6 +202,14 @@ def _lay_once(flow, labels, cols, glyphs, bands, x0, y0, ncorr, opmax):
             edges.append((zero_y, term[2]))
             edges.append((negative_y, term[3]))
             cursor.y = negative_y
+        elif term[0] == "brbp":
+            # ``d`` entered while heading south turns west for BP>0 and
+            # continues south for BP<=0.  Reuse the branch3 geometry; its
+            # east/negative arm is unreachable for this two-way instruction.
+            positive_y, zero_y, negative_y = cursor.branch3("d")
+            edges.append((positive_y, term[1]))
+            edges.append((zero_y, term[2]))
+            cursor.y = negative_y
         else:
             raise Conflict(f"unknown terminator {term!r}")
         y = cursor.y + 1

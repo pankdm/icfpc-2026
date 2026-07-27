@@ -116,7 +116,7 @@ def pcnt(g, ox, oy):
     g.text(ox + 4, oy + 5, ">sv")
     g.text(ox + 1, oy + 6, "v..dm<")
     g.text(ox + 1, oy + 7, ">..NsNsv")
-    g.text(ox + 2, oy + 8, "^......<")
+    g.text(ox + 2, oy + 8, "^.....<")
     r.attach('CP', 'L', oy + 4, 'in')
     r.attach('CTL', 'B', ox + 6, 'out')
     return r

@@ -273,3 +273,42 @@ why Z3 keeps fitting the rooms into 39x39 and the router keeps failing to thread
 shorter op run does not save ticks — the man walks the same cells and the freed ones become
 blanks), the freed cells do not line up into a deletable row/column, and `fold` cannot use
 them. It would spend a submission slot for a guaranteed zero.
+
+## 10. Pathfinder: geometry is DONE (proved), and the ticks are 16 idle lanes
+
+**Geometry is closed.** `smtplace` timing out left "can it get smaller?" unanswered, so the
+coarse solver was used on the same 24 blocks as rigid rectangles (dims only + pipe
+connectivity), which solves in seconds:
+
+| cap | result |
+|---|---|
+| 141 / 150 / 160 | **UNSAT** — no packing of the 24 rectangles fits |
+| 164 / 168 / 173 | timeout |
+
+The tallest component is 164, so `max(w,h) >= 164` regardless. Floor = **164**, box >= 26896,
+so rigid placement can never beat 29929 -> 26896 = **1.11x** — and section 8 shows even that
+is blocked. Rooms are 61% of the envelope; the rest is the 43 pipes' corridors.
+
+**Against a 9.3x gap, geometry is 1.11x. The other ~8.4x is ticks** — and the profiler
+(`lm --profile`, stderr) says exactly where, on the dominant case "around the pillars":
+
+    wall-clock ticks              500,786
+    total man-ticks            21,228,018   (~42 men: 22 at t=0, rest via Y)
+      stalled (blocked)        10,210,726    48.1%
+      executed ops             11,017,292    51.9%
+
+    stall time by column:  x=37  7,971,510  = 78.1% of ALL stalling
+    x=37 holds exactly 16 stall cells, y=51..156 -> the sixteen 14x7 LANE rooms
+    per-lane stall ~498,219 of 500,786 wall-clock  =  99.5% IDLE
+    'r' (receive) = 8,979,443 executions = 42.3% of all man-ticks
+
+**The 16-lane wavefront has effective parallelism ~1.** The workers are not slow, they are
+starved: each sits on a blocking `r` for 99.5% of the run, and that single column is 78% of
+all stall time. The lever is the FEED (the controller / the 7x112 relay at x50..56), not the
+lane bodies and not the floorplan. Ticks are also nearly uniform across cases (291,641 to
+500,786, a 1.7x spread), so there is no pathological case to fix — it is a fixed structural
+serialization.
+
+Worth noting for the tick budget: `pathfinder-d67da44b` (170x170, box **28900** — smaller
+than the champion's 29929) scores **17.69B vs 12.14B** because its ticks are 611,941 vs
+405,671. Box is squared and it still loses. Do not trade ticks for box here.

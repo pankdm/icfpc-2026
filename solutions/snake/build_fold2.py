@@ -896,6 +896,7 @@ if __name__ == "__main__":
     # the box, then a full 5/5 grade_fast gate -- an ungraded geometry search is
     # useless here, `branch()`'s tight-arm heuristic makes plenty of smaller boxes
     # that build, bind and are silently WRONG).
+    path = sys.argv[1] if len(sys.argv) > 1 else os.path.join(HERE, "fold9.man")
     prog, cap, nrows = fit(save_to=path, CW=53, ST_OUT=23, FEED_W=27, LOOPR=40)
     print("saved", path)
     print("footprint", prog.footprint(), "body-ring capacity", cap, "ctrl rows", nrows)

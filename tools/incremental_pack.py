@@ -20,6 +20,7 @@ import argparse
 import itertools
 import json
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -152,11 +153,45 @@ def write_manifest(work_dir, record):
         handle.write(json.dumps(record, sort_keys=True) + "\n")
 
 
+def grade_program(args, path):
+    if not args.oracle:
+        return rust_grade(
+            args.slug,
+            str(path),
+            cap=args.cap,
+            jobs=args.jobs,
+        )
+    command = [
+        "node",
+        str(REPO / "tools" / "grade_json.js"),
+        args.slug,
+        str(path),
+        "--cases",
+        str(REPO / "tests" / f"{args.slug}.json"),
+        "--failfast",
+    ]
+    if args.cap:
+        command.extend(["--cap", str(args.cap)])
+    process = subprocess.run(
+        command,
+        cwd=REPO,
+        capture_output=True,
+        text=True,
+        timeout=1800,
+    )
+    for line in reversed(process.stdout.splitlines()):
+        if line.lstrip().startswith("{"):
+            return json.loads(line)
+    return {"error": (process.stderr or process.stdout or "oracle failed")[:300]}
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("slug")
     parser.add_argument("input", type=Path)
     parser.add_argument("--target", type=int, default=50)
+    parser.add_argument("--target-width", type=int)
+    parser.add_argument("--target-height", type=int)
     parser.add_argument("--work-dir", type=Path)
     parser.add_argument("--max-iterations", type=int, default=100)
     parser.add_argument("--max-step", type=int, default=3)
@@ -177,11 +212,18 @@ def main():
         type=int,
         help="per-case simulator cap; use a measured tight cap to reject deadlocks quickly",
     )
+    parser.add_argument(
+        "--oracle",
+        action="store_true",
+        help="validate checkpoints with the organizer WASM and cached tests",
+    )
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args()
 
-    if args.target < 3:
-        parser.error("--target must be at least 3")
+    target_width = args.target_width or args.target
+    target_height = args.target_height or args.target
+    if target_width < 3 or target_height < 3:
+        parser.error("target dimensions must be at least 3")
     work_dir = args.work_dir or args.input.with_name(f"{args.input.stem}-packing")
     work_dir.mkdir(parents=True, exist_ok=True)
 
@@ -191,7 +233,7 @@ def main():
         version = version_of(current)
         print(f"resuming from {current}")
     else:
-        baseline = rust_grade(args.slug, str(args.input), cap=args.cap, jobs=args.jobs)
+        baseline = grade_program(args, args.input)
         if baseline.get("passed") != baseline.get("total") or not baseline.get("total"):
             raise SystemExit(f"baseline does not pass every public case: {baseline}")
         fp = baseline["footprint"]
@@ -221,7 +263,7 @@ def main():
         base_cells = plan.draw(plan.base_offsets, plan.pipe_paths_original())
         base_objective = geometry(base_cells, base_layout[0])
         width, height, _ = PLACE.box_of(base_cells)
-        if width <= args.target and height <= args.target:
+        if width <= target_width and height <= target_height:
             print(f"target reached at {current}: {width}x{height}")
             return
 
@@ -422,12 +464,7 @@ def main():
                 PLACE.render(PLACE.trimmed(cells)),
                 encoding="ascii",
             )
-            result = rust_grade(
-                args.slug,
-                str(temporary),
-                cap=args.cap,
-                jobs=args.jobs,
-            )
+            result = grade_program(args, temporary)
             if result.get("passed") == result.get("total") and result.get("total"):
                 accepted = (objective, description, temporary, result)
                 break

@@ -494,7 +494,12 @@ impl World {
                 if path.len() < 2 { return Err("pipe too short".into()); }
                 let dst_room = dst_room.ok_or_else(|| "pipe does not end at a room".to_string())?;
                 let sr = src_room.unwrap();
-                if sr == dst_room { return Err("pipe self-loop".into()); }
+                if sr == dst_room {
+                    // An arrow in the middle of another pipe can look like a
+                    // source when it lies beside a room wall. The oracle ignores
+                    // this false candidate if it traces back into that room.
+                    continue;
+                }
                 for &p in &path { used.insert(p); }
                 let n = path.len();
                 pipes.push(Pipe {

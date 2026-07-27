@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
-"""Persistent 16-row streaming Pathfinder wavefront.
+"""Persistent, bounded 16-row streaming Pathfinder wavefront.
 
 This closes the previously composed driver and priority bands:
 
     seed/return merge -> streaming driver -> U/R/L/D packet stages
     -> parent accumulator -> NEXT -> seed/return merge
 
-Every lane returns ``[state,frontier]``.  The controller's next lap is the
-global barrier: it blocks on the first late row rather than using a timer.
-Fixed small seed words keep this probe focused on persistent protocol and
-physical routing; board setup and the four-word parent ring remain separate.
+Every lane returns ``[state,frontier]``.  The controller completes exactly 64
+layers, the assignment's stated maximum shortest-path distance.  A small
+counter worker returns one continuation token per completed sweep, so the
+gate is data-driven without adding sixteen activity wires through the packed
+strip floorplan.
 """
 
 import json
@@ -92,14 +93,23 @@ def build(frontiers=None, states=None):
     p.put(last_exit + 1, 1, "0")
     p.put(last_exit + 2, 1, "s")
     p.put(147, 1, "v")
-    p.put(147, 2, "M")
-    p.put(147, 14, "<")
-    p.put(1, 14, "^")
+    p.put(147, 12, "r")
+    p.put(147, 13, "X")
+    p.put(147, 14, "H")
+
+    # Positive continuation turns west into the bottom return row; zero
+    # continues south into H.  Clear B, then enter lane zero's receive
+    # from the west without replaying the one-time @ start.
+    p.put(5, 13, "0")
+    p.put(4, 13, "M")
+    p.put(1, 13, "^")
 
     merge_y = 20
     stage_y = (34, 46, 58, 70)
     parent_y = (82, 93, 104, 115)
     next_y = 126
+    counter_x = 130
+    counter_y = 142
     if frontiers is None:
         frontiers = [(lane % 8) + 1 for lane in range(LANES)]
     if states is None:
@@ -173,7 +183,7 @@ def build(frontiers=None, states=None):
         next_ops = ["@", "0", "M"]
         for _ in range(4):
             next_ops += ["r", "|", "M"]
-        next_ops += ["r", "s", "W", "s"]
+        next_ops += ["r", "s", "W", "S" if lane == LANES - 1 else "s"]
         lane_loop_room(p, lane_x, next_y, 12, next_ops)
         p.pipe([
             (lane_x + 2, parent_y[3] + 8),
@@ -187,6 +197,37 @@ def build(frontiers=None, states=None):
             (base + 2, next_y + 13),
             (base + 2, merge_y + 7),
         ])
+
+        if lane == LANES - 1:
+            # Row 15's completed frontier is also the exact layer-completion
+            # trigger.  The high right-wall attachment stays farther from the
+            # preceding ordinary state send than the normal return pipe.
+            p.pipe([
+                (lane_x + 7, next_y + 2),
+                (lane_x + 8, next_y + 2),
+                (lane_x + 8, next_y + 4),
+                (lane_x + 7, next_y + 4),
+                (lane_x + 7, counter_y - 1),
+            ])
+
+    # BP=64 countdown.  Each completed controller sweep sends one trigger.
+    # The worker replies 1 for the first 63 layers and 0 after layer 64.
+    p.room(counter_x, counter_y, 19, 7)
+    p.text(counter_x + 1, counter_y + 1, "@8M*bv")
+    p.text(counter_x + 6, counter_y + 3, ">rmd0sH")
+    p.put(counter_x + 9, counter_y + 4, ">")
+    p.text(counter_x + 10, counter_y + 4, "1s")
+    p.put(counter_x + 17, counter_y + 4, "^")
+    p.put(counter_x + 17, counter_y + 2, "<")
+    p.put(counter_x + 6, counter_y + 2, "v")
+
+    # Trigger and reply use the two empty far-right columns.
+    p.pipe([
+        (149, counter_y + 3),
+        (150, counter_y + 3),
+        (150, 12),
+        (149, 12),
+    ])
 
     return p, frontiers, states, parent_y
 
@@ -219,7 +260,7 @@ def reference(frontiers, states, limit=100):
     raise AssertionError("reference did not settle")
 
 
-def inspect(frontiers=None, states=None, tick=5000):
+def inspect(frontiers=None, states=None, tick=100000):
     program, frontiers, states, parent_y = build(frontiers, states)
     program.save(OUT)
     result = subprocess.run(

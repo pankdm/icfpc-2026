@@ -23,8 +23,11 @@ def _cases_of(obj):
 
 
 PUBLIC = _cases_of(json.load(open(os.path.join(REPO, "tests/gradebook.json"))))
-STRESS = (_cases_of(json.load(open(os.path.join(REPO, "tests/stress/gradebook.json"))))
-          + _cases_of(json.load(open(os.path.join(REPO, "tests/stress/gradebook-align.json")))))
+STRESS = []
+for _f in ("gradebook", "gradebook-align", "gradebook-parity", "gradebook-fuzz"):
+    _p = os.path.join(REPO, "tests/stress", _f + ".json")
+    if os.path.exists(_p):
+        STRESS += _cases_of(json.load(open(_p)))
 
 
 def _io(c):

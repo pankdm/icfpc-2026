@@ -40,7 +40,7 @@ CX, CY, CH = 0, 8, 13                # checker
 
 READER = [
     "v M1s-8W<      <",              # 1  return leg runs WEST: W 8 - s then 1 M
-    " > rb]]]Y@r1M  ^",              # 2  main loop runs EAST into the fork
+    " > rb]]]Y  @r1M^",              # 2  main loop runs EAST into the fork
     ">^  v]]bxb]]v   ",              # 3  level 1; cols 5-6 are the loop's dip
     "  vbxbv   vbxbv ",              # 4  level 2
     "  ]   ]   ]   ] ",              # 5  reload shift

@@ -10,6 +10,22 @@
 #    on a corner the walk already needs.
 #  * the hot path is a bare 2x5 ring: q d U b m ] x < } s  -> 10 ticks/opener.
 #    closers leave the ring at `x` for } N s and rejoin at `q`      -> 14 ticks.
+#
+# M IS NOW THE BOTTLENECK (15.9 t/char; C is ~11). Measured attempt + why it failed:
+# M pop = 22 ticks (29 of 32 pops take it): X + M X 3 W / > ^ W b d ^ 1 s < . W < v M r.
+#   * b+d (remainder test) -> a single X is CORRECT and saves an OP, but not a TICK:
+#     the freed cell (7,5) sits mid-way up a straight run, and ticks = cells walked.
+#   * After W(7,7) B ALREADY holds the quotient, so W(5,1)+M(3,2) are dead weight --
+#     but the pop cannot exploit that: r(3,3) must be entered heading SOUTH (it falls
+#     through to X(3,4)), and the only cell north of it is M(3,2). Verified by build:
+#     returning via row 2 crashes into the west wall.
+#   * The 22-cell walk is DISTANCE-MINIMAL for its shape: descent 6,5..6,8 (4) +
+#     turnaround (7,8) + ascent 7,7..7,2 (6) + return 7,1..3,3 (7, = 4 west + 2 south + r).
+#   * The real unlock is moving the post-offense RESET corridor off column 4 (it pins
+#     (4,5)..(4,8) as A==0 pass-throughs, so no pop-only send cell exists there).
+#     Free cells for it: (2,2),(2,3),(2,5),(2,7),(2,8).
+#   * Sending the quotient before validating (saves the `1`) breaks the offense count
+#     by one: P adds 1 on a negative verdict and both offense kinds share verdict -2.
 import os as _os, sys
 _REPO = _os.path.abspath(__file__).split('/solutions/')[0]
 sys.path.insert(0, _REPO + '/tools')

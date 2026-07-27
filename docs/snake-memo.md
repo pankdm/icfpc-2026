@@ -133,3 +133,26 @@ IDENTICAL pipe profile to push2, so it was not submitted — same rings, same ex
 
 Contrast with the wins that held: `fold10` and `fold11` both changed only a man's path length
 (`equiv` reported no pipe change) and both scored 17/17 on the server.
+
+
+## Snake is ALREADY SQUARE — reshaping caps at 1.06x (measured 2026-07-27, live 71x69 build)
+
+The LLM squaring insight does NOT transfer. LLM was 356x793 (area 282,308 scored as 793^2), so
+squaring was worth 2.23x. Snake's live champion is **71x69, box 5,041, area 4,899** — the same
+area square is 69x69 = 4,761, i.e. **1.059x and that is the entire ceiling of any reshape.**
+Moving the top band to the side trades height for width when they are already balanced, which is
+neutral at best and usually worse.
+
+Where the air actually is (921 content cells, 18.8% density):
+
+    y0..7    content spans x19..61  ->  x0..18  empty  = 19 x 8  = 152 cells  (top band)
+    y32..68  content spans x0..49   ->  x50..70 empty  = 21 x 37 = 777 cells  (lower right)
+
+Width 71 exists ONLY because rows 14..31 reach x70; everything below y31 stops at x49. So the one
+reshape worth doing is the inverse of "move the top gadgets sideways": pull the x62..70 content of
+rows 14..31 DOWN into the dead lower-right rectangle, dropping width 71 -> ~62 so the box becomes
+69^2 = 4,761.
+
+**The 1.79x to the leader is a DENSITY problem, not a shape problem**: 921 cells at 35% density is
+51x51 = 2,601, smaller than the leader's own 53x53. Both dimensions have to come down together,
+which is why the lever is reflow (fewer wraps => fewer rows), not rearrangement.

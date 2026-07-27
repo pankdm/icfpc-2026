@@ -157,6 +157,17 @@ There are **no unsubmitted improvements** lying around. Two traps found doing it
   ("commit every live champion, including five that existed nowhere in git") is the recovery.
   The `-history`, `-gbreflow`, `-pfbits`, `icfpc-pathfinder-opt` worktrees each hold champions
   that are **not** in the others.
+- **`git fetch --all` BEFORE STARTING ANY PROBLEM, then search `git log --all`.** Measured
+  2026-07-26: `icfpc-2026-main` was three hours and six commits behind on Grade Book because
+  origin had never been fetched. `submissions.py --match` reported the live build as "NO local
+  `.man` of these dimensions" and a full-disk `find` for recent `.man` files returned nothing —
+  it looked like the champion existed only on the server. It did not; it was commit `089b211`
+  on `origin/dualhead-reopen`. **Teammates push to branches you do not have.** Checking the
+  local tree is not enough, and an unfetched worktree makes you redo work that already shipped.
+- **Compare a candidate against the score of the build it was DERIVED FROM**, never against the
+  problem's live score. Read the sidecar `.json` next to the archived submission. A 1.074x
+  Grade Book win read as a 12x private *regression* purely because it was measured against a
+  live champion three generations newer than its own input.
 
 ### Measured dead ends (2026-07-26) — do not repeat these
 

@@ -35,6 +35,13 @@ from optimize_feeder import Band, optimize_feeder
 B1 = 92
 B2 = 128
 ESC = 29
+# DISP's classifier threshold: symbols 1..THRESHOLD-1 are ring lookups,
+# THRESHOLD is the reserved value (it must never occur in the stream), and
+# THRESHOLD+1..91 are literal bytes (+31).  SMALL_FREE lists the symbols below
+# it whose byte never occurs, so they are free to carry a dictionary phrase;
+# STOLEN lists ones whose byte *does* occur but whose slot we take anyway,
+# paying an escape pair for its few occurrences.
+THRESHOLD = 17
 STOLEN = (8, 17)
 SMALL_FREE = [2, 4, 5, 6, 7, 8, 11, 12, 16]
 FIRST_YEAR, LAST_YEAR = 2000, 2026
@@ -113,7 +120,7 @@ def choose_phrases(stream):
     dig1 = math.log10(B1)
     forbidden = set(STOLEN) | {0, ESC}
     singles_left = len(SMALL_FREE)
-    pairs_left = 91 - 17 + 1
+    pairs_left = 91 - THRESHOLD + 1
     phrases = []
     for v in STOLEN:
         stream = replace_nonoverlap(stream, (v,), [-len(phrases) - 1])
@@ -208,7 +215,16 @@ def add_best_pair_phrases(stream, phrases, count):
 
 
 def build_encoding(table_budget=None, extra_pair_count=0, tail_constants=False,
-                   west_first=False):
+                   west_first=False, threshold=None, group_b_rows=4,
+                   group_a_cap=73):
+    """``threshold`` is DISP's T: symbols 1..T-1 are ring lookups, T is the
+    reserved value, and T+1..91 are literal bytes.  Raising it converts escape
+    pairs (2 stream symbols) into direct references (1) at no P1 cost, since a
+    promoted entry is already in the ring; the price is that every *used* symbol
+    below T needs a cheap packed-byte ring slot.  T must itself be a symbol that
+    never occurs."""
+    T = THRESHOLD if threshold is None else threshold
+    RB = group_b_rows
     stream, phrases = choose_phrases(tokenize(TEXT))
     if extra_pair_count:
         stream, chosen = add_best_pair_phrases(
@@ -226,7 +242,7 @@ def build_encoding(table_budget=None, extra_pair_count=0, tail_constants=False,
         for i in singles + pairs:
             vals.append(pack128(phrase_bytes(phr[i][0])))
         used_small = set(list(sorted(SMALL_FREE))[:len(singles)])
-        for v in range(1, 17):
+        for v in range(1, THRESHOLD):
             if v in used_small:
                 continue
             vals.append(9 if v in SMALL_FREE else pack128(spell(v)))
@@ -260,12 +276,31 @@ def build_encoding(table_budget=None, extra_pair_count=0, tail_constants=False,
     pairs = [i for i, (p, s) in enumerate(phrases) if s is False]
     assert len(singles) <= len(SMALL_FREE)
     ring, slot_of = {}, {}
-    for i, v in zip(singles, sorted(SMALL_FREE)):
-        slot_of[i] = ("single", v)
-        ring[v] = pack128(phrase_bytes(phrases[i][0]))
-    for v in range(1, 17):
-        if v not in ring:
-            ring[v] = 9 if v in SMALL_FREE else pack128(spell(v))
+    if T == 17:
+        # shipped alphabet: keep the historical position order byte-for-byte
+        for i, v in zip(singles, sorted(SMALL_FREE)):
+            slot_of[i] = ("single", v)
+            ring[v] = pack128(phrase_bytes(phrases[i][0]))
+        for v in range(1, T):
+            if v not in ring:
+                ring[v] = 9 if v in SMALL_FREE else pack128(spell(v))
+    else:
+        # Pin the literal-byte positions, then let pack_group_a() choose which
+        # free position each phrase takes so group A's columns pair by width.
+        byte_by_pos = {v: pack128(spell(v))
+                       for v in range(1, T) if v not in SMALL_FREE}
+        phrase_vals = [pack128(phrase_bytes(phrases[i][0])) for i in singles]
+        _, _, assign = pack_group_a(phrase_vals, byte_by_pos, T - 1,
+                                    west_first, group_a_cap)
+        by_val = {}
+        for i in singles:
+            by_val.setdefault(pack128(phrase_bytes(phrases[i][0])), []).append(i)
+        for pos, val in sorted(assign.items()):
+            slot_of[by_val[val].pop()] = ("single", pos)
+            ring[pos] = val
+        ring.update(byte_by_pos)
+        for v in range(1, T):
+            ring.setdefault(v, 9)      # unused free position: cheap filler
 
     # --- template layout for P1 group B (pairs), 4 rows x nB slots ---
     # Assign pair values to a grid so every column's backtick count is even
@@ -285,13 +320,13 @@ def build_encoding(table_budget=None, extra_pair_count=0, tail_constants=False,
     order = sorted(range(len(pair_vals)),
                    key=lambda i: -len(str(pair_vals[i])))
     nB = (
-        -(-len(pair_vals) // 4)
+        -(-len(pair_vals) // RB)
         if tail_constants
-        else -(-(len(pair_vals) + 1) // 4)       # +1 for the zero sentinel
+        else -(-(len(pair_vals) + 1) // RB)      # +1 for the zero sentinel
     )
-    grid = [[None] * nB for _ in range(4)]       # rows 0..3 = P1 rows 3..6
+    grid = [[None] * nB for _ in range(RB)]
     # widest chunk goes to the physically-last slot; sentinel to slot 0
-    chunks_desc = [order[i * 4:(i + 1) * 4] for i in range(nB)]
+    chunks_desc = [order[i * RB:(i + 1) * RB] for i in range(nB)]
     widths = []
     for j, chunk in enumerate(chunks_desc):
         # When the phrase count is a multiple of four, the extra legacy
@@ -299,13 +334,16 @@ def build_encoding(table_budget=None, extra_pair_count=0, tail_constants=False,
         widths.append(
             max((len(str(pair_vals[i])) for i in chunk), default=1)
         )
-    # physical slot order puts the narrow slot where the sentinel lands, so
-    # that row's tail leaves room for the pump: slot 0 for the east-first
-    # layouts, slot nB-1 for the west-first one.
-    phys = sorted(range(nB), key=lambda j: -widths[j] if west_first
-                  else widths[j])
+    # The sentinel must occupy the last cell the preload walk visits, so put
+    # the narrowest group there -- that also leaves the row's tail free for the
+    # pump.  Which physical slot that is depends on the direction of the last
+    # row, i.e. on the parity of the row count, not on west_first alone.
+    last_westward = ((RB - 1) % 2 == 0) if west_first else ((RB - 1) % 2 == 1)
+    # westward last row ends on slot 0; eastward ends on slot nB-1
+    phys = sorted(range(nB), key=lambda j: widths[j] if last_westward
+                  else -widths[j])
     TB = [widths[j] for j in phys]
-    cellgrid = [[None] * nB for _ in range(4)]
+    cellgrid = [[None] * nB for _ in range(RB)]
     fill = []
     for j, chunk in enumerate(chunks_desc):
         pj = phys.index(j)
@@ -319,8 +357,8 @@ def build_encoding(table_budget=None, extra_pair_count=0, tail_constants=False,
         return range(nB - 1, -1, -1) if westward else range(nB)
 
     def number(ring):
-        posmap, pos = {}, 17
-        for r in range(4):
+        posmap, pos = {}, T
+        for r in range(RB):
             for pj in walk(r):
                 idx = cellgrid[r][pj]
                 if idx is None:
@@ -334,20 +372,22 @@ def build_encoding(table_budget=None, extra_pair_count=0, tail_constants=False,
     # In the legacy layout the sentinel belongs at the very last preload
     # position: the final cell of row 3 in walk order.  The narrow layout
     # fills that slot and emits its sentinel on the extra eastbound row.
-    last_cell = list(walk(3))[-1]
-    if not tail_constants and cellgrid[3][last_cell] is not None:
-        # find a free cell and move the occupant there
-        moved = cellgrid[3][last_cell]
+    last_cell = list(walk(RB - 1))[-1]
+    if not tail_constants and cellgrid[RB - 1][last_cell] is not None:
+        # Move the occupant to a free cell whose column is wide enough.  The
+        # first free cell is not always one -- with the table nearly full the
+        # only spare slot can be narrower than the entry being displaced.
+        moved = cellgrid[RB - 1][last_cell]
+        need = len(str(pack128(phrase_bytes(phrases[moved][0]))))
         done = False
-        for r in range(4):
+        for r in range(RB):
             for pj in range(nB):
-                if cellgrid[r][pj] is None and not done:
-                    assert TB[pj] >= len(str(pack128(phrase_bytes(phrases[moved][0]))))
+                if cellgrid[r][pj] is None and TB[pj] >= need and not done:
                     cellgrid[r][pj] = moved
                     done = True
-        assert done, "no free cell for sentinel"
-        cellgrid[3][last_cell] = None
-        ring = {k: v for k, v in ring.items() if k <= 16}
+        assert done, "no free cell wide enough for the displaced entry"
+        cellgrid[RB - 1][last_cell] = None
+        ring = {k: v for k, v in ring.items() if k < T}
         posmap, pos = number(ring)
     for i in tail_pairs:
         posmap[i] = pos
@@ -358,7 +398,7 @@ def build_encoding(table_budget=None, extra_pair_count=0, tail_constants=False,
     layout = dict(TB=TB, cellgrid=cellgrid,
                   val_of={i: pack128(phrase_bytes(phrases[i][0]))
                           for i in pairs},
-                  tail_pairs=tail_pairs)
+                  tail_pairs=tail_pairs, n_small=T - 1, group_b_rows=RB)
 
     symbols = []
     for t in stream:
@@ -368,12 +408,12 @@ def build_encoding(table_budget=None, extra_pair_count=0, tail_constants=False,
             kind, v = slot_of[-t - 1]
             symbols.extend([v] if kind == "single" else [ESC, v])
     assert all(0 <= s < B1 for s in symbols)
-    # 17 may appear only as a pair index right after ESC (read by the ESC
-    # lane's r, bypassing the classifier where a bare 17 would be fatal).
+    # The threshold may appear only as a pair index right after ESC (read by
+    # the ESC lane's r, bypassing the classifier where a bare T would be fatal).
     i = 0
     while i < len(symbols):
         s = symbols[i]
-        assert s != 17, f"bare 17 at {i}"
+        assert s != T, f"bare threshold {T} at {i}"
         i += 2 if s == ESC else 1
     return symbols, ring, layout
 
@@ -402,7 +442,7 @@ def pack_chunks(symbols, digit_widths):
     return chunks
 
 
-def verify(chunks, ring):
+def verify(chunks, ring, threshold=None):
     # This is the semantic counterpart of the grid below.  Keeping it here is
     # important: the room program is densely folded, while this follows the
     # five stages in their logical (rather than spatial) order.
@@ -418,7 +458,7 @@ def verify(chunks, ring):
             mid.append(0)
         elif v == ESC:
             mid.append(ring[syms[i]]); i += 1
-        elif v <= 16:
+        elif v < (THRESHOLD if threshold is None else threshold):
             mid.append(ring[v])
         else:
             mid.append(v + 31)
@@ -503,13 +543,25 @@ def _grid(width, height, *placements):
 #   14..16  take the wanted entry, keep it in B, put it back on the ring
 #   17..19  drain the rest back until the 0 sentinel: `>` `r` `X` over `^` `s` `<`
 #   20      sentinel riser: send the sentinel, `W` the entry into A, go home
-DISP_COMPACT_ROWS = _grid(21, 5,
-    (0, 0, "v@<<s"), (7, 0, "<"), (10, 0, "<"), (20, 0, "<"),
-    (0, 1, ">`17`Mr"), (8, 1, "bX^"), (20, 1, "W"),
-    (1, 2, ">`31`+^"), (9, 2, "-"), (20, 2, "s"),
-    (0, 3, "vX~`92`M+X> mdrMs>rX^"),
-    (0, 4, ">rb"), (10, 4, "^sr<"), (17, 4, "^s<"),
-)
+def disp_compact_rows(threshold=17, esc=29):
+    """The 21x5 dispatcher.  Only two constants depend on the alphabet, and
+    both are two digits wide, so raising the threshold does not move a single
+    cell.  The head's literal is the classifier threshold, read eastward; row
+    3's is the ESC value, read *westward*, so its cell content is str(esc)
+    reversed.
+    """
+    assert 10 <= threshold <= 99 and 10 <= esc <= 99, (threshold, esc)
+    thr, e = str(threshold), str(esc)[::-1]
+    return _grid(21, 5,
+        (0, 0, "v@<<s"), (7, 0, "<"), (10, 0, "<"), (20, 0, "<"),
+        (0, 1, f">`{thr}`Mr"), (8, 1, "bX^"), (20, 1, "W"),
+        (1, 2, ">`31`+^"), (9, 2, "-"), (20, 2, "s"),
+        (0, 3, f"vX~`{e}`M+X> mdrMs>rX^"),
+        (0, 4, ">rb"), (10, 4, "^sr<"), (17, 4, "^s<"),
+    )
+
+
+DISP_COMPACT_ROWS = disp_compact_rows()
 
 # Repeated /92 emits one least-significant stream symbol per feeder chunk.
 DECODER_ROWS = [
@@ -674,6 +726,101 @@ def p1_slot_cells(v, width, east):
     return ["`", *d, "`", "s"] if east else ["s", "`", *d[::-1], "`"]
 
 
+def group_a_columns(n_small, nA, west_first):
+    """position -> physical slot column, following the preload serpentine."""
+    RA = -(-n_small // nA)
+    col, pos = {}, 0
+    for r in range(RA):
+        westward = (r % 2 == 0) if west_first else (r % 2 == 1)
+        for pj in (range(nA - 1, -1, -1) if westward else range(nA)):
+            pos += 1
+            if pos <= n_small:
+                col[pos] = pj
+    return RA, col
+
+
+def pack_group_a(phrase_vals, byte_by_pos, n_small, west_first, cap):
+    """Choose group A's shape *and* which free position each phrase takes.
+
+    Positions that spell a literal byte are pinned (DISP reaches position v for
+    symbol v), but the phrases may be permuted among the free positions -- the
+    same trick as LOGICAL_ORDER in build_vertical_p1.py.  This matters a lot:
+    left in selection order the wide phrase entries and the narrow byte entries
+    interleave, every column's slot is as wide as the widest thing the walk
+    drops in it, and group A needs five rows instead of three.
+
+    Widths are handed out widest-first to the columns with the most free slots,
+    so the wide entries share columns rather than each inflating its own.
+    Returns (RA, nA, {position: value}) with the fewest rows.
+    """
+    free_all = [p for p in range(1, n_small + 1) if p not in byte_by_pos]
+    assert len(free_all) >= len(phrase_vals), (len(free_all), len(phrase_vals))
+    best = None
+    for nA in range(1, n_small + 1):
+        RA, col = group_a_columns(n_small, nA, west_first)
+        base = [1] * nA
+        for p, v in byte_by_pos.items():
+            base[col[p]] = max(base[col[p]], len(str(v)))
+        slots = {}
+        for p in free_all:
+            slots.setdefault(col[p], []).append(p)
+        vals = sorted(phrase_vals, key=lambda v: -len(str(v)))
+        assign, k = {}, 0
+        for c in sorted(slots, key=lambda c: -len(slots[c])):
+            for pp in slots[c]:
+                if k < len(vals):
+                    assign[pp] = vals[k]
+                    k += 1
+        TA = list(base)
+        for pp, v in assign.items():
+            TA[col[pp]] = max(TA[col[pp]], len(str(v)))
+        if sum(TA) + 3 * nA <= cap and (best is None or (RA, nA) < best[:2]):
+            best = (RA, nA, assign)
+    if best is None:
+        raise ValueError(f"group A ({n_small} positions) does not fit cap {cap}")
+    return best
+
+
+def group_a_grid(smalls, west_first, inner):
+    """Lay ring positions 1..len(smalls) into RA rows x nA slots.
+
+    Group A is *position*-ordered, not width-ordered: the preload walk must
+    visit position 1, 2, 3 ... in order, because DISP reaches position p by
+    rotating the ring p-1 times.  So unlike group B this cannot sort by width;
+    a column's slot is simply as wide as the widest entry the walk drops in it.
+    (The encoder can still permute which phrase lands on which *free* position
+    to make those columns pair well -- see LOGICAL_ORDER in
+    build_vertical_p1.py.  Positions that spell a literal byte are pinned.)
+
+    Returns (grid, TA, RA, nA), preferring the fewest rows and then the fewest
+    slots, which reproduces the hand-written 2x8 layout when len(smalls) == 16.
+    """
+    n = len(smalls)
+    best = None
+    for nA in range(1, n + 1):
+        RA = -(-n // nA)
+        grid = [[None] * nA for _ in range(RA)]
+        pos = 0
+        for r in range(RA):
+            westward = (r % 2 == 0) if west_first else (r % 2 == 1)
+            for pj in (range(nA - 1, -1, -1) if westward else range(nA)):
+                if pos < n:
+                    grid[r][pj] = smalls[pos]
+                    pos += 1
+        TA = [
+            max((len(str(grid[r][j])) for r in range(RA)
+                 if grid[r][j] is not None), default=1)
+            for j in range(nA)
+        ]
+        if sum(TA) + 3 * nA > inner:
+            continue
+        if best is None or (RA, nA) < (best[2], best[3]):
+            best = (grid, TA, RA, nA)
+    if best is None:
+        raise ValueError(f"group A ({n} entries) does not fit width {inner + 4}")
+    return best
+
+
 def p1_room(program, x0, y0, width, ring, layout, west_first=False):
     """Template preload room: 2 group-A rows (smalls 1..16, 8 slots) and
     4 group-B rows, all slot-aligned so every column's backtick count is
@@ -687,15 +834,18 @@ def p1_room(program, x0, y0, width, ring, layout, west_first=False):
     its own -- an 8-row room instead of 10.  It is incompatible with
     ``tail_constants``, which needs those rows to carry extra entries."""
     assert not (west_first and layout["tail_pairs"])
-    smalls = [ring[v] for v in range(1, 17)]
-    szA = [len(str(v)) for v in smalls]
-    TA = [max(szA[j], szA[15 - j]) for j in range(8)]
+    n_small = layout.get("n_small", 16)
+    smalls = [ring[v] for v in range(1, n_small + 1)]
+    # west_first must also clear the turn column and the two pump columns, so
+    # its usable span is three cells shorter than the plain interior.
+    gridA, TA, RA, nA = group_a_grid(
+        smalls, west_first, width - 4 - (3 if west_first else 0))
     TB = layout["TB"]
     cellgrid = layout["cellgrid"]
     tail_pairs = layout["tail_pairs"]
     nB = len(TB)
     inner = width - 4
-    assert sum(TA) + 3 * 8 <= inner, (sum(TA) + 24, inner)
+    assert sum(TA) + 3 * nA <= inner, (sum(TA) + 3 * nA, inner)
     if tail_pairs:
         assert sum(TB) + 3 * nB <= inner - 2, (
             sum(TB) + 3 * nB,
@@ -737,19 +887,16 @@ def p1_room(program, x0, y0, width, ring, layout, west_first=False):
         # turn column, two pump columns, right wall
         assert turn + 3 <= x0 + width - 1, (turn, width)
 
-    # Group A rows carry ring positions 1..16.  The row walked first holds
-    # 1..8; a westbound row is visited slot 7 first, so its values sit
-    # reversed to keep preload order ascending.
-    if west_first:
-        # slot j now pairs smalls[7-j] with smalls[8+j], so the widths run the
-        # other way too
-        rows_spec = [(smalls[0:8][::-1], TA[::-1], False),
-                     (smalls[8:16], TA[::-1], True)]
-    else:
-        rows_spec = [(smalls[0:8], TA, True), (smalls[8:16][::-1], TA, False)]
+    # Group A rows carry ring positions 1..n_small in preload-walk order;
+    # group_a_grid() has already placed them, so each row is just its physical
+    # slot contents plus the direction the walk takes through it.
+    rows_spec = []
+    for r in range(RA):
+        westward = (r % 2 == 0) if west_first else (r % 2 == 1)
+        rows_spec.append((gridA[r], TA, not westward))
     # Group B contains the multi-symbol phrase entries.  In the baseline its
     # last zero is the sentinel observed by DISP after one full rotation.
-    for r in range(4):
+    for r in range(layout.get("group_b_rows", 4)):
         vals = []
         for pj in range(nB):
             idx = cellgrid[r][pj]
@@ -895,6 +1042,58 @@ def build(W=83, variable=False, compact_tail=False, narrow=False,
     return program
 
 
+def free_symbols():
+    """Symbol values whose byte never occurs in the text, so they are free to
+    carry a dictionary phrase instead of a literal byte."""
+    used = set(t for t in tokenize(TEXT) if t > 0)
+    return [v for v in range(1, B1) if v not in used]
+
+
+class alphabet:
+    """Temporarily rebind the classifier alphabet.
+
+    THRESHOLD, ESC, SMALL_FREE and STOLEN are module globals because
+    choose_phrases() consults them while selecting the dictionary; this rebinds
+    them consistently for one build and restores them afterwards.
+    """
+
+    def __init__(self, threshold, esc):
+        free = free_symbols()
+        assert threshold in free, f"threshold {threshold} occurs in the text"
+        assert esc in free and esc > threshold, f"bad ESC {esc}"
+        self.new = (
+            threshold, esc,
+            sorted([v for v in free if v < threshold] + [8]),
+            (8,),
+        )
+
+    def __enter__(self):
+        global THRESHOLD, ESC, SMALL_FREE, STOLEN
+        self.old = (THRESHOLD, ESC, SMALL_FREE, STOLEN)
+        THRESHOLD, ESC, SMALL_FREE, STOLEN = self.new
+        return self
+
+    def __exit__(self, *exc):
+        global THRESHOLD, ESC, SMALL_FREE, STOLEN
+        THRESHOLD, ESC, SMALL_FREE, STOLEN = self.old
+        return False
+
+
+def build_80x80():
+    """The 80x80 build: same layout, wider direct dictionary range.
+
+    Raising DISP's threshold from 17 to 30 turns every free symbol below 30
+    into a one-symbol dictionary reference instead of a two-symbol escape pair.
+    That is 15 direct entries rather than 9, which shortens the stream from
+    2,042 symbols to about 1,951 and the feeder from 64 rows to 61 -- two rows
+    more than the width-80 layout needs.  DISP is unchanged in size: only its
+    two alphabet literals move (17 -> 30, and ESC 29 -> 31).
+    """
+    with alphabet(30, 31):
+        program = build(80, variable=True, compact_tail=True, west_first=True)
+    return program
+
+
 def build_champion():
     """Build the checked-in 81x81 champion."""
     program = build(81, variable=True, compact_tail=True, west_first=True)
@@ -942,9 +1141,9 @@ def build_compact_once(W, chunks, ring, layout, bands, narrow=False,
     DISP's nearest-pipe bindings are unchanged."""
     program = Program()
     feeder_rows = variable_feeder(program, bands, W)
-    assert feeder_rows == ((63 if W == 81 else 64) if west_first else 62)
+    if THRESHOLD == 17:          # the shipped alphabet; pins the known builds
+        assert feeder_rows == ((63 if W == 81 else 64) if west_first else 62)
     tail_top = feeder_rows + 2
-    assert tail_top == ((65 if W == 81 else 66) if west_first else 64)
 
     # Room left edges, and DISP's width.  DISP's last inner column is entirely
     # blank, so 26 columns suffice; that trim is what pays for both narrow
@@ -955,7 +1154,8 @@ def build_compact_once(W, chunks, ring, layout, bands, narrow=False,
                           else (2, 17, 20, 4, 51))
     # west_first takes the rebuilt 21x5 dispatcher (DISP_COMPACT_ROWS); the
     # other tails keep the 6-row grid, which is why disp_width still applies.
-    disp_rows = DISP_COMPACT_ROWS if west_first else DISP_ROWS
+    disp_rows = (disp_compact_rows(THRESHOLD, ESC) if west_first
+                 else DISP_ROWS)
     disp_width = 26 if narrow else None
 
     # Service rooms occupy the top eight rows of the tail.  P1 is below them,
@@ -973,7 +1173,8 @@ def build_compact_once(W, chunks, ring, layout, bands, narrow=False,
     # leaves one dead column beside it and at W=80 is the whole width.
     p1h = p1_room(program, 0, tail_top + 8, 80 if west_first else W - 2,
                   ring, layout, west_first=west_first)
-    assert p1h == (8 if west_first else 10)
+    if THRESHOLD == 17:
+        assert p1h == (8 if west_first else 10)
 
     # feeder -> DECODER
     program.pipe([(xd - 3, tail_top), (xd - 3, tail_top + 5),
@@ -1021,16 +1222,21 @@ def build_compact_once(W, chunks, ring, layout, bands, narrow=False,
             ],
             end_direction="S",
         )
-        program.pipe(
-            [
-                (e - 3, tail_top + 7),
-                (e - 3, tail_top + 2),
-                (e - 4, tail_top + 2),
-                (e - 4, tail_top + 5),
-                (73, tail_top + 5),
-            ],
-            end_direction="W",
-        )
+        # The return leg's length is a *correctness* requirement, not a
+        # preference: the two legs together must hold every ring word but one
+        # (see "Pipe-length requirements").  A wider direct range makes the
+        # ring longer, so comb the whole remaining strip rather than taking the
+        # short route.
+        if len(ring) + 1 <= 36:
+            back = [(e - 3, tail_top + 7), (e - 3, tail_top + 2),
+                    (e - 4, tail_top + 2), (e - 4, tail_top + 5),
+                    (73, tail_top + 5)]
+        else:
+            back = [(e - 3, tail_top + 7), (e - 3, tail_top + 2),
+                    (e - 4, tail_top + 2), (e - 4, tail_top + 7),
+                    (e - 5, tail_top + 7), (e - 5, tail_top + 2),
+                    (73, tail_top + 2)]
+        program.pipe(back, end_direction="W")
         return program
 
     if narrow:

@@ -39,6 +39,10 @@ TOP_LEFT_BLOCK_ROWS = (
     ">rsv",
     "x<<<",
 )
+TOP_LEFT_BLOCK_PRELOAD_BP2_ROWS = (
+    ">rsv",
+    "x<b2",
+)
 TOP_LEFT_BLOCK_WIDTH = 4
 RETURN_COLUMN = 2
 START_COLUMN = 5
@@ -56,6 +60,9 @@ DISP_RING_IN = (
 DISP_RING_OUT = (
     compact.RING_OUT_PORT - compact.DISP_X,
     len(compact.DISP_ROWS) + 2,
+)
+COMPACT_PROMOTED_DICTIONARY_POSITIONS = frozenset(
+    (17,)
 )
 
 
@@ -193,7 +200,12 @@ def _best_band(
     )
 
 
-def pack_dictionary(values: list[int], room_width: int) -> list[DictionaryBand]:
+def pack_dictionary(
+    values: list[int],
+    room_width: int,
+    *,
+    preload_bp2: bool = False,
+) -> list[DictionaryBand]:
     """Pack as many constants per paired band as possible with dynamic programming.
 
     Each slot costs its decimal width plus two backticks and one send cell.
@@ -214,7 +226,7 @@ def pack_dictionary(values: list[int], room_width: int) -> list[DictionaryBand]:
     # one is their start/descent and column two is the upward return.
     first_capacity = room_width - 9
     capacity = room_width - 6
-    final_capacity = room_width - 10
+    final_capacity = room_width - (9 if preload_bp2 else 10)
     values_tuple = tuple(values)
     max_constants_per_band = 2 * (capacity // 4)
 
@@ -365,11 +377,198 @@ def _order_variants(
     return unique
 
 
+def _partition_paired_slots(
+    pairs: list[tuple[int, int, int]],
+    capacities: list[int],
+    *,
+    force_first_pair: tuple[int, int, int] | None = None,
+) -> list[list[tuple[int, int, int]]] | None:
+    """Exactly bin paired literal slots into fixed-width dictionary bands."""
+    bins: list[list[tuple[int, int, int]]] = [[] for _ in capacities]
+    used = [0] * len(capacities)
+    failed_states: set[tuple[int, tuple[int, ...]]] = set()
+
+    remaining_pairs = list(pairs)
+    if force_first_pair is not None:
+        if force_first_pair[2] > capacities[0]:
+            return None
+        bins[0].append(force_first_pair)
+        used[0] = force_first_pair[2]
+        remaining_pairs.remove(force_first_pair)
+
+    def visit(index: int) -> bool:
+        if index == len(remaining_pairs):
+            return True
+        state = (index, tuple(used))
+        if state in failed_states:
+            return False
+        pair = remaining_pairs[index]
+        cost = pair[2]
+        tried_remaining = set()
+        for bin_index, capacity in enumerate(capacities):
+            remaining = capacity - used[bin_index]
+            if remaining < cost or remaining in tried_remaining:
+                continue
+            tried_remaining.add(remaining)
+            bins[bin_index].append(pair)
+            used[bin_index] += cost
+            if visit(index + 1):
+                return True
+            used[bin_index] -= cost
+            bins[bin_index].pop()
+        failed_states.add(state)
+        return False
+
+    return bins if visit(0) else None
+
+
+def _paired_class_order(
+    positions: list[int],
+    ring: dict[int, int],
+    capacities: list[int],
+    *,
+    preferred_first: int | None = None,
+) -> list[int] | None:
+    """Order one reference class from an exact paired-slot bin packing.
+
+    A band is emitted as all top values followed by the bottom values in
+    reverse physical order. This lets ``_best_band`` recover every chosen
+    long-with-long pairing while preserving the required direct/escaped
+    reference-class boundary.
+    """
+    if len(positions) % 2:
+        return None
+    ordered = sorted(
+        positions,
+        key=lambda position: (-len(str(ring[position])), position),
+    )
+    pairs = sorted(
+        (
+            (
+                ordered[index],
+                ordered[index + 1],
+                len(str(ring[ordered[index]])) + 3,
+            )
+            for index in range(0, len(ordered), 2)
+        ),
+        key=lambda pair: (-pair[2], pair[0], pair[1]),
+    )
+    forced_pair = next(
+        (
+            pair
+            for pair in pairs
+            if preferred_first is not None
+            and preferred_first in pair[:2]
+        ),
+        None,
+    )
+    bins = _partition_paired_slots(
+        pairs,
+        capacities,
+        force_first_pair=forced_pair,
+    )
+    if bins is None:
+        return None
+    result = []
+    for entries in bins:
+        result.extend(top for top, _, _ in entries)
+        result.extend(bottom for _, bottom, _ in reversed(entries))
+    return result
+
+
+def _exact_paired_order(
+    ring: dict[int, int],
+    room_width: int,
+    *,
+    preload_bp2: bool,
+    references: dict[int, int],
+) -> list[int] | None:
+    """Find a minimum-band order by packing direct and escaped pairs exactly."""
+    direct_positions = list(range(1, 17))
+    escaped_positions = list(range(17, len(ring) + 1))
+    if len(escaped_positions) % 2:
+        return None
+
+    first_capacity = room_width - 9
+    capacity = room_width - 6
+    final_capacity = room_width - (9 if preload_bp2 else 10)
+    all_widths = sorted(
+        (len(str(value)) for value in ring.values()),
+        reverse=True,
+    )
+    paired_width_floor = sum(width + 3 for width in all_widths[::2])
+    minimum_bands = (paired_width_floor + capacity - 1) // capacity
+
+    for total_bands in range(minimum_bands, len(ring) // 2 + 1):
+        for direct_bands in range(1, total_bands):
+            escaped_bands = total_bands - direct_bands
+            direct_capacities = [first_capacity] + [capacity] * (
+                direct_bands - 1
+            )
+            escaped_capacities = [capacity] * (escaped_bands - 1) + [
+                final_capacity
+            ]
+            direct = _paired_class_order(
+                direct_positions,
+                ring,
+                direct_capacities,
+            )
+            if direct is None:
+                continue
+            escaped = _paired_class_order(
+                escaped_positions,
+                ring,
+                escaped_capacities,
+                preferred_first=max(
+                    escaped_positions,
+                    key=lambda position: (
+                        references.get(position, 0),
+                        -position,
+                    ),
+                ),
+            )
+            if escaped is not None:
+                return direct + escaped
+    return None
+
+
+def _prioritize_promoted_positions(
+    order: list[int],
+    ring: dict[int, int],
+    references: dict[int, int],
+) -> list[int]:
+    """Put frequent equal-width words in compact one-code physical slots."""
+    result = list(order)
+    for width in sorted({len(str(value)) for value in ring.values()}):
+        physical_indexes = [
+            index
+            for index, semantic_position in enumerate(result)
+            if index >= 16 and len(str(ring[semantic_position])) == width
+        ]
+        if not physical_indexes:
+            continue
+        semantic_positions = [result[index] for index in physical_indexes]
+        semantic_positions.sort(
+            key=lambda position: (-references.get(position, 0), position)
+        )
+        physical_indexes.sort(
+            key=lambda index: (
+                index + 1 not in COMPACT_PROMOTED_DICTIONARY_POSITIONS,
+                index,
+            )
+        )
+        assignments = dict(zip(physical_indexes, semantic_positions))
+        for index, semantic_position in assignments.items():
+            result[index] = semantic_position
+    return result
+
+
 def repack_physical_dictionary(
     symbols: list[int],
     ring: dict[int, int],
     room_width: int,
     search_order: bool = True,
+    preload_bp2: bool = False,
 ) -> tuple[list[int], dict[int, int], list[int], list[DictionaryBand]]:
     """Choose and apply the best tested physical order for paired-row packing.
 
@@ -380,7 +579,11 @@ def repack_physical_dictionary(
     if not search_order:
         order = list(range(1, len(ring) + 1))
         values = [ring[position] for position in order]
-        bands = pack_dictionary(values, room_width)
+        bands = pack_dictionary(
+            values,
+            room_width,
+            preload_bp2=preload_bp2,
+        )
         rewritten, new_ring, order = _rewrite_physical_dictionary(
             symbols,
             ring,
@@ -392,6 +595,35 @@ def repack_physical_dictionary(
         position: count
         for position, _, count in dictionary_usage(symbols, ring)
     }
+    exact_order = (
+        _exact_paired_order(
+            ring,
+            room_width,
+            preload_bp2=preload_bp2,
+            references=references,
+        )
+        if preload_bp2
+        else None
+    )
+    if exact_order is not None:
+        exact_order = _prioritize_promoted_positions(
+            exact_order,
+            ring,
+            references,
+        )
+        values = [ring[position] for position in exact_order]
+        bands = pack_dictionary(
+            values,
+            room_width,
+            preload_bp2=preload_bp2,
+        )
+        rewritten, new_ring, exact_order = _rewrite_physical_dictionary(
+            symbols,
+            ring,
+            exact_order,
+        )
+        return rewritten, new_ring, exact_order, bands
+
     direct_variants = _order_variants(
         list(range(1, 17)),
         ring,
@@ -409,7 +641,11 @@ def repack_physical_dictionary(
             order = direct_order + escaped_order
             values = [ring[position] for position in order]
             try:
-                bands = pack_dictionary(values, room_width)
+                bands = pack_dictionary(
+                    values,
+                    room_width,
+                    preload_bp2=preload_bp2,
+                )
             except ValueError:
                 continue
             used_widths = [
@@ -467,46 +703,90 @@ def dictionary_usage(
     return usage
 
 
+COMPACT_DICTIONARY_PREFIX = 63
+COMPACT_RAW_PREFIX = 62
+COMPACT_DICTIONARY_17 = 17
+COMPACT_RAW_LOW = (34, 52, 16)
+COMPACT_RAW_HIGH = (66, 90, 29)
+DECODER64_ROWS = (
+    ">W/WsWX@v",
+    "^`46`M<r<",
+)
+
+
 def compact_alphabet(symbols: list[int]) -> tuple[list[int], dict[str, object]]:
-    """Remap the stream to base-64 codes with one escape for rare symbols."""
-    counts = Counter(symbols)
-    frequent = sorted(counts, key=lambda symbol: (-counts[symbol], symbol))[:62]
-    direct = {
-        symbol: code
-        for code, symbol in enumerate(frequent, start=1)
-    }
-    rare = sorted(symbol for symbol in counts if symbol not in direct)
-    if len(rare) > 62:
-        raise ValueError("compact alphabet has more than 62 rare symbols")
-    escaped = {
-        symbol: code
-        for code, symbol in enumerate(rare, start=1)
-    }
+    """Remap protocol symbols to a decoder-friendly base-64 code stream.
+
+    Codes 1..16 remain direct dictionary references and code 17 is dictionary
+    slot 17. Codes 18..36 encode raw 34..52 by subtracting 16; codes
+    37..61 encode raw 66..90 by subtracting 29. These two contiguous ranges
+    cover more occurrences than the earlier arbitrary lookup table and need
+    only arithmetic in the unmapper. Prefixes 62 and 63 cover the remaining
+    raw symbols and dictionary positions.
+    """
     codes = []
-    for symbol in symbols:
-        if symbol in direct:
-            codes.append(direct[symbol])
+    index = 0
+    while index < len(symbols):
+        symbol = symbols[index]
+        index += 1
+        if symbol == vertical.base.ESC:
+            position = symbols[index]
+            index += 1
+            if position == 17:
+                codes.append(COMPACT_DICTIONARY_17)
+            else:
+                codes.extend((COMPACT_DICTIONARY_PREFIX, position - 16))
+        elif symbol <= 16:
+            codes.append(symbol)
+        elif COMPACT_RAW_LOW[0] <= symbol <= COMPACT_RAW_LOW[1]:
+            codes.append(symbol - COMPACT_RAW_LOW[2])
+        elif COMPACT_RAW_HIGH[0] <= symbol <= COMPACT_RAW_HIGH[1]:
+            codes.append(symbol - COMPACT_RAW_HIGH[2])
+        elif 18 <= symbol <= 33:
+            codes.extend((COMPACT_RAW_PREFIX, symbol - 17))
+        elif 53 <= symbol <= 65:
+            codes.extend((COMPACT_RAW_PREFIX, symbol - 36))
+        elif symbol == 91:
+            codes.extend((COMPACT_RAW_PREFIX, 30))
         else:
-            codes.extend((63, escaped[symbol]))
-    inverse_direct = {code: symbol for symbol, code in direct.items()}
-    inverse_escaped = {code: symbol for symbol, code in escaped.items()}
+            raise ValueError(f"cannot compact protocol symbol {symbol}")
+
     decoded = []
     index = 0
     while index < len(codes):
         code = codes[index]
         index += 1
-        if code == 63:
-            decoded.append(inverse_escaped[codes[index]])
+        if 1 <= code <= 16:
+            decoded.append(code)
+        elif code == COMPACT_DICTIONARY_17:
+            decoded.extend((vertical.base.ESC, 17))
+        elif 18 <= code <= 36:
+            decoded.append(code + COMPACT_RAW_LOW[2])
+        elif 37 <= code <= 61:
+            decoded.append(code + COMPACT_RAW_HIGH[2])
+        elif code == COMPACT_RAW_PREFIX:
+            tail = codes[index]
+            index += 1
+            if tail <= 16:
+                decoded.append(tail + 17)
+            elif tail <= 29:
+                decoded.append(tail + 36)
+            else:
+                decoded.append(91)
+        elif code == COMPACT_DICTIONARY_PREFIX:
+            decoded.extend((vertical.base.ESC, codes[index] + 16))
             index += 1
         else:
-            decoded.append(inverse_direct[code])
+            raise AssertionError(f"invalid compact code {code}")
     if decoded != symbols:
         raise AssertionError("compact alphabet failed round-trip")
     return codes, {
         "base": 64,
-        "escape": 63,
-        "direct": direct,
-        "escaped": escaped,
+        "dictionary_prefix": COMPACT_DICTIONARY_PREFIX,
+        "raw_prefix": COMPACT_RAW_PREFIX,
+        "dictionary_17": COMPACT_DICTIONARY_17,
+        "raw_low": COMPACT_RAW_LOW,
+        "raw_high": COMPACT_RAW_HIGH,
         "source_symbols": len(symbols),
         "encoded_codes": len(codes),
     }
@@ -520,10 +800,15 @@ def place_dictionary(
     values: list[int],
     bands: list[DictionaryBand] | None = None,
     bottom_padding: int = 0,
+    preload_bp2: bool = False,
 ) -> tuple[int, int]:
     """Place a right-aligned vertical-P1 dictionary and return (width, height)."""
     if bands is None:
-        bands = pack_dictionary(values, room_width)
+        bands = pack_dictionary(
+            values,
+            room_width,
+            preload_bp2=preload_bp2,
+        )
     room_height = 2 * len(bands) + 2 + bottom_padding
     program.room(x0, y0, room_width, room_height)
     turn_x = x0 + room_width - 2
@@ -537,8 +822,9 @@ def place_dictionary(
         if band_index == 0:
             minimum_base_x = x0 + START_COLUMN + 1
         elif final_band:
-            # The final westbound row needs `0s1b^` before column two.
-            minimum_base_x = x0 + 7
+            # The ordinary path needs `0s1b^`; preloaded BP=2 reduces that to
+            # `0sm^`, because the final decrement leaves odd BP for the pump.
+            minimum_base_x = x0 + (6 if preload_bp2 else 7)
         else:
             minimum_base_x = x0 + 2
         if base_x < minimum_base_x:
@@ -603,7 +889,12 @@ def place_dictionary(
 
     # The fixed 2x4 top-left area contains the r/s pump. Constants in this
     # first band begin after it; later bands recover the horizontal space.
-    for row_offset, row in enumerate(TOP_LEFT_BLOCK_ROWS):
+    top_left_rows = (
+        TOP_LEFT_BLOCK_PRELOAD_BP2_ROWS
+        if preload_bp2
+        else TOP_LEFT_BLOCK_ROWS
+    )
+    for row_offset, row in enumerate(top_left_rows):
         _put_row(program, x0 + 1, y0 + 1 + row_offset, row)
 
     # The lower-left `x` sends BP=0 south during the one-shot preload. After
@@ -612,10 +903,15 @@ def place_dictionary(
     # northbound man keeps climbing, while preload paths cross it horizontally.
     # At the pump row `<x` moves the return west, then odd BP turns it north.
     final_bottom_y = y0 + 2 * len(bands)
-    program.put(x0 + 6, final_bottom_y, "0")
-    program.put(x0 + 5, final_bottom_y, "s")
-    program.put(x0 + 4, final_bottom_y, "1")
-    program.put(x0 + 3, final_bottom_y, "b")
+    if preload_bp2:
+        program.put(x0 + 5, final_bottom_y, "0")
+        program.put(x0 + 4, final_bottom_y, "s")
+        program.put(x0 + 3, final_bottom_y, "m")
+    else:
+        program.put(x0 + 6, final_bottom_y, "0")
+        program.put(x0 + 5, final_bottom_y, "s")
+        program.put(x0 + 4, final_bottom_y, "1")
+        program.put(x0 + 3, final_bottom_y, "b")
     program.put(x0 + RETURN_COLUMN, final_bottom_y, "^")
     return room_width, room_height
 
@@ -804,6 +1100,7 @@ def build(
             ring,
             dictionary_width,
             search_order=search_dictionary_order,
+            preload_bp2=fold_tail,
         )
     )
     usage = dictionary_usage(symbols, ring)
@@ -881,6 +1178,7 @@ def build(
         dictionary_values,
         dictionary_bands,
         bottom_padding=dictionary_bottom_padding,
+        preload_bp2=fold_tail,
     )
     LOGGER.info(
         "placed dictionary: %d bands, %d rows",
@@ -890,7 +1188,7 @@ def build(
 
     service_rooms = []
     if fold_tail:
-        required = (80, 56, 52, True)
+        required = (80, 55, 52, True)
         actual = (
             feeder_width,
             dictionary_width,
@@ -900,40 +1198,40 @@ def build(
         if actual != required:
             raise ValueError(
                 "folded-tail prototype currently requires "
-                "--feeder-width 80 --dictionary-width 56 "
+                "--feeder-width 80 --dictionary-width 55 "
                 "--dictionary-words 52 --compact-alphabet"
             )
         LOGGER.info("placing folded service rooms in the dictionary strip")
-        for name, x, y, rows in [
-            ("dispatcher", 56, tail_y, compact.DISP_ROWS),
-            ("unpack", 56, tail_y + 12, vertical.base.UNPACK_ROWS),
-            ("decoder", 68, tail_y + 12, vertical.base.DECODER_ROWS),
-        ]:
-            width, height = vertical.base.paste_room(program, x, y, rows)
-            service_rooms.append((name, x, y, width, height))
-        # Reserve the exact 21x5 rectangle needed by the compact-alphabet
-        # unmapper prototype. Its logic is deliberately not wired yet.
-        unmap_x = 56
-        unmap_y = tail_y + 7
-        unmap_width, unmap_height = vertical.base.paste_room(
+        # Keep x=55..58 and rows tail_y+10..11 open as routing lanes.  The
+        # arithmetic unmapper and compact dispatcher will share the large
+        # upper-right room, eliminating their old inter-room pipe.
+        combined_x = 59
+        combined_y = tail_y
+        combined_width, combined_height = vertical.base.paste_room(
             program,
-            unmap_x,
-            unmap_y,
+            combined_x,
+            combined_y,
             ("@H",),
             w=21,
-            h=5,
+            h=10,
         )
         service_rooms.append(
             (
-                "unmapper",
-                unmap_x,
-                unmap_y,
-                unmap_width,
-                unmap_height,
+                "combined_dispatcher",
+                combined_x,
+                combined_y,
+                combined_width,
+                combined_height,
             )
         )
-        output_x = 77
-        output_y = tail_y + 7
+        for name, x, y, rows in [
+            ("decoder64", 55, tail_y + 12, DECODER64_ROWS),
+            ("unpack", 66, tail_y + 12, vertical.base.UNPACK_ROWS),
+        ]:
+            width, height = vertical.base.paste_room(program, x, y, rows)
+            service_rooms.append((name, x, y, width, height))
+        output_x = 55
+        output_y = tail_y
         program.output_room(output_x, output_y)
         service_rooms.append(("output", output_x, output_y, 3, 3))
         service_y = tail_y

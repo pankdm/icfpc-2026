@@ -65,7 +65,7 @@ def _grid(width, height, *placements):
 #   row 1  head: A=17, B=17, A=symbol, BP=symbol, A=symbol-17, drop
 #   row 2  the +31 path for raw ASCII symbols, and the sentinel riser
 #   row 3  ESC test (`92` reads back as 29 westward), then the ring machinery
-#   row 4  ESC's second stream read, and the underside of both ring loops
+#   row 4  ESC's second stream read, slot-17 join, and both ring-loop undersides
 #
 # Ring machinery, x=10..20 of rows 3/4:
 #   10..13  rotate BP-1 times: `>` ` ` `m` `d` over `^` `s` `r` `<`
@@ -77,7 +77,7 @@ DISP_ROWS = _grid(21, 5,
     (0, 1, ">`17`Mrb-v"), (20, 1, "W"),
     (1, 2, ">`31`+"), (10, 2, "^"), (20, 2, "s"),
     (0, 3, "vX~`92`M+X> mdrMs>rX^"),
-    (0, 4, ">rb"), (10, 4, "^sr<"), (17, 4, "^s<"),
+    (0, 4, ">rb"), (9, 4, ">^sr<"), (17, 4, "^s<"),
 )
 DISP_STREAM_ROW = 1   # row of the head's stream `r`, which the west port faces
 

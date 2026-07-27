@@ -436,6 +436,43 @@ Measured, so they are not retried.
   pinned at 5 slots per row in every case — the widest entry is a 17-digit
   packed 8-byte phrase, and two more like it exhaust the cap.
 
+- **A better dictionary packer does not tilt that trade.**  P1's table is
+  already at its floor.  Every entry costs an irreducible 3 cells (two
+  backticks and its own `s`) plus its decimal digits, and the builder's scheme —
+  sort by width descending, chunk into consecutive groups of `R`, slot width =
+  group max — is the optimal grouping for a shared profile.  Three variants,
+  all measured, all landing on 82:
+
+  | extra | feeder | group A | B fixed profile | B 2-row bands | B 4-row bands | total |
+  | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+  | 0 | 64 | 2 | **4** | 6 | 4 | 82 |
+  | 3 | 63 | 2 | **5** | 6 | 8 | 82 |
+  | 6 | 62 | 2 | **6** | 6 | 8 | 82 |
+  | 10 | 61 | 2 | **7** | 8 | 8 | 82 |
+
+  Giving group B the feeder's variable-width bands is *worse*, not better: a
+  2-row band amortises the 3-cell overhead over two entries where the current
+  4-to-7-row profile spreads it over four to seven.  Unifying groups A and B
+  into one table is never better either (6/7/8/9 rows, i.e. exactly the split).
+
+  The mechanism behind the flatness: a dictionary entry stores its phrase once
+  in P1 at ~2.1 digits per character plus 3, and removes `(m-2)` symbols per
+  occurrence from the stream at ~1.96 cells each.  A P1 row holds 73 cells and a
+  feeder row about 77 occupied ones, so ~3.3 entries buy a feeder row and ~3.3
+  entries cost a P1 row.  This is not a tuning artifact — the encoder already
+  takes the profitable phrases first, so the *marginal* entry is break-even by
+  construction, and re-ranking the phrase pool moves which entries are marginal,
+  not the margin.
+
+  One real defect found while checking this, worth fixing on its own: group A
+  pairs position `j+1` with position `16-j` because the two rows are walked in
+  opposite directions, and the encoder assigns the 16 direct entries in
+  frequency order, so the widths pair badly — `TA` sums to 47 where the
+  width-optimal permutation gives 38.  `build_vertical_p1.py` already solves
+  exactly this with its `LOGICAL_ORDER` permutation.  It buys 9 cells of P1
+  width, which is not a row (group A is 2 rows either way), so it is cleanup
+  rather than score.
+
 - **A pipe may not loop back into its own room.**  The loader rejects it
   outright: *"pipe loops back to the room it started from — pipes must connect
   two different rooms"* (`scratchpad/history-disp/selfloop.man`).  That kills
@@ -456,6 +493,224 @@ Measured, so they are not retried.
   north or south, which is the wall, so a 3-row room can only walk straight or
   bounce between `<` and `>`.  Every divmod loop needs a data-dependent exit,
   so neither UNPACK nor DECODER can be a 3-row room and the stack cannot be 7.
+
+### The width/height crossover, and the one number that matters
+
+The feeder DP costs **exactly one row per column removed** — measured content
+rows are 65, 64, 63, 62, 61 at W = 79, 80, 81, 82, 83 — and the tail below it is
+a constant 18 rows (2 feeder walls + 8 service band + 8 P1).  So
+
+```text
+height(W) = feeder(W) + 18        score = max(W, height(W))^2
+
+   W:       79     80     81     82     83
+   height:  83     82    [81]    80     79
+   score: 6889   6724   6561   6724   6889
+```
+
+The champion sits exactly on the diagonal where width equals height.  Because
+the slope is exactly −1, shifting W trades one dimension against the other 1:1
+and `max` can only stay or grow — 6,561 is the floor of the *layout*.  The only
+thing that moves the curve is the encoded size, and it converts at a fixed rate:
+**every ~150 feeder cells (~77 symbols) removed drops the whole curve one row,
+and two rows buys one unit of box side.**
+
+### The unlock: 25 symbol values are being wasted
+
+`tokenize` maps a byte to symbol `b − 31`, and DISP's classifier reads
+`v <= 16` as a dictionary reference and anything above as a literal byte.  But
+only 66 of the 91 symbol values correspond to a byte that actually occurs in
+the text.  The other **25 are dead** — and today only the 9 inside `1..16`
+(`SMALL_FREE`) are recycled as dictionary slots.  The dead values fall in ten
+contiguous runs:
+
+```text
+(2) (4-7) (11-12) (16-17) (19-22) (29-31) (33) (58) (60-65) (82)
+```
+
+Recycling more of them is nearly free.  A promoted entry is *already in the
+ring*, so its P1 cost is unchanged; it just stops costing `ESC, position`
+(2 symbols) per reference and costs 1.  Each extra range test in DISP's
+classifier buys a whole run.  Measured, with `byte = v + 31` left completely
+alone and only DISP's classifier changed (`scratchpad/history-dict/ranges.py`):
+
+| extra runs recycled | direct | escaped | symbols | feeder | P1 | height | box |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| none (today) | 9 | 19 | 2042 | 64 | 6 | 82 | 6,724 |
+| `19-22` | 13 | 16 | 1980 | 62 | 7 | 81 | 6,561 |
+| `19-22`, `60-65` | 19 | 12 | 1926 | **60** | 6 | **78** | **6,400** |
+| + `4-7` | 23 | 9 | 1908 | 60 | 6 | 78 | 6,400 |
+
+The full width frontier for that 1,926-symbol encoding
+(`scratchpad/history-dict/frontier.py`):
+
+| W | feeder | P1 | height | box |
+| ---: | ---: | ---: | ---: | ---: |
+| 81 | 60 | 6 | 78 | 6,561 |
+| **80** | 60 | 6 | **78** | **6,400** |
+| 79 | 61 | 7 | 80 | 6,400 |
+| 78 | 62 | 7 | 81 | 6,561 |
+
+W=80 is the target and it lands at height 78 — **two rows of slack**, which is
+the budget for whatever the classifier change costs.  W=79 does not go further
+because P1's width cap tightens (`sum(TB) + 3*nB <= 72`) and pushes its table
+from 6 rows to 7.
+
+#### Route B, resolved: the product test beats the register wall
+
+The blocker was that a two-sided range test needs two constants while `A` and
+`B` are both live and `BP` is write-only.  A **product** collapses it to one
+sign test, and both factors derive from `A` alone:
+
+```text
+(v - 18) * (v - 23) < 0   <=>   19 <= v <= 22
+(v - 59) * (v - 66) < 0   <=>   60 <= v <= 65
+```
+
+Verified exhaustively over all 91 symbols: no misclassification, and the two
+zeros of each product (v = 18, 23 and v = 59, 66) are *used byte symbols*, so
+`X`'s straight branch routes them to the literal-byte path where they belong.
+One `X` per run instead of two comparisons, and the accumulator stays in `A`
+while `B` carries the v-derived factor.
+
+The second half is the ring position.  `BP` already holds `v` from the head's
+`b` and survives all of the `A`/`B` arithmetic, so a run whose position offset
+is small costs only that many `m` — no registers touched at all.  Measured
+candidates, all costed with the real group-A/group-B packers
+(`scratchpad/history-dict/runsB.py`):
+
+| recycled runs | ESC | direct | symbols | feeder | grp A | grp B | height | box | slack | offsets |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| `19-22`, `60-65` | 29 | 19 | 1926 | 60 | 2r | 4r | **78** | 6,400 | 2 | 2, 39 |
+| `19-22`, `29-31` | 33 | 16 | 1947 | 61 | 2r | 5r | 80 | 6,400 | 0 | 2, 8 |
+| `19-22`, `29-31`, `33` | 58 | 17 | 1942 | 61 | 2r | 5r | 80 | 6,400 | 0 | 2, 8, 9 |
+| `19-22`, `29-31`, `60-65` | 33 | 22 | 1919 | 60 | 2r | 4r | 78 | 6,400 | 2 | 2, 8, 36 |
+
+**Take the first row.**  ESC stays 29, so the dispatcher's ESC literal does not
+change either; group A stays 2 rows; and it leaves two rows of slack, which is
+the budget for the new classifier.  The offset-39 run costs about eight cells to
+rebuild `BP` from `B` (`W`, `M`, literal, `+`, `b`) — the same as the eight `m`
+the offset-8 alternative would need, so the bigger offset is free in practice
+and buys the extra slack.
+
+One thing that will bite: the ring grows to 38 entries + sentinel = 39 words, so
+the two legs must carry **38 cells** and they carry 37 at W=80.  They must be
+lengthened by at least one cell, without grazing P1's top wall in more than one
+column (see route A's split-pipe failure below).
+
+Remaining work is the dispatcher grid itself: two product tests plus their
+merges do not fit in the 19 free interior cells of the current 21x5, so DISP
+grows to roughly 7-8 content rows.  At height 78 that is affordable — a 9-row
+DISP room makes the service band 9 and the program 79; a 10-row room makes it
+80.  Both still score 6,400.
+
+The cell-level plan, worked out but **not yet built**:
+
+- Move the ring machinery from rows 3/4 down to rows 6/7.  That is what unlocks
+  the rest: today *no column* passes through row 3 (it is full from x0 to x20),
+  so the byte path cannot reach any new row.  Freeing row 3's x10..x20 opens a
+  descent from row 2 into rows 4-5.
+- The byte path enters at row 2 x1 with `A = 29^v`, `B = v`, `BP = v`, and row 2
+  x9 is already `-` (the classifier's descent cell, which cannot move —
+  it must sit between the head's `X` and the 3-way `X` on the same column).
+  That turns out to be free work: load `18` into `A` over x2..x5 (`B = v`
+  survives), and the `-` at x9 computes `18 - v` on the way past.  Use the
+  factors `(18-v)(23-v)` rather than `(v-18)(v-23)` — same product.
+- Continue east on row 2: `M` (B=18-v), `5`, `+` (A = 23-v), `*`, then `X`.
+  `A<0` is in-range and turns north; `A==0` (v = 18 or 23) and `A>0` both fall
+  through to the literal-byte path.
+- In-range for `19-22`: `BP` still holds `v`, so `m` `m` and drop to the rotate
+  entry.  For `60-65`, rebuild from `B` with `W`, `M`, literal, `+`, `b`.
+- The ESC lane (`>` `r` `b`) moves to row 5; its eastward corridor and the
+  `v <= 16` descent can share one riser column into the rotate entry, exactly as
+  x10 does today.
+
+#### CORRECTION: route A ties at 6,561, it does not reach 6,400
+
+Route A was built (`build_80x80()`, `alphabet(30, 31)`) and the projection above
+was **wrong**.  It assumed group A could be packed width-sorted like group B.
+It cannot: DISP reaches ring position `p` by rotating `p-1` times, so position
+`v` *is* symbol `v`, and every position whose symbol spells a literal byte is
+**pinned**.  Only the free positions may be permuted.  Raising T adds those
+pinned byte entries to group A, and they interleave with the wide phrase
+entries, so group A grows faster than the projection allowed.  Measured with
+the real packers, every threshold lands on the same height:
+
+| T | ESC | direct | symbols | feeder | group A | group B | height | box |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 19 | 20 | 10 | 2025 | 63 | 2r | 4r | 81 | 6,561 |
+| 21 | 22 | 12 | 1990 | 62 | 3r | 4r | 81 | 6,561 |
+| 22 | 29 | 13 | 1980 | 62 | 3r | 4r | 81 | 6,561 |
+| 29 | 30 | 14 | 1964 | 61 | 4r | 4r | 81 | 6,561 |
+| 30 | 31 | 15 | 1951 | 61 | 4r | 4r | 81 | 6,561 |
+
+Flat again, and at width 80 that is `max(80, 81)^2 = 6,561` — a tie with the
+champion, never a win.  Two hard floors make it flat: group A's 29 entries need
+~279 cells against 73 per row, so 4 rows; and group B stays at 4 rows even
+after losing five entries, because 3 rows forces `nB = 5` and `sum(TB) + 3*nB`
+= 78 > 73.
+
+Route A also breaks the ring: 43 entries + sentinel need 43 cells of pipe and
+the strip east of DISP carries 37.  Combing more of the strip splits the return
+leg into two pipes, because **every pipe cell adjacent to a room wall reads as
+an attachment** — the serpentine touched P1's top wall in three columns and the
+loader made three pipes out of it.  Worth remembering for any reroute.
+
+**Route B is the only path to 6,400.**  It keeps the direct range at `1..16`,
+so group A stays 2 rows with its 7 existing byte entries; the recycled runs
+land at positions 17-26 inside group *B*, which absorbs them without a new row.
+That is why it reaches height 78 where route A reaches 81.
+
+#### Two routes, and what each one actually costs
+
+Costed with P1 as it is really built — group A (the direct positions, which
+must preload *first*) then group B — not as one unified table
+(`scratchpad/history-dict/split.py`, `split2.py`):
+
+| route | direct | symbols | feeder | group A | group B | height | box | slack |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| today | 9 | 2042 | 64 | 2r | 4r | 82 | 6,724 | — |
+| **A.** threshold T=30, ESC=31 | 15 | 1951 | 61 | **3r** | 4r | 80 | **6,400** | 0 |
+| **A.** threshold T=31, ESC=33 | 16 | 1947 | 61 | **4r** | 3r | 80 | **6,400** | 0 |
+| **B.** runs `19-22`+`60-65` | 19 | 1926 | 60 | 2r | 4r | 78 | **6,400** | 2 |
+
+**Route A — raise the threshold.**  DISP's classifier keeps its exact shape;
+only two literals change (`17` → `30`, and the ESC constant `92`→29 becomes
+`13`→31 read westward).  The threshold must be a *free* symbol, so T=23 is
+invalid — token 23 is `'6'` and occurs.  The cost lands in `p1_room`: group A
+now carries T−1 positions instead of 16, so its hardcoded 2 rows × 8 slots and
+`TA = [max(szA[j], szA[15-j])]` pairing must generalise to R rows × nB slots,
+the same shape group B already has.  Zero height slack.
+
+**Route B — recycle two free runs.**  Better on every axis except DISP: group A
+and group B keep their exact row counts (only group B's `nB` goes 5 → 6, which
+the builder already computes), and it leaves two rows of slack.  But the DISP
+side hits a hard constraint: **`A` and `B` are both live across the test and
+`BP` is write-only.**  On the byte path `B` holds `v` and `A` holds the ESC
+test's residue; any range test needs a second constant, which can only go in
+`B`, which destroys the only readable copy of `v`.  `BP` cannot be read back —
+only `b`, `m`, `]`, `q` touch it — so it cannot serve as the spare.  Rebuilding
+`v` afterwards costs an `M`/literal/`+` triple per test.  Budget ~22-25 cells
+against DISP's 19 free interior cells, so DISP grows a row or two — which is
+exactly what the two rows of slack are for.
+
+One cheap trick that survives, worth keeping: for the `19-22` run the ring
+position is `v − 2`, and `BP` already holds `v`, so `m` `m` sets it — no
+arithmetic and no registers touched.  It is the second run that needs the
+expensive path, because `60-65` maps to positions 21-26 (offset 39).
+
+Two more notes for whoever implements it.
+
+- The `19-22` run is reachable *without* a second test: DISP computes `A = v−17`
+  and treats `A == 0` as a fatal reserved value.  Raising the threshold to 23
+  makes `1..22` the direct range, turns symbols 17 and 18 into ordinary ring
+  slots (so `'0'` no longer needs `STOLEN`), and the `A == 0` branch merges into
+  the literal-byte path instead of crashing.  But `19-22` alone only reaches
+  6,561 — the `60-65` run is what buys 6,400, and that one does need a real
+  range test on the byte path.
+- Ring positions must stay contiguous, since a lookup rotates `position − 1`
+  times.  Symbols `19-22` and `60-65` therefore need an offset added before `b`
+  (`BP = v − 2` and `BP = v − 39` for the position layout above).
 
 ### What the remaining gap actually is
 

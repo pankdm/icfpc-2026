@@ -50,10 +50,33 @@ on one row.
   recovers `a` with a second `~`, the other finds it already in `B`. No scratch slot.
 - **Keep a ring intact across a conditional:** pop, push back, *then* branch. Every popped value
   is pushed back, so the ring survives either outcome — the death repaint just pops K and paints.
+- **One unified transaction beats an opcode.** Instead of separate set/clear/test commands, send
+  `(or_mask, and_mask)` and let the quarter run a fixed branchless 8-op loop:
+  `r | W ~ s` then `r & M`. The `s` emits *the bits this OR newly set*, which **is** the occupancy
+  test (nonzero = cell was free). `SET(i)` = send `(mask, -1)` and it tests-and-sets in one pass;
+  `CLR(i)` = send `(0, ~mask)`. If head and tail share a quarter, ONE transaction does
+  clear-tail + set-head + loss-test together. Halves the pipe count and each controller arm is
+  three cells.
 - **Occupancy in registers, not memory:** a 16×16 board is 256 bits = four 64-bit words in men,
   selected by a 2-bit `BP` decode. ~10 ticks, no belt rotation, no RAM.
 
 ## Traps that cost us
+
+- **A FIFO ring imposes a hard frame-rate floor.** With ring capacity `C` and body length `K`, a
+  pushed value must travel `C-K` cells before it can be popped and has `K` frames to do it, so
+  **`ticks_per_frame >= (C-K)/K`**, worst case `K=1` giving `ticks_per_frame >= C-1`. Size `C` from
+  the true bound (≤100 rounds, each growth costs a spawn round plus a tick round ⇒ max body ≈49),
+  not from 256. **Re-check this invariant every time you shrink the frame** — optimising below
+  ~55 ticks/frame starts blocking the snake-length-1 frames.
+- **`Program.pipe` will silently overwrite a room wall.** Starting a pipe at the room's own
+  wall column destroys the wall; the program still *loads*, but that room now has zero outgoing
+  pipes, so the controller blocks on `r` forever and you get a **bare timeout with no error**.
+  This was hit twice. Use `tools/layout.py` `Layout`, or assert the pipe's first cell is one
+  column outside the room.
+- **`r` nearest-pipe ties are real** and resolve by reading order (top-to-bottom, then
+  left-to-right). Break ties by moving cells rather than relying on it; where a room genuinely
+  needs "any ready pipe", use a collector room (`R`, `s`) so every controller `r` has an
+  unambiguous nearest pipe.
 
 - **Pipe length IS capacity.** The body ring was cut 85 → 65 and a 4,062-case fuzz found it
   **deadlocks at snake length 66**. It passed 17/17 only because no graded case gets that long.

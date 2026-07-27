@@ -79,6 +79,49 @@ def _run_cases(path, cases, cap=60000):
     return None
 
 
+def foldable_box(man_text):
+    """Approximate what tools/shrink.py's `fold` pass will reach.
+
+    MEASURED: the pre-shrink score is NOT a proxy for the post-shrink one -- two
+    builds 1% apart pre-shrink came out 66x65 and 64x65 after shrink, because
+    shrink's win is COLUMN merges and a denser grid has fewer of them.  So the
+    search has to score the FOLDED box.  This is the cheap version of the same
+    test: greedily merge adjacent lines whose non-space cells never collide.
+    """
+    rows = man_text.rstrip("\n").split("\n")
+    ys = [i for i, r in enumerate(rows) if r.strip()]
+    if not ys:
+        return 0
+    w = max(len(r) for r in rows)
+    grid = [r.ljust(w) for r in rows[ys[0]:ys[-1] + 1]]
+    h = len(grid)
+    cols = [[g[x] for g in grid] for x in range(w)]
+    xs = [x for x in range(w) if any(c != " " for c in cols[x])]
+    live = [cols[x] for x in xs]
+    merges = 0
+    i = 0
+    while i + 1 < len(live):
+        a, b = live[i], live[i + 1]
+        if all(p == " " or q == " " for p, q in zip(a, b)):
+            live[i] = [p if p != " " else q for p, q in zip(a, b)]
+            del live[i + 1]
+            merges += 1
+        else:
+            i += 1
+    rmerges = 0
+    rl = [g for g in grid if g.strip()]
+    j = 0
+    while j + 1 < len(rl):
+        a, b = rl[j], rl[j + 1]
+        if all(p == " " or q == " " for p, q in zip(a, b)):
+            rl[j] = "".join(p if p != " " else q for p, q in zip(a, b))
+            del rl[j + 1]
+            rmerges += 1
+        else:
+            j += 1
+    return max(len(live), h - rmerges) ** 2
+
+
 def _work(params, full=False):
     _init()
     fd, path = tempfile.mkstemp(suffix=".man", dir="/tmp")
@@ -98,6 +141,11 @@ def _work(params, full=False):
             return None
         if full and _run_cases(path, _FULL) is not None:
             return None
+        # NOTE: `foldable_box` above is NOT a usable objective -- it finds ZERO
+        # merges on a raw build, because shrink's win only appears AFTER dce /
+        # stairfold / reroute have emptied cells.  The only reliable way to rank
+        # candidates by their POST-shrink score is to run shrink on each of the
+        # top few (scratchpad/snake2/topn.py + tools/shrink.py).
         return (r["score"], box, r["avgTicks"], cap, params, open(path).read())
     finally:
         try: os.unlink(path)

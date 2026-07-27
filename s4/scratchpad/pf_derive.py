@@ -42,14 +42,20 @@ DERIVED = {
     "cell_off": ("cc", 17),
     "display_off": ("sa", -8),
     "queue_off": ("qs", -2),
+    # sd runs straight down its own column into the display's west wall
+    "sd_via": ("sd", 0),
 }
 BAND_KEYS = ["ctop", "scratch_row", "ri_row", "cc_band", "cr_band", "sd_band",
              "sa_band", "ss_band", "queue_row", "display_row", "queue_rows",
-             "queue_right_off", "queue_left", "queue_tail"]
+             "queue_right_off", "queue_left", "queue_tail",
+             # the four service bands stateflow used to hard-code; searching
+             # them is what makes a free port ORDER routable
+             "sc_band", "rr_band", "qr_band", "sp_band", "rp_band"]
 BAND_BASE = dict(ctop=5, scratch_row=12, ri_row=12, cc_band=1, cr_band=3,
                  sd_band=-4, sa_band=-3, ss_band=20, queue_row=6,
                  display_row=60, queue_rows=1, queue_right_off=300,
-                 queue_left=280, queue_tail=266)
+                 queue_left=280, queue_tail=266,
+                 sc_band=2, rr_band=1, qr_band=3, sp_band=9, rp_band=9)
 
 
 def floor_for(ports, bands):

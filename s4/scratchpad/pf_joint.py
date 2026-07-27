@@ -37,13 +37,16 @@ PORTS = list(stateflow.DEFAULT_PORTS)
 FLOOR_KEYS = ["scalar_off", "cell_off", "ctop", "scratch_off", "scratch_row",
               "ri_row", "display_off", "cc_band", "cr_band", "queue_off",
               "queue_row", "queue_left", "queue_tail", "sd_band", "sa_band",
-              "ss_band", "queue_rows", "queue_right_off", "display_row"]
+              "ss_band", "queue_rows", "queue_right_off", "display_row",
+              "sc_band", "rr_band", "qr_band", "sp_band", "rp_band", "sd_via"]
 BASE_PORTS = {n: stateflow.DEFAULT_PORTS[n][0] for n in PORTS}
 BASE_FLOOR = dict(scalar_off=48, cell_off=164, ctop=5, scratch_off=18,
                   scratch_row=12, ri_row=12, display_off=110, cc_band=1,
                   cr_band=3, queue_off=268, queue_row=6, queue_left=280,
                   queue_tail=266, sd_band=-4, sa_band=-3, ss_band=20,
-                  queue_rows=1, queue_right_off=300, display_row=60)
+                  queue_rows=1, queue_right_off=300, display_row=60,
+                  sc_band=2, rr_band=1, qr_band=3, sp_band=9, rp_band=9,
+                  sd_via=45)
 QUEUE_FLOOR = 40
 BASE_DANGLING = None
 

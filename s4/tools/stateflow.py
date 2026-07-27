@@ -358,6 +358,20 @@ def build_program(
     # rows below it (which is what makes pathfinder's satellite band 81 rows
     # tall against snake's 53).
     g.update(floor or {})
+    # Each request/reply service turns in its own horizontal band row between
+    # the controller wall and the components.  A port's descent crosses every
+    # band row ABOVE its own, so a run at row b is safe exactly when no pipe
+    # whose column it spans turns at a row >= b.  Deepest = outermost span.
+    # Exposing the four bands that used to be hard-coded is what lets the port
+    # ORDER be chosen freely (e.g. rr west of the scalar RAM, with rr_band
+    # deeper than sc_band) instead of being pinned by the routing.
+    g.setdefault("sc_band", scalar_command_band)
+    g.setdefault("rr_band", scalar_reply_band)
+    g.setdefault("qr_band", 3)
+    g.setdefault("sp_band", g["scratch_row"] - 3)
+    g.setdefault("rp_band", g["scratch_row"] - 3)
+    scalar_command_band = g["sc_band"]
+    scalar_reply_band = g["rr_band"]
     scalar_x, scalar_y = code_x + g["scalar_off"], bottom + g["ctop"]
     cell_x, cell_y = code_x + g["cell_off"], bottom + g["ctop"]
     scalar = (
@@ -402,16 +416,17 @@ def build_program(
     p.text(scratch_x + 1, scratch_y + 1, "@>rsv")
     p.put(scratch_x + 5, scratch_y + 2, "<")
     p.put(scratch_x + 2, scratch_y + 2, "^")
+    sp_row, rp_row = bottom + g["sp_band"], bottom + g["rp_band"]
     p.pipe([
         ports["sp"],
-        (ports["sp"][0], scratch_y - 3),
-        (scratch_x + 3, scratch_y - 3),
+        (ports["sp"][0], sp_row),
+        (scratch_x + 3, sp_row),
         (scratch_x + 3, scratch_y - 1),
     ])
     p.pipe([
         (scratch_x + 4, scratch_y - 1),
-        (scratch_x + 4, scratch_y - 3),
-        (ports["rp"][0], scratch_y - 3),
+        (scratch_x + 4, rp_row),
+        (ports["rp"][0], rp_row),
         ports["rp"],
     ])
 
@@ -540,11 +555,17 @@ def build_program(
         (display_x + 8, display_y + g["sa_band"]),
         (display_x + 8, display_y - 1),
     ])
+    # The westward dogleg via ``scalar_x - 3`` is legacy: it only exists to get
+    # around a scalar RAM that sits between sd and the display.  ``sd_via`` (an
+    # absolute column) lets a floorplan whose sd is already east of the RAM run
+    # straight in, which is what frees ``display_row`` from having to clear the
+    # RAM's full height.
+    sd_via = code_x + g["sd_via"] if "sd_via" in g else scalar_x - 3
     p.pipe([
         ports["sd"],
         (ports["sd"][0], display_y + g["sd_band"]),
-        (scalar_x - 3, display_y + g["sd_band"]),
-        (scalar_x - 3, display_y + 8),
+        (sd_via, display_y + g["sd_band"]),
+        (sd_via, display_y + 8),
         (display_x - 1, display_y + 8),
     ])
     swap_band = display_y + (110 if cell_replicas > 1 else g["ss_band"])
@@ -590,8 +611,9 @@ def build_program(
         queue_path.extend([
             (current_x, tail_y),
             (code_x + (598 if cell_replicas > 1 else g["queue_tail"]), tail_y),
-            (code_x + (598 if cell_replicas > 1 else g["queue_tail"]), bottom + 3),
-            (ports["qr"][0], bottom + 3),
+            (code_x + (598 if cell_replicas > 1 else g["queue_tail"]),
+             bottom + g["qr_band"]),
+            (ports["qr"][0], bottom + g["qr_band"]),
             ports["qr"],
         ])
         p.pipe(queue_path)

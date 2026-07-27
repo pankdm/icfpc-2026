@@ -67,7 +67,10 @@ def component_boxes(c):
     main + 9 belts), display 18, queue relay + serpentine 34."""
     return [(c["sp"] - 3, c["sp"] + 5), (c["sc"] - 3, c["sc"] + 31),
             (c["cc"] - 3, c["cc"] + 69), (c["sa"] - 8, c["sa"] + 10),
-            (c["qs"] - 2, c["qs"] + 32)]
+            # measured on dense-e: room at qs-2, serpentine 267..281 for
+            # qs=274, i.e. qs-7..qs+7.  The old qs+32 was the legacy
+            # queue_rows=6 shape and overcharged the width by 25 columns.
+            (c["qs"] - 8, c["qs"] + 10)]
 
 
 def routable(c):
@@ -113,7 +116,54 @@ def routable(c):
     # to the pinned offset: scratch 8 wide, banked scalar RAM 34, packed cell
     # RAM 72 (proxy + main + 9 belts), display 18, queue relay + serpentine 34.
     boxes = sorted(component_boxes(c))
-    return all(a[1] < b[0] for a, b in zip(boxes, boxes[1:]))
+    if not all(a[1] < b[0] for a, b in zip(boxes, boxes[1:])):
+        return False
+    # Measured the hard way: `routable` used to model only the request/reply
+    # ordering, so it happily returned port maps whose scratch room started at
+    # x=-1 or whose 3-wide input room landed INSIDE the scalar RAM.  Both build
+    # and then fail, which is what left the first derived floorplan with no
+    # clean configuration at all.
+    if min(lo for lo, _ in component_boxes(c)) < 0:
+        return False
+    return all(c["ri"] + 1 < lo or c["ri"] - 1 > hi
+               for lo, hi in component_boxes(c))
+
+
+def placeable(c):
+    """Relaxed feasibility: only the five COMPONENT boxes have to fit.
+
+    Each service's component is pinned under its command ('s') port so that
+    feeder is zero-length; the reply ('r') port is free, because its feeder is a
+    horizontal run in its own band row above every component, and a descent that
+    turns at band row b never reaches a component that starts below ctop.  That
+    is the whole content of the old ``routable`` ordering rule, and exposing the
+    band rows in stateflow.build_program is what makes dropping it legal.
+    """
+    boxes = component_boxes(c)
+    if min(lo for lo, _ in boxes) < 0:
+        return False
+    ordered = sorted(boxes)
+    if not all(a[1] < b[0] for a, b in zip(ordered, ordered[1:])):
+        return False
+    # ri, sd and ss descend PAST the band rows -- ri into its own input room,
+    # sd and ss down to the display's west/bottom walls -- so unlike the reply
+    # ports they need a column no component occupies.  Leaving sd out of this
+    # is how the first placeable winner put sd at column 147 inside its own
+    # display room.
+    for name in ("ri", "sd", "ss"):
+        if not all(c[name] + 1 < lo or c[name] - 1 > hi for lo, hi in boxes):
+            return False
+    # sd/ss reach the display along a row below the scalar RAM but level with
+    # the cell RAM, so they must approach from the display's own side of it
+    cell_lo, cell_hi = c["cc"] - 3, c["cc"] + 69
+    for name in ("sd", "ss"):
+        if (c[name] < cell_lo) != (c["sa"] < cell_lo):
+            return False
+        if cell_lo < c[name] < cell_hi:
+            return False
+    # the queue's return pipe is its capacity; keep the serpentine east of
+    # everything so ``queue_rows`` can still buy cells without moving a room
+    return c["qs"] == max(c[n] for n in ("sp", "sc", "cc", "sa", "qs"))
 
 
 def report_transitions(cols):
@@ -147,6 +197,9 @@ def main():
                     help="forbid moves that reorder the port columns, so the "
                          "floor's pipe bands stay routable")
     ap.add_argument("--start", default=None, help="json port->col to start from")
+    ap.add_argument("--placeable", action="store_true",
+                    help="only the five component boxes must fit; reply ports "
+                         "are free (needs the exposed band rows)")
     ap.add_argument("--routable", action="store_true",
                     help="only orderings the satellite floorplan can wire")
     args = ap.parse_args()
@@ -184,6 +237,8 @@ def main():
             if len(set(cand.values())) != len(cand):
                 continue
             if args.routable and not routable(cand):
+                continue
+            if args.placeable and not placeable(cand):
                 continue
             if args.keep_order and [
                     n for n, _ in sorted(cand.items(),

@@ -163,6 +163,136 @@ def build_flow():
     return f
 
 
+class OneRingFlow(Flow):
+    """Lower STATE and NB onto one FIFO with explicit cyclic rotations."""
+
+    def rotate(self, count):
+        for _ in range(count):
+            self.e("Sr", "Ss")
+        return self
+
+    def delta1(self, value, state_count):
+        if abs(value) == 1:
+            return self.e(*(
+                ("M", "1", "N", "+") if value < 0 else ("M", "1", "+")
+            ))
+        # Park the base behind the persistent state, build 16, rotate the
+        # state once, then recover the base with B still equal to 16.
+        self.e("Ss").c16().rotate(state_count).e("Sr")
+        return self.e("+" if value == 16 else "-")
+
+    def txn1(self, state_count, keep_index):
+        """Probe A, optionally leaving the index behind persistent state."""
+        self.e("Ss").c16().rotate(state_count).e("Sr")
+        if keep_index:
+            self.e("Ss")
+        return self.e(
+            "/", "Hs", "W", "M", "4", "*", "M", "7", "{", "Hs", "Cr"
+        )
+
+
+def build_flow_one_ring():
+    f = OneRingFlow()
+
+    f.at("START").const(0).e("Ss").go("SETUP")
+    f.at("SETUP")
+    # STATE [i] -> [i,wall], then probe i while retaining both values.
+    f.e("Sr", "Ds", "Ss", "Ir", "Ss", "M", "7", "*", "Ds")
+    f.e("Sr").txn1(1, True)
+    # STATE [wall,i].  Write (4*wall)<<shift, advance i, and compare 256.
+    f.e("Sr", "{", "M", "4", "*", "Hs")
+    f.e("Sr", "M", "1", "+", "Ss")
+    f.const(256).e("M", "Sr", "Ss", "-")
+    f.br("SETUP", "SETUP_DONE", "SETUP")
+
+    f.at("SETUP_DONE").e("Sr")
+    # Empty STATE: read x,y and leave robot in the ring.
+    f.e("Ir", "Ss", "Ir", "M", "4", "W", "{", "M", "Sr", "+", "Ss", "Ds")
+    f.const(10).e("Ds").const(1).e("N", "Ds").go("ROUND")
+
+    # STATE [robot] -> [robot,flag].
+    f.at("ROUND").e("Ir", "Ss", "Ir", "M", "4", "W", "{", "M")
+    f.e("Sr", "Ss", "Sr", "+", "Ss")
+    f.const(1).e("N", "Hs")
+    # Probe/write the flag without retaining a second scratch copy.
+    f.rotate(1).e("Sr", "Ss")
+    f.txn1(2, False).const(1).e("{", "Hs")
+    # Rotate robot, take/reappend flag, draw it, and seed (flag,tag=1).
+    f.rotate(1).e("Sr", "Ss", "Ds").const(9).e("Ds")
+    f.rotate(1).e("Sr", "Ss", "Fs").const(1).e("Fs").go("BFS_POP")
+
+    # STATE [robot,flag] -> [cur,next_tag,robot,flag].
+    f.at("BFS_POP").e("Fr", "Ss", "Fr").next_tag().e("Ss")
+    f.rotate(2)
+    # Compare CUR with robot.  Reappend both values before branching; the
+    # resulting [flag,cur,next_tag,robot] is one rotation from canonical.
+    f.e("Sr", "Ss", "M", "Sr", "Ss", "Sr", "Ss", "-")
+    f.br("BFS_NOT_FOUND", "BFS_FOUND_ENTRY", "BFS_NOT_FOUND")
+    f.at("BFS_NOT_FOUND").rotate(1).go("BFS_U")
+    f.at("BFS_FOUND_ENTRY").rotate(1).go("BFS_FOUND")
+
+    for index, (name, delta) in enumerate(zip(("U", "R", "D", "L"), DELTAS)):
+        busy = f"BFS_BUSY_{name}"
+        free = f"BFS_FREE_{name}"
+        nxt = "BFS_NEXT" if index == 3 else f"BFS_{'URDL'[index + 1]}"
+
+        # Rotate CUR to the tail. txn1 leaves NB after the four persistent
+        # values: [next_tag,robot,flag,cur,nb].
+        f.at(f"BFS_{name}").e("Sr", "Ss").delta1(delta, 4)
+        f.txn1(4, True).br(busy, free, busy)
+
+        # Drop the tail scratch, then rotate next_tag/robot/flag to restore
+        # [cur,next_tag,robot,flag].
+        f.at(busy).const(0).e("Hs").rotate(4).e("Sr").rotate(3).go(nxt)
+
+        # Consume next_tag for the payload.  The resulting order places NB
+        # after robot/flag/cur, so three rotations recover it directly.
+        f.at(free).e("Sr", "Ss", "{", "Hs", "}", "M")
+        f.rotate(3).e("Sr", "Fs", "W", "Fs").rotate(3).go(nxt)
+
+    f.at("BFS_NEXT").e("Sr", "Sr").go("BFS_POP")
+
+    # [cur,next_tag,robot,flag] -> [robot,want,flag], using B as the only
+    # temporary needed to swap want ahead of flag.
+    f.at("BFS_FOUND").e("Sr", "Sr").prev_tag().prev_tag().e("M")
+    f.e("Sr", "Ss", "Sr", "W", "Ss", "W", "Ss")
+    f.const(SENTINEL).e("Fs").go("WALK_U")
+
+    for index, (name, delta) in enumerate(zip(("U", "R", "D", "L"), DELTAS)):
+        next_probe = "NO_PARENT" if index == 3 else f"WALK_{'URDL'[index + 1]}"
+        mismatch = f"WALK_MISS_{name}"
+        match = f"MOVE_{name}"
+
+        # [robot,want,flag] -> [want,flag,robot,nb].  Decode the shifted
+        # field in-place and compare it with want.
+        f.at(f"WALK_{name}").e("Sr", "Ss").delta1(delta, 3)
+        f.txn1(3, True).e("}", "M", "Sr", "Ss", "~", "M")
+        f.const(0).e("Hs", "W").br(mismatch, match, mismatch)
+
+        # Drop NB and restore [robot,want,flag].
+        f.at(mismatch).rotate(2).e("Sr").rotate(2).go(next_probe)
+
+        # Recover NB, park it behind want/flag while drawing, then rebuild
+        # [nb,new_want,flag].  The comparison rotates that to
+        # [new_want,flag,nb], which each successor handles explicitly.
+        f.at(match).rotate(2).e("Sr", "M").rotate(2).e("Sr", "Ds")
+        f.const(0).e("Ds")
+        f.e("W", "Ss", "Ds").const(10).e("Ds").const(1).e("N", "Ds")
+        f.e("Sr").prev_tag().e("M", "Sr", "W", "Ss", "W", "Ss")
+        f.e("M", "Sr", "Ss", "-")
+        f.br("MOVE_CONTINUE", "ROUND_FINISH", "MOVE_CONTINUE")
+
+    f.at("MOVE_CONTINUE").rotate(2).go("WALK_U")
+    f.at("NO_PARENT").e("H")
+
+    # Zero branch arrives as [new_want,flag,robot]; retain only robot.
+    f.at("ROUND_FINISH").e("Sr", "Sr").go("DRAIN_FRONTIER")
+    f.at("DRAIN_FRONTIER").e("Fr", "Ss").const(SENTINEL).e("M")
+    f.rotate(1).e("Sr", "-")
+    f.br("DRAIN_FRONTIER", "ROUND", "DRAIN_FRONTIER")
+    return f
+
+
 PORTS = {
     # Zone edges are the exact Manhattan Voronoi boundaries of the pipe
     # terminals. Incoming and outgoing bindings are independent.
@@ -306,10 +436,14 @@ def build(
     port_percent=39,
     side_apron=False,
     tight_apron=True,
+    merge_nb=False,
 ):
     p = lm.Program()
+    flow = build_flow_one_ring() if merge_nb else build_flow()
     port_spec = {}
     for name, spec in PORTS.items():
+        if merge_nb and name in ("Ns", "Nr"):
+            continue
         old_col = code_x + spec[0]
         col = port_base + round((old_col - 70) * port_percent / 100)
         port_spec[name] = (col - code_x, spec[1], 1, 10**9)
@@ -330,7 +464,7 @@ def build(
     if dense:
         layout = boustro.lay_cfg_boustrophedon(
             p,
-            build_flow(),
+            flow,
             port_spec,
             code_x=code_x,
             op_slack=op_slack,
@@ -338,7 +472,7 @@ def build(
     else:
         layout = flowgrid.lay_cfg_controller(
             p,
-            build_flow(),
+            flow,
             port_spec,
             code_x=code_x,
             pooled_edges=True,
@@ -406,7 +540,7 @@ def build(
         apron_y = bottom + 5
         state_x = ports["Ss"][0] - 5 + ring_shift
         frontier_x = ports["Fs"][0] - 5 + ring_shift
-        nb_x = ports["Ns"][0] - 3 + ring_shift
+        nb_x = ports["Ns"][0] - 3 + ring_shift if not merge_nb else None
         _short_ring(p, ports["Ss"], ports["Sr"], state_x, apron_y, 1)
         _frontier_ring(
             p,
@@ -417,7 +551,8 @@ def build(
             frontier_rows,
             left_span=50,
         )
-        _short_ring(p, ports["Ns"], ports["Nr"], nb_x, apron_y, 1)
+        if not merge_nb:
+            _short_ring(p, ports["Ns"], ports["Nr"], nb_x, apron_y, 1)
 
         p.input_room(ports["Ir"][0] - 1, bottom + 4)
         p.pipe([(ports["Ir"][0], bottom + 3), ports["Ir"]])
@@ -472,6 +607,7 @@ if __name__ == "__main__":
     parser.add_argument("--side-apron", action="store_true")
     parser.add_argument("--tight-apron", dest="tight_apron", action="store_true")
     parser.add_argument("--no-tight-apron", dest="tight_apron", action="store_false")
+    parser.add_argument("--merge-nb", action="store_true")
     parser.set_defaults(tight_apron=True)
     parser.add_argument(
         "--output", default=os.path.join(HERE, "mem16-flow-v1.man")
@@ -491,6 +627,7 @@ if __name__ == "__main__":
         args.port_percent,
         args.side_apron,
         args.tight_apron,
+        args.merge_nb,
     )
     program.save(args.output)
     print("saved", args.output, "footprint", program.footprint())

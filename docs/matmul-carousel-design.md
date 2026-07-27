@@ -438,3 +438,45 @@ matter which order you try (`M 2 W /` is also 4). 9 ops + `@` = 10 cells, which 
 6x2 interior; the two turn cells make the walk 12 cells, so `s` fires at tick 11 and the
 2-cell output pipe (the minimum) lands it at 13. The 8x8 frame is just the main room
 (8x4) over the two 3x3 I/O rooms. Nothing is left.
+
+### The fold that DID work: 44x45 -> 44x44 (2025 -> 1936), server 28,143,349 -> 26,899,171
+
+The earlier "both packers converge at 2116" note above is about the *tools*, not the
+machine: the box was never the machine's floor, it was the **router's** floor.
+`tools/place.py` MINIMISES pipe length, so it can never rebuild a 244-cell storage
+serpentine and reports `pipe 0 unroutable` on its own input. The missing primitive is
+`tools/exact_pipe_router.py`: length is a HARD constraint and the path snakes to absorb
+the slack (slack-aware ordering — Warnsdorff + walk-away-from-goal while slack > 6 —
+plus grid-parity and connectivity pruning).
+
+With that, the fold is mechanical (`solutions/matmul/fold_window.py`):
+
+1. **Find why the extreme row/col exists.** Row 44 held only pipe8 and pipe10. blk8 (the
+   c-relay) sat directly under blk7 with a **south** attach, so its feed pipe had to live
+   one row below the last room row. Nothing else needed row 44.
+2. **Move the offending block, keeping its attach OFFSETS.** blk8 (26,40) -> (20,30).
+   Because the offsets move with the room, every in-room nearest-pipe distance is
+   unchanged, so no `r`/`s` can rebind.
+3. **Re-lay the displaced pipes at their EXACT original lengths** (8/11/10 = 26/16/244).
+   A pipe's length is its capacity AND its latency (1 cell/tick), so identical length ⇒
+   bit-identical timing. Ticks confirmed: 5 of 7 cases identical, two 5 ticks faster.
+4. **Prove it is the same machine, not merely a passing one.** All 12 pipes keep the same
+   src/dst blocks, lengths and attach offsets; all 9 rooms keep identical contents; and
+   `pipecheck.bindings` diffs **0 of 43** ops. That is what makes it safe against the 13
+   private cases, which no local grader can see.
+
+Route ordering matters: the long serpentine must be routed **last**. Routed first, the
+slack-aware search wanders it into the top of the grid and starves the short,
+position-critical pipes.
+
+**1936 is now the real floor.** Width 44 is locked from both sides: col 0 + col 1 are
+needed because pipe0's 262-cell serpentine fills cols 1-13 and pipe1's destination attach
+IS (1,26); and col 43 is blk0's right wall, which cannot move left because pipe1's first
+move must go east to (32,6) to keep its source attach on blk1's east wall, which collides
+with pipe3's forced endpoint (32,5). Height can go to 43 (pipe10 re-routes fine in a
+0..42 window) but that buys nothing while width is 44.
+
+**Parity is a hard constraint when moving blocks.** A pipe of length L has L-1 moves, so
+manhattan(first cell, last cell) must match L-1 in parity. Moving a block by an odd
+manhattan amount flips the parity of *every* pipe attached to it and makes them all
+unroutable at their exact length — move by (-1,+1), never (-1,0).

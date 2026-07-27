@@ -5,13 +5,13 @@
   "FEED_W": 33,
   "LOOPR": 37,
   "ST_X0": 19,
-  "D_REP": 21,
+  "D_REP": 17,
   "HW_RET": 46,
   "HW_TICK": 35,
   "HW_SPAWN": 47,
   "HW_DIR": 34,
   "D_EAT": 30,
-  "D_NOEAT": 21,
+  "D_NOEAT": 17,
   "DRV_OUT": 49,
   "DRVX": 6,
   "CY0": 10,
@@ -20,8 +20,8 @@
   "D_HX": 7,
   "IN_IN": 45
  },
- "score": 35139802.800000004,
+ "score": 35063179.6,
  "box": 5041,
- "ticks": 6970.8,
+ "ticks": 6955.6,
  "cap": 51
 }

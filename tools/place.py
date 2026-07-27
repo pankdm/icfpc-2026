@@ -465,8 +465,11 @@ class Plan:
             # measures `s`/`r` against path[0] and path[-1] ONLY
             # (interp/src/lib.rs nearest_outgoing/nearest_incoming -> src_cell/dst_cell),
             # and no tooth ever moves those two cells.  The old window (2 .. len-4)
-            # excluded three more edges for no reason and is what made `--pipe-len exact`
-            # fail: on gradebook it cost 20/60 valid floorplans -> 2/60.
+            # excluded three more edges for no reason, so this is strictly more capable —
+            # but MEASURED 2026-07-27 it buys nothing: gradebook at 798 tries/seed 7 gives
+            # byte-identical valid counts and failure histograms under both windows
+            # (exact 2, min 19, free 15; best box 4096 either way).  Do not credit the
+            # widening with unblocking `--pipe-len exact`; it does not.
             for i in range(1, max(1, len(cells) - 1)):
                 a, b = cells[i], cells[i + 1]
                 d = (b[0] - a[0], b[1] - a[1])

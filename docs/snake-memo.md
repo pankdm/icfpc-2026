@@ -1,8 +1,9 @@
-# How Snake went 120x — a memo
+# How Snake went 136x — a memo
 
-**15,110,173,429 → 126,034,384 on the server (17/17), rank 42/64 → 19/64, from 508x off the
-leader to 5.1x.** Builder: `solutions/snake/build_micro.py` (read its docstring — it is the
-best layout document we have). This memo is what to copy.
+**15,110,173,429 → 111,249,327 on the server (17/17), rank 42/64 → 18/64, from 508x off the
+leader to 4.5x.** Champion `micro9`: 86×86, box 7,396, local oracle 75,282,405. Builder:
+`solutions/snake/build_micro.py` (read its docstring — it is the best layout document we have).
+This memo is what to copy.
 
 ## Where the benefit actually came from
 
@@ -10,10 +11,11 @@ best layout document we have). This memo is what to copy.
 |---|---|---|
 | old stateflow + split_ram build | 15,110,173,429 | — |
 | **architecture rewrite** — O(1) state, RAM deleted (`07d42c1`) | 698,839,843 | **21.6x** |
-| **layout refinements** — seven commits (`e68355c`…`68a73df`) | 85,499,669 | **8.2x** |
+| **layout refinements** — `e68355c`…`98a0fcb` (micro2→micro9) | 75,282,405 | **9.3x** |
 
-So: architecture ~21.6x, layout ~8.2x. **Do not stop after the rewrite** — the layout work
-more than tripled it again. And the single biggest layout commit was worth 2.6x on its own.
+So: architecture ~21.6x, layout ~9.3x. **Do not stop after the rewrite** — the layout work
+gained *more* than the rewrite did, across a dozen small commits, and it was still finding
+~1% wins at micro9. The single biggest layout commit was worth 2.6x on its own.
 
 ## The one idea that mattered most
 

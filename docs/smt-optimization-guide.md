@@ -142,6 +142,78 @@ the gap is precisely the work a placer would have to do.
   rather than generated, so no builder knob exists, and the model's row answer (97) is below
   the champion's block-rows (102) but ABOVE its 95 physical rows — so an emit that fails to
   reproduce the row SHARING comes out ~2 rows taller and makes the box worse.
+  **(Cashed 2026-07-27 — see PHASE 2 below. It needed no re-placement at all.)**
+
+## PHASE 2 (2026-07-27): the LLLM width win was REAL — and it needed no emitter
+
+`scratchpad/narrow_room.py` + `scratchpad/lllm_narrow141.py` cashed it: **LLLM 142x141 →
+141x141, box 20,164 → 19,881, server 6,282,959,332 → 6,181,747,964 at 21/21** (submission
+`a9f9882b`). Ticks fell too (285,127.6 → 284,527.8), so the win is 1.61%, not 1.4%.
+
+**Do not re-emit a hand-folded champion to narrow it — SLIDE it.** Deleting one BLANK cell per
+row and shifting that row's suffix one column west keeps every op in the same row and the same
+order, so the walk is the original minus a few nop glides and the ticks can only fall. Only two
+things can break, and both are constraints in a Z3 model rather than hopes:
+
+1. **vertical moves** — `v` at (x,y) hands control to (x,y+1), so rows y and y+1 must agree on
+   whether column x slid. Read the links off the static walk's TRANSITIONS, never the states'
+   own headings: a branch is entered eastward and leaves vertically, so the branch cell's own
+   heading does not reveal the link it creates (this bug produced a walk that died after 383
+   of 4,499 ops);
+2. **pipe re-binding** — every `s`/`r`/`q` is re-resolved at its destination with
+   `liftflow._bind` (the engine's rule verbatim) against its ORIGINAL binding, and pinned if it
+   would change pipe.
+
+**The blocking structure, and how it was broken.** With the pipes where they were the model is
+UNSAT, with a 3-literal core: LLLM's hot rows are packed solid from column 48 — the o1|o2
+Voronoi floor — to column 139, so nothing can slide. The fix is to move the two COLD `s` pipes
+and drag the midpoints west: `o0` 18→22 and `o1` 31→29, both re-routed at **EXACTLY** their old
+length (pipe 0 is 137 cells because room 4 + pipes 0/8 are the LLLM tape's shift register — a
+cell either way changes the machine, not merely its timing). Then all 100 rows slide.
+
+`smtrows --objective box` had said the same thing a different way (width headroom all the way
+down to w=130) but attributed the win to re-placement. The champion did not need re-placing.
+
+Pipe-drawing gotcha found here: a pipe's **first and last cell must carry a direction glyph**
+(`v^<>`), never a straight `|`/`-`. Emit `|` at the endpoint and the analyser reports `dst = -1`
+and the oracle says `pipe runs into wall` — with the grid otherwise perfect.
+
+Gates used, in order: liftflow token sequences byte-identical (23 blocks, 4,499 ops, same
+ports); pipe profile identical (9 pipes, same src→dst and same LENGTH, only two attach cells
+moved); per-man op sequences identical with only man 0's walk shrinking (7,721 → 7,694 cells);
+`grade_fast` 10/10; **oracle** 10/10; and the four extra suites — `lllm-adv` 115/115,
+`lllm-fuzz` 200/200, `lllm-stress` 17/17, `lllm-oos` 3/6 (the champion also fails those three).
+`tools/equiv.py` correctly REFUSES this transform: deleting blank cells changes the path length,
+which is exactly what it is built to reject. This is not a move-only transform.
+
+### Where LLLM stands now, and what the next column costs
+
+141x141 is square, so BOTH axes bind. Two facts for whoever picks this up:
+
+* interior **row 100 is completely blank**, so the height drops to 140 for free — the moment the
+  width reaches 140. Deleting a blank interior row shifts the whole pipe forest up rigidly and
+  preserves every pipe length exactly, because the deleted row contains no pipe cell.
+* the second column is **SAT in the slide model** (`narrow_room.py narrow141.man --cols 1
+  --pipe-cols 1:27` → 140x141) but blocked by pipe congestion: `o1` must then attach at column
+  27, and pipe 0's 137-cell delay line needs five spacing-2 legs, which can only sit in columns
+  18..26 (pipe 8 owns ≤17, room 2 starts at 34) — so a leg always lands adjacent to column 27.
+  Four legs cannot hold 137 cells (4x28+3 = 115). Solve that and LLLM is 140x140 = 19,600,
+  another 1.4%.
+
+## PHASE 2: the other three targets, re-confirmed NEGATIVE
+
+* **Snake, Pathfinder** — nothing emitted, as Phase 1 certified. Snake's joint optimum IS the
+  champion; pathfinder's rigid floor is already 180x180.
+* **LLM — `place.py` with the new folded routing still cannot move the box.** 396 tries, 40
+  valid floorplans, **every one box 628,849 (356x793)**, room 0 pinned at offset (1,0) in all of
+  them. Folded routing raised the valid rate but not the box: room 0 is 318w x 742h of a 356x793
+  grid, so no rigid move can touch either axis.
+* **But there is a 12% lead on LLM that is not an `smtrows` problem.** Room 0 occupies
+  x 0..317, y 0..741; all 25 other rooms sit in rows 744..792. That leaves **38 free columns
+  (x 318..355) x 742 rows** of air beside room 0. Move the bottom cluster into that strip and
+  the grid becomes ~356x744: box 628,849 → 553,536, **-12.0%**, ticks untouched. The annealer
+  will never find it (one coordinated move of 25 rooms and 48 pipes); it needs a hand-written
+  `place.py --plan` with `--pipe-len exact`.
 
 ### Coordinate bug fixed: port bands were absolute, op columns were relative
 

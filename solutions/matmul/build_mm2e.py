@@ -49,13 +49,13 @@ CORR = {
     'BF':  row(37, 10, 11) + col(10, 37, 45) + row(45, -1, 10) + col(-1, 44, 45),
     'SD':  row(11, 28, 29) + col(29, -4, 11) + row(-4, -14, 29) + col(-14, -4, 38) +
            row(38, -14, -12),
-    'PP':  row(37, 20, 21) + col(21, 35, 37) + row(35, 21, 48) + col(48, 35, 41) +
-           row(41, 40, 48),
-    'OUT': row(38, 40, 43),
+    'PP':  row(37, 20, 21) + col(21, 35, 37) + row(35, 21, 47) + col(47, 35, 41) +
+           row(41, 40, 47),
+    'OUT': row(38, 40, 42),
     'CF':  row(38, 21, 23) + col(21, 38, 58) + row(58, 21, 26),
     'CR':  row(56, 22, 23) + col(22, 41, 56) + row(41, 22, 23),
     'CP':  col(20, 12, 13) + row(13, 20, 30) + col(30, 6, 13) + [(31, 6)],
-    'CTL': col(38, 12, 13) + row(13, 31, 49) + col(49, 13, 53) + row(53, 33, 49) +
+    'CTL': col(38, 12, 13) + row(13, 31, 48) + col(48, 13, 53) + row(53, 33, 48) +
            col(33, 52, 53),
 }
 
@@ -77,7 +77,7 @@ def build(ap_rect=(2, 2, 16, 20, False), br_rect=(0, 46, 20, 12), verbose=False)
     crel.attach('CR', 'L', 56, 'out')
     acc = R.acc(g, 24, 36)
     acc.attach('CTL', 'B', 33, 'in')
-    rt.add_output_room(44, 37)
+    rt.add_output_room(43, 37)
 
     A = lambda r, n: (r.pipes[n][0], r.pipes[n][1])
     W = lambda r, n: r.walls[n]
@@ -139,7 +139,7 @@ def build(ap_rect=(2, 2, 16, 20, False), br_rect=(0, 46, 20, 12), verbose=False)
         ('PP', A(mul, 'PP'), A(acc, 'PP'), 'W'),
         ('CF', A(acc, 'CF'), A(crel, 'CF'), 'N'),
         ('CR', A(crel, 'CR'), A(acc, 'CR'), 'E'),
-        ('OUT', A(acc, 'OUT'), (43, 38), 'E'),
+        ('OUT', A(acc, 'OUT'), (42, 38), 'E'),
         ('CP', A(spl, 'CP'), A(pcnt, 'CP'), 'E'),
         ('CTL', A(pcnt, 'CTL'), A(acc, 'CTL'), 'N'),
     ]

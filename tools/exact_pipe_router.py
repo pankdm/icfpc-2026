@@ -55,8 +55,9 @@ def route_exact(free, start, first_dir, end, last_dir, length, seed=0, budget=40
             if nb not in free or nb in used: continue
             if nb == end and rem != 1: continue
             if rem == 1 and nb != end: continue
-            # the cell before `end` is forced by last_dir
-            if rem == 2 and nb != prev_of_end: continue
+            # NOTE: the path may arrive at `end` from ANY side -- the last cell is an
+            # arrowhead pointing into the room, so a bend there is legal.  Forcing
+            # prev == end-last_dir wrongly rejects most routes.
             deg = sum(1 for e in DIRS
                       if (nb[0]+e[0],nb[1]+e[1]) in free and (nb[0]+e[0],nb[1]+e[1]) not in used)
             nd = manh(nb, end)

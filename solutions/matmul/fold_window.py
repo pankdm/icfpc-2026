@@ -24,6 +24,8 @@ bad=[p.idx for p in pl.pipes
      if any(not(X0<=x<=X1 and Y0<=y<=Y1) for x,y in p.cells)
      or any(c in newocc for c in p.cells)
      or p.src_b in moved or p.dst_b in moved]
+import os
+bad = sorted(set(bad) | {int(v) for v in os.environ.get('FORCE','').split(',') if v!=''})
 print("window", (X0,X1,Y0,Y1), "-> re-route pipes", bad)
 
 occ=set()
@@ -43,7 +45,9 @@ for j in bad:
     bx,by=base[p.src_b]; so=(bx+p.src_off[0], by+p.src_off[1])
     fd=(p.cells[0][0]-so[0], p.cells[0][1]-so[1]); ld=p.dirs[-1]
     specs.append((j,(s[0]+fd[0],s[1]+fd[1]),fd,(d[0]-ld[0],d[1]-ld[1]),ld,p.length))
-order=sorted(specs,key=lambda t:t[5])   # short, position-critical pipes first
+import os as _os
+_ord=[int(v) for v in _os.environ.get('ORDER','').split(',') if v!='']
+order=sorted(specs,key=lambda t:(_ord.index(t[0]) if t[0] in _ord else 99, t[5]))
 paths={}
 for (j,start,fd,end,ld,L) in order:
     avail=set(free)

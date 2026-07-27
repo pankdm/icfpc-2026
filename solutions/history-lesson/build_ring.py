@@ -1395,6 +1395,30 @@ def build_streaming_79x81():
     return program
 
 
+def build_streaming_squeezed(squeeze=1, weight=1.25):
+    """Same machine as 79x80-stream with DISP pulled `squeeze` columns west."""
+    global THRESHOLD, ESC, SMALL_FREE, STOLEN
+    old = (THRESHOLD, ESC, SMALL_FREE, STOLEN)
+    THRESHOLD = 23
+    ESC = 29
+    SMALL_FREE = [2, 4, 5, 6, 7, 8, 11, 12, 16, 17, 18, 19, 20, 21, 22]
+    STOLEN = (8, 18, 23)
+    W = 79 - squeeze
+    selector = lambda stream: choose_phrases_weighted(stream, table_weight=weight)
+    try:
+        symbols, ring, layout = build_encoding(
+            west_first=True, phrase_selector=selector,
+            group_b_rows=3, group_a_cap=72)
+        bands = optimize_feeder(symbols, W)
+        chunks = [chunk.value for band in bands for chunk in band.chunks]
+        assert verify(chunks, ring)
+        program = build_streaming_seven_once(W, ring, layout, bands,
+                                             squeeze=squeeze)
+    finally:
+        THRESHOLD, ESC, SMALL_FREE, STOLEN = old
+    return program
+
+
 def build_streaming_79x80():
     """Pack the cyclic dictionary protocol into a seven-row service band."""
     global THRESHOLD, ESC, SMALL_FREE, STOLEN
@@ -1672,14 +1696,15 @@ def build_streaming_once(W, ring, layout, bands):
     return program
 
 
-def build_streaming_seven_once(W, ring, layout, bands, radix=B1):
+def build_streaming_seven_once(W, ring, layout, bands, radix=B1, squeeze=0):
     """Seven-row service reflow made possible by the capacity-free dictionary."""
     program = Program()
     feeder_rows = variable_feeder(program, bands, W)
     y = feeder_rows + 2
 
     # Width accounting is exact: 12 + 1 + 29 + 11 + 3 + 23 = 79.
-    xu, xy, xd, xp = 0, 13, 42, 56
+    xu, xy, xd, xp = 0, 13, 42, 56 - squeeze
+    g = 55 - squeeze          # last column of the DECODER/DISP gap
     paste_room(program, xu, y, UNPACK_ROWS)
     paste_room(program, xy, y, year_rows())
     paste_room(program, xd, y, decoder_rows(radix))
@@ -1697,12 +1722,12 @@ def build_streaming_seven_once(W, ring, layout, bands, radix=B1):
         end_direction="W",
     )
     # DECODER -> DISP crosses the same gap one row lower.
-    program.pipe([(53, y + 2), (55, y + 2)], end_direction="E")
+    program.pipe([(53, y + 2), (g, y + 2)], end_direction="E")
     # DISP -> YEAR leaves west, drops below the short decoder, and enters the
     # year's right wall without crossing either decoder channel.
     program.pipe(
         [
-            (55, y + 3), (53, y + 3),
+            (g, y + 3), (53, y + 3),
             (53, y + 4), (42, y + 4),
         ],
         end_direction="W",
@@ -1718,7 +1743,8 @@ def build_streaming_seven_once(W, ring, layout, bands, radix=B1):
     # Cyclic P1 -> DISP.  The first step is north, directly away from P1's
     # top wall; the endpoint is closest to the scanner receives, not the head.
     program.pipe(
-        [(54, y + 6), (54, y + 4), (55, y + 4)],
+        ([(54, y + 6), (54, y + 4), (55, y + 4)] if not squeeze
+         else [(54, y + 6), (54, y + 4)]),
         end_direction="E",
     )
     return program
@@ -1791,6 +1817,19 @@ def main():
     feeder79_v2 = "--feeder79-v2" in sys.argv
     width79_v2 = "--79wide-v2" in sys.argv
     best79 = "--79x81" in sys.argv
+    squeeze = next((int(a.split("=")[1]) for a in sys.argv
+                    if a.startswith("--squeeze=")), None)
+    if squeeze is not None:
+        wt = next((float(a.split("=")[1]) for a in sys.argv
+                   if a.startswith("--weight=")), 1.25)
+        prog = build_streaming_squeezed(squeeze, wt)
+        w, h, sc = prog.footprint()
+        out = os.path.join(HERE, "candidates",
+                           f"squeeze{squeeze}-w{wt}-{w}x{h}.man")
+        os.makedirs(os.path.dirname(out), exist_ok=True)
+        open(out, "w").write(prog.render())
+        print(f"wrote {out}: {w}x{h} score={sc}")
+        raise SystemExit(0)
     stream79 = "--79x80-stream" in sys.argv
     positional = [
         arg for arg in sys.argv[1:]

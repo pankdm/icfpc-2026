@@ -113,6 +113,8 @@ def run(grid, start, direction, queues, pipe_for, max_steps=100000, trace=False)
             BP = A
         elif ch == "m":
             BP -= 1
+        elif ch == "]":
+            BP >>= 1
         elif ch == "+":
             A = A + B
         elif ch == "-":
@@ -142,15 +144,34 @@ def run(grid, start, direction, queues, pipe_for, max_steps=100000, trace=False)
         elif ch == "a":
             if BP > 0:
                 d = CCW[d]
+        elif ch == "x":
+            d = CW[d] if (BP & 1) else CCW[d]
         elif ch == "s":
             q = pipe_for(x, y, "out")
+            if isinstance(q, tuple):
+                q = q[0]
             queues[q].append(A)
         elif ch == "r":
             q = pipe_for(x, y, "in")
+            if isinstance(q, tuple):
+                q = q[0]
             if not queues[q]:
                 return dict(reason="starved", pos=(x, y), steps=steps,
                             A=A, B=B, BP=BP, log=log)
             A = queues[q].pop(0)
+        elif ch == "U":
+            selected = pipe_for(x, y, "in")
+            if not isinstance(selected, tuple):
+                raise Fatal("U test requires pipe_for to return (queue, attach)")
+            q, (px, py) = selected
+            if not queues[q]:
+                return dict(reason="starved", pos=(x, y), steps=steps,
+                            A=A, B=B, BP=BP, log=log)
+            A = queues[q].pop(0)
+            if abs(px - x) >= abs(py - y):
+                d = "W" if px > x else "E"
+            else:
+                d = "N" if py > y else "S"
         elif ch == "H":
             return dict(reason="halt", pos=(x, y), steps=steps,
                         A=A, B=B, BP=BP, log=log)

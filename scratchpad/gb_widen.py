@@ -12,7 +12,7 @@ W = max(len(l) for l in lines)
 lines = [l.ljust(W) for l in lines]
 
 OLD = 38
-TOP, BOT = 0, 75
+TOP, BOT = 0, 69
 
 # sanity: nothing lives east of OLD on rows TOP..BOT
 for y in range(TOP, BOT + 1):

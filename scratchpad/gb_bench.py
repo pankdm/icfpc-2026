@@ -41,6 +41,10 @@ def build(N, K, mk, rounds, per):
                 outv.append(str(min(i for i in ids if st[i][s - 1] == best)))
         rin.append(" ".join(flat))
         rout.append(" ".join(outv))
+    # a workload of pure SETs emits nothing and so never settles; close with one GET
+    # so the run has a final expected output.
+    rin.append("1 1 " + str(ids[0]) + " 1")
+    rout.append(str(st[ids[0]][0]))
     return " / ".join(rin), " / ".join(rout)
 
 

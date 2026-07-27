@@ -22,15 +22,15 @@ BUILDER = os.environ.get("SNAKE_BUILDER", REPO + "/solutions/snake/build_fold8.p
 JOBS = int(os.environ.get("SNAKE_JOBS", "4"))
 LM = REPO + "/interp/target/release/lm"
 
-BASE = {'CW': 50, 'ST_OUT': 22, 'FEED_W': 33, 'LOOPR': 37, 'ST_X0': 19, 'D_REP': 27, 'HW_RET': 46, 'HW_TICK': 35, 'HW_SPAWN': 47, 'HW_DIR': 34, 'D_EAT': 30, 'D_NOEAT': 21, 'DRV_OUT': 49, 'DRVX': 6, 'CY0': 10, 'D_HY': 12, 'ST_IN': 23, 'D_HX': 13, 'IN_IN': 45, 'D_COLL': 8, 'CXL': 6}
+BASE = {'CW': 50, 'ST_OUT': 22, 'FEED_W': 25, 'LOOPR': 37, 'ST_X0': 19, 'D_REP': 29, 'HW_RET': 46, 'HW_TICK': 35, 'HW_SPAWN': 47, 'HW_DIR': 34, 'D_EAT': 30, 'D_NOEAT': 21, 'DRV_OUT': 49, 'DRVX': 4, 'CY0': 8, 'D_HY': 15, 'ST_IN': 23, 'D_HX': 15, 'IN_IN': 45, 'D_COLL': 10, 'CXL': 8}
 LSHIFT = ['D_COLL', 'D_HY', 'D_HX', 'D_REP']
 SHIFT = ['LOOPR', 'HW_RET', 'HW_TICK', 'HW_SPAWN', 'HW_DIR', 'D_EAT', 'D_NOEAT',
          'DRV_OUT', 'LOOPX', 'LOOPM', 'REPD', 'BD_OUT', 'BD_IN', 'IN_IN', 'WRAP_E']
-JITTER = {'ST_OUT': 6, 'ST_IN': 6, 'ST_X0': 6, 'ST_W': 6, 'FEED_W': 8,
+JITTER = {'ST_OUT': 6, 'ST_IN': 6, 'ST_X0': 6, 'ST_W': 6, 'FEED_W': 12,
           'HW_RET': 8, 'HW_TICK': 8, 'HW_SPAWN': 9, 'HW_DIR': 8, 'D_EAT': 8,
           'D_NOEAT': 8, 'LOOPX': 6, 'LOOPM': 6, 'LOOPR': 6, 'DEC1': 9, 'DEC2': 9,
           'REPD': 8, 'BD_OUT': 6, 'BD_IN': 6, 'IN_IN': 6, 'DRV_OUT': 6,
-          'WRAP_E': 6, 'DRVX': 2, 'CY0': 1, 'D_REP': 4, 'D_HX': 3, 'D_HY': 3,
+          'WRAP_E': 6, 'DRVX': 3, 'CY0': 3, 'ST_X0': 6, 'ST_OUT': 4, 'ST_IN': 4, 'D_REP': 4, 'D_HX': 3, 'D_HY': 3,
           'D_COLL': 2}
 
 HARDCAP = 200

@@ -500,7 +500,7 @@
   "result": {
    "status": "timeout",
    "settleTick": 15000000,
-   "footprint": 4356,
+   "footprint": 4096,
    "reason": "no verdict"
   }
  },
@@ -1075,7 +1075,7 @@
   "result": {
    "status": "timeout",
    "settleTick": 15000000,
-   "footprint": 4356,
+   "footprint": 4096,
    "reason": "no verdict"
   }
  },
@@ -1955,7 +1955,7 @@
   "result": {
    "status": "timeout",
    "settleTick": 15000000,
-   "footprint": 4356,
+   "footprint": 4096,
    "reason": "no verdict"
   }
  },
@@ -2535,7 +2535,7 @@
   "result": {
    "status": "timeout",
    "settleTick": 15000000,
-   "footprint": 4356,
+   "footprint": 4096,
    "reason": "no verdict"
   }
  }

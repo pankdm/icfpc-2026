@@ -2,10 +2,8 @@
            |@>Rv   ||@>Rv     |>---v|I|
            | ^s<   || ^s<     |    |+-+
            +-------++---------+ v--< v
-            ^-< v        >----^ |    |
-              | |        ^-----<|    |
-              | |        >-----^|    |     +---------+
-              | |        ^-----<|    |     |v s <    |
+            ^-< v>------------^ |    |     +---------+
+              | |^-------------<|    |     |v s <    |
               |v<         >----^|    |   >>|    1    |
               ^v          ^     v    v   ^ |>@r Xv   |
 +----------------------------------------+ |    >> sv|
@@ -33,21 +31,21 @@
 |                                v+M5s  <||  :                :
 |                                >s1Ns^  ||  +================+
 |                     >Ws         sv     ||   ^
-|     v +M5sW sN1M+1M  r           <     |>---^
-|     >                           s1Ns^  |
+|       v+M5s WsN1M+1M r           <     |>---^
+|       >                         s1Ns^  |
 | >rrr >rrrrb                v           |
 |      v               <vb<  > d v       |
 |                      x<      r         |
-|                    v <       >  s9sv   |
+|                     v<       >  s9sv   |
 |                            ^m      <   |
 |                             vN1<       |
 |                             >   sH     |
-|      >M2-NM 5W{MrWs  Wv                |
-|v srsr srs}W 1MWrsrs  r<                |
+|      >M2-NM 5W{MrWsW rv                |
+|v srsr srs}W 1MWrsrs   <                |
 |>                                    ^  |
-|                    > M3-  Mv           |
-|v srsr srsWr srsrWsW  r     <           |
-|>                                    ^  |
+|                     >M3-  Mv           |
+|  vsrs rsrsW rsrsrWsW r     <           |
+|  >                                  ^  |
 |                  vs              rM4 < |
 |                  >               r{M  v|
 |v M+rs rsrsr srsrsrs  r                <|
@@ -58,7 +56,7 @@
 |                  vs               <    |
 |                  >               r{M  v|
 |v 1sWs rs1Mr s-s++rs  r                <|
-|> srs                 s          s5M+  v|
+|> srs               s            s5M+  v|
 |                  vs              N1s  <|
 |                  >              s1v    |
 |                  vs               <    |

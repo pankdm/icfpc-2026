@@ -257,6 +257,24 @@ Everything together is 736 -> ~667 rows, box 444,889, **1.21x**. Not worth a rew
 that matters is the WRAP row (289 of 688), and op rows average 20 ops over a 101-column span
 inside a 387-column room.
 
+### LLM: rigid-room placement CANNOT help — 742 of 793 rows are ONE room (2026-07-27)
+
+`tools/place.py` on the champion: round-trip is faithful (27 blocks = 26 rooms + 1 display, 48
+pipes, 0 orphan cells, reproduces the program byte-for-byte), 198 tries, 26 valid floorplans —
+and **every single one is box 628,849 (356x793), identical to baseline.** All failures are
+`pipe N unroutable`.
+
+The offsets say why: room 0 is at (0,0) and spans **y0..742**, i.e. ONE room is 742 of the 793
+rows; the other 26 rooms are a 51-row tail at y>=744. A rigid-room placer MOVES rooms, it cannot
+RESHAPE one, so the entire theoretical win is folding the 51-row tail up beside the controller —
+742 rows, box 550,564, **1.14x** — and the router cannot even reach that while preserving pipe
+lengths (length is latency AND capacity, so it may not shrink).
+
+**Therefore both "optimize for height" and "then optimize for width" reduce to the same job:
+re-placing ops INSIDE room 0**, which is `tools/smtrows.py` + the new `tools/liftflow.py`
+adapter — the same tool the snake work needs. Do not spend more time on floorplan-level moves
+for LLM.
+
 ### LLM: forks are FREE but have nothing to do — the hot loop is a POINTER CHASE (2026-07-27)
 
 Three numbers I quoted earlier were wrong; use these:

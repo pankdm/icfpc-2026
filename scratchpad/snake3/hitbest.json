@@ -2,10 +2,10 @@
  "params": {
   "CW": 50,
   "ST_OUT": 22,
-  "FEED_W": 33,
+  "FEED_W": 25,
   "LOOPR": 37,
   "ST_X0": 19,
-  "D_REP": 29,
+  "D_REP": 30,
   "HW_RET": 46,
   "HW_TICK": 35,
   "HW_SPAWN": 47,
@@ -13,8 +13,8 @@
   "D_EAT": 30,
   "D_NOEAT": 21,
   "DRV_OUT": 49,
-  "DRVX": 6,
-  "CY0": 10,
+  "DRVX": 4,
+  "CY0": 8,
   "D_HY": 15,
   "ST_IN": 23,
   "D_HX": 15,
@@ -22,8 +22,8 @@
   "D_COLL": 10,
   "CXL": 8
  },
- "score": 30248064.0,
- "box": 4356,
- "ticks": 6944.0,
+ "score": 28164915.2,
+ "box": 4096,
+ "ticks": 6876.2,
  "cap": 51
 }

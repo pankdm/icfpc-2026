@@ -207,20 +207,211 @@ def greedy_rows(flow):
     return total
 
 
-def as_built_rows(flow):
-    """The SAME accounting applied to the grid the flow was lifted from: per block, the
-    distinct rows its op cells occupy, plus one for a `br`. Without this the Z3 number has
-    nothing honest to be compared against — `greedy_rows` re-simulates flowgrid's greedy,
-    which is not what a hand-structured champion did."""
-    cells = flow.meta.get("block_cells")
-    if not cells:
+def _block_ops(flow):
+    for label, seq in block_sequences(flow):
+        ops = [(k, rest) for k, *rest in seq if k != "term"]
+        term = next((rest[0] for k, *rest in seq if k == "term"), None)
+        yield label, ops, (1 if term == "br" else 0)
+
+
+def _bands(flow, ops, wmax):
+    ports = flow.ports
+    out = []
+    for kind, rest in ops:
+        if kind == "port":
+            lo, hi = ports[rest[0]][2], ports[rest[0]][3]
+            out.append((max(1, lo), min(wmax, hi)))
+        else:
+            out.append((1, wmax))
+    return out
+
+
+def dp_block_rows(flow, ops, wmax):
+    """Exact minimum rows for ONE block with the ports fixed — the same automaton smtrows
+    encodes, solved as a shortest path instead of an ILP.
+
+    State after op i is (heading, column); the three legal moves are the model's own:
+      same row   -> strictly monotone column in the heading (0 rows)
+      next row   -> heading flips, column may not overshoot the drop column (1 row)
+      +2 rows    -> heading unchanged, column free (2 rows)
+    94 states x 270 ops closes instantly, where Optimize() over the 52-op block did not
+    close in 300s. Z3 then re-checks the answer (see `certify`), so the fast path is not
+    trusted on its own."""
+    bands = _bands(flow, ops, wmax)
+    INF = float("inf")
+    lo0, hi0 = bands[0]
+    # heading 1 = east, -1 = west; blocks enter east on row 0.
+    cur = {(1, c): 0 for c in range(lo0, hi0 + 1)}
+    if not cur:
         return None
-    total = 0
-    for label, tokens in flow.blocks.items():
+    for i in range(1, len(ops)):
+        lo, hi = bands[i]
+        nxt = {}
+        # Precompute, per heading, the best cost reachable for each column.
+        for (h, c), cost in cur.items():
+            for c2 in range(lo, hi + 1):
+                if h == 1 and c2 > c:
+                    add, h2 = 0, 1
+                elif h == -1 and c2 < c:
+                    add, h2 = 0, -1
+                elif h == 1 and c2 <= c:
+                    add, h2 = 1, -1
+                elif h == -1 and c2 >= c:
+                    add, h2 = 1, 1
+                else:
+                    continue
+                k = (h2, c2)
+                if nxt.get(k, INF) > cost + add:
+                    nxt[k] = cost + add
+                # the +2 wrap keeps the heading and frees the column
+                k2 = (h, c2)
+                if nxt.get(k2, INF) > cost + 2:
+                    nxt[k2] = cost + 2
+        if not nxt:
+            return None
+        cur = nxt
+    return min(cur.values()) + 1
+
+
+def dp_fixed(flow, wmax):
+    total, per_block = 0, {}
+    for label, ops, extra in _block_ops(flow):
+        if not ops:
+            per_block[label] = 1 + extra
+            total += 1 + extra
+            continue
+        r = dp_block_rows(flow, ops, wmax)
+        if r is None:
+            return None, label
+        per_block[label] = r + extra
+        total += r + extra
+    return {"rows": total, "per_block": per_block}, None
+
+
+def certify(flow, wmax, per_block, timeout_ms=120000):
+    """Z3 optimality certificate for the DP answer: for each block assert `rows <= k-1`
+    and require UNSAT, then assert `rows <= k` and require SAT. A plain satisfiability
+    query, not an optimisation — that is what makes it close where Optimize() did not."""
+    ports = flow.ports
+    bad = []
+    for label, ops, extra in _block_ops(flow):
+        if not ops:
+            continue
+        k = per_block[label] - extra
+        n = len(ops)
+
+        def feasible(limit):
+            s = z3.Solver()
+            s.set("timeout", timeout_ms)
+            r = [z3.Int(f"r{i}") for i in range(n)]
+            c = [z3.Int(f"c{i}") for i in range(n)]
+            e = [z3.Bool(f"e{i}") for i in range(n)]
+            s.add(r[0] == 0, e[0])
+            for i in range(n):
+                lo, hi = _bands(flow, ops, wmax)[i]
+                s.add(c[i] >= lo, c[i] <= hi)
+                s.add(r[i] >= 0, r[i] <= limit - 1)
+            for i in range(n - 1):
+                s.add(r[i + 1] >= r[i], r[i + 1] <= r[i] + 2)
+                same = r[i + 1] == r[i]
+                step1 = r[i + 1] == r[i] + 1
+                s.add(e[i + 1] == z3.If(step1, z3.Not(e[i]), e[i]))
+                s.add(z3.Implies(z3.And(same, e[i]), c[i + 1] >= c[i] + 1))
+                s.add(z3.Implies(z3.And(same, z3.Not(e[i])), c[i + 1] <= c[i] - 1))
+                s.add(z3.Implies(z3.And(step1, e[i]), c[i + 1] <= c[i]))
+                s.add(z3.Implies(z3.And(step1, z3.Not(e[i])), c[i + 1] >= c[i]))
+            return s.check()
+
+        if feasible(k) != z3.sat:
+            bad.append((label, k, "claimed bound not SAT"))
+            continue
+        if k > 1 and feasible(k - 1) != z3.unsat:
+            bad.append((label, k, "k-1 not proven UNSAT"))
+    return bad
+
+
+def solve_fixed(flow, wmax=155, timeout_ms=60000, verbose=False):
+    """Phase 1 (ports FIXED), solved BLOCK BY BLOCK.
+
+    With the port columns pinned, no constraint couples two blocks — each block's rows depend
+    only on its own op sequence and the fixed bands — so the joint optimum is exactly the sum
+    of the per-block optima. The monolithic Optimize() over all blocks at once did not close
+    in 300s on the snake lift (25 blocks, 270 ops); decomposed it is 25 tiny problems and
+    finishes in seconds, and the answer is the same number."""
+    ports = flow.ports
+    names = list(ports)
+    total, width, per_block = 0, 0, {}
+    for label, seq in block_sequences(flow):
+        ops = [(k, rest) for k, *rest in seq if k != "term"]
+        term = next((rest[0] for k, *rest in seq if k == "term"), None)
+        n = len(ops)
+        extra = 1 if term == "br" else 0
+        if n == 0:
+            total += 1 + extra
+            per_block[label] = (1 + extra, 0)
+            continue
+        opt = z3.Optimize()
+        opt.set("timeout", timeout_ms)
+        r = [z3.Int(f"r{i}") for i in range(n)]
+        c = [z3.Int(f"c{i}") for i in range(n)]
+        e = [z3.Bool(f"e{i}") for i in range(n)]
+        opt.add(r[0] == 0, e[0])
+        for i in range(n):
+            opt.add(c[i] >= 1, c[i] <= wmax)
+            kind, rest = ops[i]
+            if kind == "port":
+                lo, hi = ports[rest[0]][2], ports[rest[0]][3]
+                opt.add(c[i] >= lo, c[i] <= hi)
+        for i in range(n - 1):
+            opt.add(r[i + 1] >= r[i], r[i + 1] <= r[i] + 2)
+            same = r[i + 1] == r[i]
+            step1 = r[i + 1] == r[i] + 1
+            opt.add(e[i + 1] == z3.If(step1, z3.Not(e[i]), e[i]))
+            opt.add(z3.Implies(z3.And(same, e[i]), c[i + 1] >= c[i] + 1))
+            opt.add(z3.Implies(z3.And(same, z3.Not(e[i])), c[i + 1] <= c[i] - 1))
+            opt.add(z3.Implies(z3.And(step1, e[i]), c[i + 1] <= c[i]))
+            opt.add(z3.Implies(z3.And(step1, z3.Not(e[i])), c[i + 1] >= c[i]))
+        W = z3.Int("W")
+        for i in range(n):
+            opt.add(W >= c[i])
+        opt.minimize(r[n - 1])
+        opt.minimize(W)
+        if opt.check() != z3.sat:
+            return None
+        m = opt.model()
+        rows = m.eval(r[n - 1]).as_long() + 1 + extra
+        w = m.eval(W).as_long()
+        per_block[label] = (rows, w)
+        total += rows
+        width = max(width, w)
+        if verbose:
+            print(f"    {label:>4}: {n:>3} ops -> {rows} rows, width {w}")
+    return {"rows": total, "width": width, "per_block": per_block,
+            "ports": {n: ports[n][0] for n in names}}
+
+
+def as_built_rows(flow):
+    """The SAME accounting applied to the grid the flow was lifted from. Without this the
+    Z3 number has nothing honest to be compared against — `greedy_rows` re-simulates
+    flowgrid's greedy, which is not what a hand-structured champion did.
+
+    Returns (block_rows, physical_rows). They differ, and the difference is the point:
+      * block_rows counts each block's own distinct rows, which is the model's unit — the
+        model lays blocks one under another and cannot let two share a row;
+      * physical_rows is the number of grid rows that actually carry an op.
+    A hand-folded champion parks several small blocks on one row, so physical_rows can be
+    BELOW the model's optimum. No `br` surcharge is added here: flowgrid emits `v` then `X`
+    on the next row (hence the model's +1 per br), but the lifted grid puts `X` inline on a
+    row already counted, so adding it again would invent rows the champion does not spend."""
+    cells = getattr(flow, "meta", {}).get("block_cells")
+    if not cells:
+        return None, None
+    total, phys = 0, set()
+    for label in flow.blocks:
         rows = {y for (_, y) in cells.get(label, ())}
-        term = tokens[-1][0] if tokens and isinstance(tokens[-1], tuple) else None
-        total += max(len(rows), 1) + (1 if term == "br" else 0)
-    return total
+        phys |= rows
+        total += max(len(rows), 1)
+    return total, len(phys)
 
 
 if __name__ == "__main__":
@@ -234,25 +425,49 @@ if __name__ == "__main__":
                     help=".man input: intersect the lift with cells the engine really ran")
     ap.add_argument("--wmax", type=int, default=None)
     ap.add_argument("--min-sep", type=int, default=4)
+    ap.add_argument("--verbose", action="store_true")
+    ap.add_argument("--no-certify", action="store_true")
     args = ap.parse_args()
     flow = load_flow(args.source, man_index=args.man_index, trace=args.trace)
     wmax = args.wmax
     if wmax is None:
-        interior = flow.meta.get("room_interior") if getattr(flow, "meta", None) else None
+        interior = getattr(flow, "meta", {}).get("room_interior")
         wmax = (interior[2] - interior[0] + 1) if interior else 155
-    ab = as_built_rows(flow)
+    ab, phys = as_built_rows(flow)
     if ab is not None:
-        print(f"as-built op rows (this grid): {ab}")
+        print(f"as-built: {ab} block-rows, {phys} PHYSICAL op rows "
+              f"({ab - phys} shared between blocks — a fold the model cannot express)")
     print(f"greedy op rows (current ports): {greedy_rows(flow)}")
+    nbr = sum(1 for toks in flow.blocks.values()
+              if toks and isinstance(toks[-1], tuple) and toks[-1][0] == "br")
     import time
     t0 = time.time()
-    r = solve(flow, free_ports=args.free_ports, timeout_ms=args.timeout * 1000,
-              wmax=wmax, min_sep=args.min_sep,
-              pmin=1 if not (flow.ports is stateflow.COMPACT_PORTS) else 4)
+    if args.free_ports:
+        r = solve(flow, free_ports=True, timeout_ms=args.timeout * 1000,
+                  wmax=wmax, min_sep=args.min_sep,
+                  pmin=1 if not (flow.ports is stateflow.COMPACT_PORTS) else 4)
+    else:
+        r, bad_label = dp_fixed(flow, wmax)
+        if r is None:
+            print(f"solver: block {bad_label} has no legal placement at wmax={wmax}")
+            sys.exit(1)
+        if args.verbose:
+            for lbl, k in r["per_block"].items():
+                print(f"    {lbl:>4}: {k} rows")
+        if not args.no_certify:
+            t1 = time.time()
+            bad = certify(flow, wmax, r["per_block"], timeout_ms=args.timeout * 1000)
+            print(f"z3 certificate: {'OK (each block proven optimal)' if not bad else bad}"
+                  f"  [{time.time() - t1:.1f}s]")
+        r.setdefault("width", wmax)
     dt = time.time() - t0
     if r is None:
         print(f"solver: UNSAT/timeout after {dt:.1f}s")
     else:
         print(f"smt op rows: {r['rows']}  width: {r['width']}  (wmax {wmax}, {dt:.1f}s)")
+        print(f"  of which {nbr} are the flowgrid `br` surcharge (one row per branch); a grid"
+              f" that puts `X` inline needs only {r['rows'] - nbr}")
+        if ab is not None:
+            print(f"  vs as-built {ab} block-rows / {phys} physical rows")
         if args.free_ports:
             print("ports:", {k: v for k, v in sorted(r["ports"].items(), key=lambda kv: kv[1])})

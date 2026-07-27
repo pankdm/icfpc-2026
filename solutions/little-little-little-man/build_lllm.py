@@ -41,7 +41,7 @@ import lllm_sim as SIM
 # ---- tunable integer knobs -------------------------------------------------
 HOLDER_PITCH = 3        # columns between neighbouring holder rooms
 BAND_TIERS = 2          # rows of holder rooms stacked above the controller
-TIER_GAP = 1            # blank rows between two tiers of holder rooms
+TIER_GAP = 0            # blank rows between two tiers of holder rooms
 HOLDER_W = 4            # holder room outer width
 HOLDER_H = 6            # holder room outer height
 PIPE_GAP = 3            # rows between the device band and the controller
@@ -67,39 +67,40 @@ CODE_SLACK = 14         # spare code columns east of the last port column
 HOLDER_ORDER = [
     "KK", "PCOL", "SH", "AD", "HD",
     "RETM", "CD", "BL", "VLR", "OPR",
-    "AL", "WW", "PA", "HHT", "PH",
-    "NOTME", "PATF", "PATE", "NOTMF", "ADS",
+    "AL", "WW", "PA", "PH", "HHT",
+    "NOTMF", "PATF", "ADS", "NOTME", "PATE",
 ]
 
 # Block layout order, searched by search_layout.py against cost_model.py.
 # Empty == use lllm_flow's own emission order.
 BLOCK_ORDER = [
-    "BOOT", "FALLBACK", "CELL_LOOP", "NONDIGIT",
-    "CELL_CODED", "NOT_AT", "NOT_PLUS", "ROW_END",
-    "LATER_PLUS", "PLUS_CHK_X", "P_STEP_M", "P_STEP_B",
-    "MASKS", "REP_BODY", "REP_LOOP", "PAD_ROWS",
-    "PAD_BODY", "PAD_LOOP", "ROOM_CHECK", "ROOM_CHECK2",
-    "P_SPIN_B", "P_RW_B", "RENDER_INIT", "FIRST_PLUS",
-    "PATCH_MID_INIT", "PATCH_MID", "RENDER_DONE", "P_ROT_M",
-    "P_SPIN_M", "P_RW_M", "PATCH_MID_NEXT", "R_EMIT",
-    "R_CHK", "R_LOOP", "ROT_BODY", "ROT_LOOP",
-    "FETCH_SAME", "FETCH_DONE", "STEP_TAIL", "RING_READ",
-    "FETCH_ROW", "STEP", "STEP_ALIVE", "DOTICK",
-    "D_LOW", "ADV_E", "ADVANCE", "ADV_W",
-    "ADV_S", "OP_W", "ADV_N", "D_LOW2",
-    "OP_E", "ROUND_END", "NEXT_ROUND", "D_MID",
-    "OP_SUB", "OP_N", "OP_M", "OP_S",
-    "P_ROT_B", "OP_DIGIT", "OP_X", "OP_ADD",
-    "X_CW", "PATCH_BOT", "OP_H", "P_STEP_T",
-    "X_CCW", "P_ROT_T", "P_SPIN_T", "PATCH_INIT",
-    "MASKS1B", "MASKS2", "P_RW_T",
+    "BOOT", "P_RW_B", "RENDER_INIT", "CELL_LOOP",
+    "NONDIGIT", "CELL_CODED", "NOT_AT", "NOT_PLUS",
+    "ROW_END", "PAD_ROWS", "LATER_PLUS", "PLUS_CHK_X",
+    "ROOM_CHECK2", "P_STEP_B", "FIRST_PLUS", "REP_BODY",
+    "REP_LOOP", "MASKS1B", "MASKS2", "PAD_BODY",
+    "PAD_LOOP", "P_STEP_T", "PATCH_INIT", "ROOM_CHECK",
+    "FALLBACK", "MASKS", "P_ROT_B", "P_SPIN_B",
+    "RENDER_DONE", "PATCH_BOT", "P_ROT_M", "P_SPIN_M",
+    "P_RW_M", "PATCH_MID_NEXT", "PATCH_MID_INIT", "PATCH_MID",
+    "P_STEP_M", "P_ROT_T", "P_SPIN_T", "P_RW_T",
+    "R_EMIT", "R_CHK", "R_LOOP", "FETCH_ROW",
+    "ROT_BODY", "ROT_LOOP", "FETCH_SAME", "FETCH_DONE",
+    "STEP_TAIL", "RING_READ", "OP_H", "STEP",
+    "STEP_ALIVE", "DOTICK", "OP_DIGIT", "ADV_N",
+    "D_LOW", "OP_W", "ADVANCE", "ADV_W",
+    "ADV_S", "ADV_E", "OP_N", "D_LOW2",
+    "OP_S", "D_MID", "OP_SUB", "X_CCW",
+    "OP_ADD", "OP_E", "X_CW", "ROUND_END",
+    "NEXT_ROUND", "OP_X", "OP_M",
 ]
 
 # Holders whose DROP pipe takes the right-hand interior column, so that `hr`
 # comes after `hw` in reading order.  Searched by search_layout.py.
 HOLDER_FLIP = [
-    "AL", "CD", "HD", "KK", "NOTMF",
-    "OPR", "PATF", "RETM", "VLR", "WW",
+    "ADS", "AL", "CD", "HD", "KK",
+    "OPR", "PATE", "PATF", "RETM", "VLR",
+    "WW",
 ]
 
 ARROW_S, ARROW_W, ARROW_E, ARROW_N = "v", "<", ">", "^"

@@ -270,6 +270,10 @@ def setup_pre(e):
     return e
 
 
+# Chosen by a joint search over all 120 orders and every (L, k, IW); the order
+# trades tail length against branch-block width and both feed the box.  The
+# nominal 1%-better ("addr0","majd","S","mind","L") lands on L=8 with a WESTWARD
+# last row, a layout path that crashes -- not worth chasing for 1%.
 TARGET = ("addr0", "mind", "L", "S", "majd")
 
 MAP_X = {"adx": "L", "ady": "S", "sx": "majd", "vy": "mind", "addr0": "addr0"}
@@ -312,6 +316,10 @@ def setup_tail(e):
     e.op("5"); e.op("M")
     u("f0"); e.op("{"); e.op("{"); e.op("M")          # B = f0 << 10
     u("addr0"); e.op("+"); e.push("P0")
+    # Jc = -4096*maxL + mind is computed in MOD, not here: MOD is parked on its
+    # `r` for the whole of CTRL's setup, so those ten ops are free there, and
+    # every op removed from CTRL narrows the serpentine (and the box) as well as
+    # the round.  CTRL just ships the two ingredients.
     e.op("6"); e.op("M")
     u("maxL"); e.op("{"); e.op("{"); e.op("N"); e.op("M")
     u("mind"); e.op("+")                              # Jc

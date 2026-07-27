@@ -12,14 +12,26 @@ that makes both the pipe bindings and the control flow provable at build time:
   to an attachment at (c, top-1) is (y-top+1) + |x-c|, so among attachments
   that all share row top-1 the NEAREST is simply the one with the closest
   column -- an `r`/`s` placed exactly on a device's column can never rebind.
-  build-time assert_bindings() re-derives every binding the way the oracle does.
+  verify_bindings() (--verify) re-derives every binding the way the oracle
+  does, through tools/pipecheck.py, and is what makes moving a pipe safe.
 
   CONTROL FLOW GOES EAST OR SOUTH.  A block is a row of ops entered from the
   west; `b d` turns a taken branch SOUTH, a fall-through keeps heading EAST.
   Each exit drops onto its own private row, runs WEST to a per-target highway
   column, and rides it to the target's entry row.  Highways cross exit rows on
   BLANK cells (a blank preserves heading), so no two routes ever share a turn
-  glyph -- the classic generated-grid misroute cannot happen here.
+  glyph -- the classic generated-grid misroute cannot happen here.  A target may
+  ALSO be fallen into from the block above (descend_east), in which case the
+  lane glides its men east onto the very cell the falling man lands on.
+
+WHAT COSTS WHAT.  The controller man never stalls -- profiling shows the
+controller room executing one cell per tick -- so ticks are exactly the cells he
+walks, and cost_model.py computes them to a constant +227.  Measured on the
+current build: 64% is walking between PORT COLUMNS inside a block, 24% the
+highway's west run and glide, 10% the highway's vertical ride.  Everything is
+column spread and row count, which is why the three free permutations
+(HOLDER_ORDER, BLOCK_ORDER, HOLDER_FLIP) are annealed by search_layout.py
+against box x ticks rather than guessed.
 
 Knobs are module constants / default args so tools/autotune.py can sweep them;
 all DATA (colour table, character classes, the classifier hash) is computed
@@ -52,47 +64,49 @@ LEAD_IN = 0             # blank columns between the entry column and the ops
 RING_LIFT = 7           # how far above the band the ring relay sits
 DISP_GAP = 6            # routing columns between the band and the display
 TAIL_PAD = 0            # spare rows under the last block
-CODE_SLACK = 14         # spare code columns east of the last port column
+CODE_SLACK = 6          # spare code columns east of the last port column
+                        # (6 is the least that costs no wrap; width is not the
+                        #  binding dimension, so the rest was dead grid)
 
-# Holder column order found by search_holder_order().  A port op must sit on its
-# own column, so whenever the next one is behind the cursor the code ribbon
-# wraps and costs a whole controller ROW -- and height is what the box squares.
-# MEASURED 2026-07-26 -- DO NOT "OPTIMISE" THIS BY ROW COUNT.  Annealing on rows
-# alone (scratchpad/lllm_order_search.py, 16 restarts x 20k moves) reaches 369
-# rows vs this order's 375, but the winner GRADED WORSE: box 164,025 -> 159,201
-# (-3%) while avgTicks went 411,684 -> 520,968 (+27%), i.e. score 67.5B -> 82.9B.
-# Column order sets BOTH the wrap count (height) and the man's walk length
-# (ticks), and the two trade off against each other.  Any future search here must
-# optimise box x ticks, not rows.  This order is the best MEASURED one.
+# Which holder gets which controller column.  A port op must sit on its own
+# column, so whenever the next one is behind the cursor the ribbon wraps -- that
+# costs walked cells AND a whole controller ROW, and height is what the box
+# squares.  Searched by search_layout.py; apply_search.py writes the result here.
+#
+# DO NOT SEARCH THIS ON ROW COUNT.  An earlier attempt annealed rows alone
+# (scratchpad/lllm_order_search.py) and reached 369 rows against 375, but graded
+# 27% WORSE on ticks -- order sets both the wrap count and the walk length and
+# the two trade off.  The objective has to be box x ticks, which is what
+# cost_model.py exists to make cheap.
 HOLDER_ORDER = [
     "KK", "PCOL", "SH", "AD", "HD",
     "RETM", "CD", "BL", "VLR", "OPR",
-    "AL", "WW", "PA", "PH", "HHT",
-    "NOTMF", "PATF", "ADS", "NOTME", "PATE",
+    "AL", "WW", "PA", "HHT", "PH",
+    "NOTMF", "PATF", "NOTME", "PATE", "ADS",
 ]
 
 # Block layout order, searched by search_layout.py against cost_model.py.
 # Empty == use lllm_flow's own emission order.
 BLOCK_ORDER = [
-    "BOOT", "P_RW_B", "RENDER_INIT", "CELL_LOOP",
-    "NONDIGIT", "CELL_CODED", "NOT_AT", "NOT_PLUS",
-    "ROW_END", "PAD_ROWS", "LATER_PLUS", "PLUS_CHK_X",
-    "ROOM_CHECK2", "P_STEP_B", "FIRST_PLUS", "REP_BODY",
-    "REP_LOOP", "MASKS1B", "MASKS2", "PAD_BODY",
-    "PAD_LOOP", "P_STEP_T", "PATCH_INIT", "ROOM_CHECK",
-    "FALLBACK", "MASKS", "P_ROT_B", "P_SPIN_B",
-    "RENDER_DONE", "PATCH_BOT", "P_ROT_M", "P_SPIN_M",
-    "P_RW_M", "PATCH_MID_NEXT", "PATCH_MID_INIT", "PATCH_MID",
-    "P_STEP_M", "P_ROT_T", "P_SPIN_T", "P_RW_T",
+    "BOOT", "MASKS", "CELL_LOOP", "NONDIGIT",
+    "CELL_CODED", "NOT_AT", "NOT_PLUS", "ROW_END",
+    "PAD_ROWS", "LATER_PLUS", "PLUS_CHK_X", "ROOM_CHECK2",
+    "FALLBACK", "P_STEP_B", "PATCH_BOT", "P_STEP_M",
+    "P_ROT_B", "P_SPIN_B", "P_RW_B", "FIRST_PLUS",
+    "REP_BODY", "REP_LOOP", "MASKS1B", "MASKS2",
+    "PAD_BODY", "PAD_LOOP", "ROOM_CHECK", "PATCH_MID",
+    "P_ROT_M", "P_SPIN_M", "P_RW_M", "PATCH_MID_NEXT",
+    "PATCH_MID_INIT", "RENDER_INIT", "PATCH_INIT", "RENDER_DONE",
+    "P_STEP_T", "P_ROT_T", "P_SPIN_T", "P_RW_T",
     "R_EMIT", "R_CHK", "R_LOOP", "FETCH_ROW",
-    "ROT_BODY", "ROT_LOOP", "FETCH_SAME", "FETCH_DONE",
-    "STEP_TAIL", "RING_READ", "OP_H", "STEP",
-    "STEP_ALIVE", "DOTICK", "OP_DIGIT", "ADV_N",
-    "D_LOW", "OP_W", "ADVANCE", "ADV_W",
-    "ADV_S", "ADV_E", "OP_N", "D_LOW2",
-    "OP_S", "D_MID", "OP_SUB", "X_CCW",
-    "OP_ADD", "OP_E", "X_CW", "ROUND_END",
-    "NEXT_ROUND", "OP_X", "OP_M",
+    "ROT_BODY", "ROT_LOOP", "RING_READ", "FETCH_SAME",
+    "FETCH_DONE", "STEP_TAIL", "ADV_N", "STEP",
+    "ADV_S", "STEP_ALIVE", "DOTICK", "OP_DIGIT",
+    "D_LOW", "ADVANCE", "ADV_W", "ADV_E",
+    "OP_W", "ROUND_END", "NEXT_ROUND", "OP_S",
+    "D_LOW2", "OP_E", "OP_N", "OP_X",
+    "X_CW", "D_MID", "OP_SUB", "OP_ADD",
+    "OP_M", "OP_H", "X_CCW",
 ]
 
 # Holders whose DROP pipe takes the right-hand interior column, so that `hr`

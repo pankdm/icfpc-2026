@@ -421,3 +421,41 @@ highway, not only after moving the highway itself.
 This is direct physical evidence for the large-factor interpretation of the
 competitor scores, rather than proof that the competitors use the same
 design.
+
+### Hierarchical SMT floor-planning
+
+The closed core is also a useful boundary case for the repository's two SMT
+placers.  Feeding all 162 rooms and 178 pipes to `smtplace.py` timed out before
+finding a first model.  Locking each lane's ten rooms into a rigid group still
+timed out: the implementation retains one coordinate pair per original room,
+so grouping removes constraints but not enough symmetry.
+
+Modeling the same machine hierarchically closes quickly.  The reusable
+`pathfinder_bitplane_floorplan.json` treats each complete lane as one 9×120
+component, plus the 149×16 controller and 19×7 counter.  With the semantically
+fixed row order supplied as a symmetry breaker, `smt_layout.py` solves in 3.5
+seconds and packs the rigid envelopes into 149×143.  The 151×149 implementation
+is therefore width-limited by pipe realization, not component area.
+
+The inner-room solver gives the complementary result.  On the controller,
+`smtrows.py` reports 12 physical op rows as built, while its boustrophedon
+model requires 67 rows at the existing width.  This controller is already
+more tightly hand-folded than that model can express; applying the generic
+row placer would be a regression.
+
+Finally, the 149×143 rectangle solution is not itself a routable Littleman
+artifact.  An attempted in-box counter reply removed x=149..150, but the
+lane-15 trigger must first leave its room perpendicular to the wall.  Its only
+free turn channel crosses the long reply channel, so the trigger vanished
+from the parsed topology and the counter died on `r`.  The general workflow
+is:
+
+1. collapse repeated room clusters into architectural modules;
+2. add semantic ordering constraints to break identical-module symmetry;
+3. use coarse SMT only to establish an envelope target;
+4. materialize pipes and re-parse topology before calling the target feasible;
+5. run inner-placement SMT only on rooms whose layout belongs to its model.
+
+In short, SMT is valuable here as a lower-bound and decomposition tool.  It is
+not a replacement for the direction-aware pipe router or for deliberately
+shared hand-folded controller rows.

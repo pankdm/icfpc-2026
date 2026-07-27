@@ -75,6 +75,33 @@ class Room:
         return w, h
 
 
+def lint_room(room):
+    """The oracle rejects a backtick pair INSIDE one room whose span is not all
+    digits/spaces ("expected a digit or a space between backticks").  The Rust
+    engine silently treats such a pair as "not a literal", so this only shows up
+    as a submission load error -- check it at build time instead."""
+    w, h = room.size()
+
+    def at(x, y):
+        return room.cells.get((x, y), " ")
+
+    def scan(cells, label):
+        ticks = [i for i, c in enumerate(cells) if c == "`"]
+        i = 0
+        while i + 1 < len(ticks):
+            a, b = ticks[i], ticks[i + 1]
+            span = cells[a + 1:b]
+            if any(c != " " and not c.isdigit() for c in span):
+                raise ValueError("%s: dirty backtick pair %s %d..%d %r"
+                                 % (room.name, label, a, b, "".join(span)))
+            i += 2
+
+    for x in range(w):
+        scan([at(x, y) for y in range(h)], "col %d" % x)
+    for y in range(h):
+        scan([at(x, y) for x in range(w)], "row %d" % y)
+
+
 def lit(v, width=None):
     """Backtick literal for a non-negative int, optionally zero-padded."""
     s = str(v)
@@ -91,6 +118,7 @@ class Machine:
         self.placed = {}
 
     def place(self, room, ox, oy):
+        lint_room(room)
         w, h = room.size()
         self.p.room(ox, oy, w + 2, h + 2)
         for (x, y), ch in room.cells.items():
@@ -258,7 +286,7 @@ def snake(room, x0, y0, width, seq, man=False):
     return exit_col, y0 + len(lines)
 
 
-def route_to(room, x, y, tx, ty):
+def route_to(room, x, y, tx, ty=None):
     """Man lands on (x,y) heading south; walk him to (tx,ty) heading south.
 
     Uses row y as a horizontal lane and column tx to descend."""
@@ -355,36 +383,58 @@ def source_room(P, NV):
 def stage_room(k, C):
     """Chain stage k: B = v_(P+k); its bit is on for 2^(C-1-k) steps, then off.
 
+    Three literals (init / ON->OFF reload / OFF->ON reload) live in disjoint
+    column ranges so no in-room vertical backtick pair is ever dirty.
     pipes: in = previous stage (or source).  out = next stage (or merger).
     """
     p = 2 ** (C - 1 - k)
-    LP = list(lit(p))
-    seq = ["r", "M"] + ["r", "s"] * (C - 1 - k) + [lit(p), "b"]
+    LP = lit(p)
+    L = len(LP)
+    DOWN = 8 + L                                     # ON->OFF descent column
+    FR = 10 + L                                      # OFF->ON ascent column
+    IC = FR + 2                                      # init literal column
+    W = IC + L + 3
+
     r = Room("stage%d" % k)
-    col, ny = snake(r, 0, 0, 16, seq, man=True)
-    up = ny                                          # reload-up lane
+    seq = ["r", "M"] + ["r", "s"] * (C - 1 - k)
+    col, ny = snake(r, 0, 0, W, seq, man=True)
+    route_to(r, col, ny, FR + 1)
+    ir = ny + 1                                      # init row
+    up = ir + 1
     m0 = up + 1
-    route_to(r, col, ny, 1, up)                      # land on (1, up) = 'v'
+    o0 = m0 + 3
+
+    # init: BP = p, then fall into the shared west lane -> ON entry
+    r.put(FR + 1, ir, ">")
+    x = FR + 2
+    for ch in LP:
+        r.put(x, ir, ch); x += 1
+    r.put(x, ir, "b"); r.put(x + 1, ir, "v")
+    lane_end = x + 1
+    r.put(lane_end, up, "<")
+    r.put(FR, up, "<")
+    for cx in range(lane_end - 1, 1, -1):
+        if (cx, up) not in r.cells:
+            r.put(cx, up, ".")
+    r.put(1, up, "v")
+
     # ON loop
     r.put(1, m0, ">"); r.put(2, m0, "r"); r.put(3, m0, "+")
     r.put(4, m0, "s"); r.put(5, m0, "m"); r.put(6, m0, "d")
     r.put(6, m0 + 1, "<")
-    for x in (5, 4, 3, 2):
-        r.put(x, m0 + 1, ".")
+    for cx in (5, 4, 3, 2):
+        r.put(cx, m0 + 1, ".")
     r.put(1, m0 + 1, "^")
     x = 7
     for ch in LP:
         r.put(x, m0, ch); x += 1
-    r.put(x, m0, "b"); x += 1
-    r.put(x, m0, "v")
-    down = x
-    r.put(down, m0 + 1, "v")
-    r.put(down, m0 + 2, "<")
-    for cx in range(down - 1, 1, -1):
+    r.put(x, m0, "b"); r.put(DOWN, m0, "v")
+    r.put(DOWN, m0 + 1, "v"); r.put(DOWN, m0 + 2, "<")
+    for cx in range(DOWN - 1, 1, -1):
         r.put(cx, m0 + 2, ".")
     r.put(1, m0 + 2, "v")
+
     # OFF loop
-    o0 = m0 + 3
     r.put(1, o0, ">"); r.put(2, o0, "r"); r.put(3, o0, "s")
     r.put(4, o0, "m"); r.put(5, o0, "d")
     r.put(5, o0 + 1, "<")
@@ -395,17 +445,10 @@ def stage_room(k, C):
     for ch in LP:
         r.put(x, o0, ch); x += 1
     r.put(x, o0, "b"); x += 1
-    FR = max(x, down + 2)
     for cx in range(x, FR):
         r.put(cx, o0, ".")
     r.put(FR, o0, "^")
-    r.put(FR, o0 - 1, ".")
-    r.put(FR, o0 - 2, ".")
-    r.put(FR, o0 - 3, ".")
-    r.put(FR, up, "<")
-    for cx in range(FR - 1, 1, -1):
-        if (cx, up) not in r.cells:
-            r.put(cx, up, ".")
+    r.put(FR, o0 - 1, "."); r.put(FR, o0 - 2, "."); r.put(FR, o0 - 3, ".")
     return r
 
 
@@ -553,6 +596,11 @@ def resolver_room(NV):
         for x in range(cx + 6, 0, -1):
             r.put(x, y3, ".")
         r.put(0, y3, "H" if i == NV - 1 else "v")
+    # the 20 literals stack in the same columns; blank the nop filler so every
+    # in-room vertical backtick pair spans spaces only (an empty literal)
+    for k, v in list(r.cells.items()):
+        if v == ".":
+            r.cells[k] = " "
     return r
 
 

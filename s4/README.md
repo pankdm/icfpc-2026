@@ -113,7 +113,13 @@ that loads cleanly and then **deadlocks** (a shrunk pipe is a shrunk FIFO). Only
 the last is caught by running the program, so every search champion now pays for
 one Rust case.
 
-**LLLM geometry is provably exhausted** — `smtplace.py` returns UNSAT at M=233.
-Its only lever is shortening the op stream; its generator source is deleted at
-HEAD and must be recovered from commit `0ecfe41` (`lllm_build.py`,
-`lllm_layout.py`).
+~~**LLLM geometry is provably exhausted** — `smtplace.py` returns UNSAT at M=233.~~
+**REFUTED 2026-07-26.** That UNSAT was scoped to *one op count and one placer*.
+LLLM is now `142x142 / 285k ticks`, **server 6,283,423,104 at 21/21** (from a live
+22,459,642,837), via `build3_man.py` — a dense nearest-pipe-band placer in the
+`boustro`/`railflow` model — plus a delta-fetch op stream. See
+`solutions/little-little-little-man/README.md` for the parameters, the seven
+measured dead ends, and the trap that matters most: **the state ring holds only
+twenty values, so it is LATENCY-bound**, and any floorplan that lengthens its two
+pipes costs ticks far faster than it saves box (a port fan-out that improved the
+box to 21,316 cost 5.5x in ticks).

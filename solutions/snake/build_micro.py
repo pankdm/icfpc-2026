@@ -446,15 +446,25 @@ def build(save_to=None, CBOT=100, CW=40, CY0=16,
         R.y = max(R.y, E.y + 1)
         return R.take(n)
 
-    def branch(ch, bx, arrive, head="W", up_to=None):
-        """Place `ch` at (bx, yb) with the man heading `head`; return the 3 rows.
+    def branch(ch, head="W", up_to=None):
+        """Drop onto a branch row right where the cursor is; return (yb, bx).
+
+        The branch column is chosen NEXT TO THE CURSOR rather than fixed.  A
+        fixed column costs a full-width glide out to it and back on every
+        execution, and TICK runs three branches on every tick round -- that glide
+        was ~100 of the ~270 blank cells the controller walked per round.
 
         A branch needs three rows (arm, branch, arm).  When the arm that goes UP
-        can be drawn on the block's own last OP row -- its columns are free
-        there, which is the common case because ops cluster in the state lane and
-        the arms run out to the highways -- the group costs only ONE new row
-        instead of three.  Falls back to the 3-row form otherwise."""
-        face(arrive, "E")
+        can be drawn on the block's own last OP row -- its columns are usually
+        free there, because ops cluster in the state lane while the arms run out
+        to the highways -- the group costs only ONE new row instead of three.
+        """
+        step = 1 if E.d == "E" else -1
+        col = E.x
+        while not (E._ok(col) and _blank(L, col, E.y)):
+            col += step
+            assert E.xlo <= col <= E.xhi, "no drop column for a branch"
+        bx = col + (1 if head == "E" else -1)
         y_ops = E.y
         lo, hi = (min(bx, up_to), max(bx, up_to)) if up_to is not None else (0, -1)
         tight = (up_to is not None and R.y <= y_ops + 1
@@ -464,61 +474,56 @@ def build(save_to=None, CBOT=100, CW=40, CY0=16,
             R.y = max(R.y, yb + 2)
         else:
             rows(); yb = R.take(); R.take()
-        vjump(E, arrive, yb, head)
+        vjump(E, col, yb, head)
         glide(E, bx)
         L.put(bx, yb, ch)
-        return yb - 1, yb, yb + 1
+        return yb, bx
 
+    def resume(bx, y, prefer_west=None):
+        """Send a branch outcome that landed on (bx, y) back along the row."""
+        mid = (win["S"][0] + win["S"][1]) // 2
+        west = (bx >= mid) if prefer_west is None else prefer_west
+        L.put(bx, y, "<" if west else ">")
+        E.at(bx - 1 if west else bx + 1, y, "W" if west else "E")
+
+    # Block ORDER is a tick lever, not cosmetics: every round walks DISP -> block
+    # -> back up the return highway, so the cost is 2 * (block row - DISP row).
+    # Ticks are 79% of rounds in the public data, so TICK/NOEAT come first and
+    # the once-per-case INIT and repaint code sink to the bottom.  The DIR arms
+    # reuse the death highways (see ARMCOL), which is why deaths must stay ABOVE
+    # DIR.
     # ═══ DISPATCH (first: every block returns UP to it) ══════════════════
     block(HW_RET)
     E.seq(["1", "M", "r:I", "-"])
-    _, yb, _ = branch("X", 28, 36, "W", up_to=HW_DIR)
+    yb, bx = branch("X", "W", up_to=HW_DIR)
     yextra = rows()
-    arm(28, yb + 1, HW_TICK)       # A<0  (op 0)  -> tick
-    arm(28, yb - 1, HW_DIR)        # A>0  (op>1)  -> direction
-    L.put(26, yb, "v")             # A==0 (op 1)  -> spawn
-    assert _blank(L, 26, yb + 1)
-    arm(26, yextra, HW_SPAWN)
-    endblock()
-
-    # ═══ INIT ════════════════════════════════════════════════════════════
-    y0 = R.take()
-    L.put(3, y0, "@")
-    E.at(4, y0, "E")
-    E.seq(["4", "M",                       # B = 4  (the shift count for *16)
-           "r:I", "s:S",                   # park sx
-           "r:I", "s:S",                   # park sy   (A = sy)
-           "{", "M",                       # B = 16*sy
-           "r:S", "s:S",                   # A = sx, re-park it
-           "+", "s:S",                     # A = ha = sx + 16*sy, park it
-           "0", "s:S",                     # dy = 0
-           "r:S", "s:S",                   # hy = sy
-           "1", "s:S",                     # dx = 1
-           "r:S", "s:S",                   # hx = sx
-           "1", "s:S",                     # da = 1
-           "r:S", "s:S", "s:B", "s:D",     # ha -> state, body ring, display addr
-           "5", "M", "+", "s:D",           # green
-           "1", "N", "s:S", "s:D",         # fa = -1 ; commit the frame
-           "1", "s:S"])                    # K = 1
-    ret_dispatch()
+    arm(bx, yb + 1, HW_TICK)       # A<0  (op 0)  -> tick
+    arm(bx, yb - 1, HW_DIR)        # A>0  (op>1)  -> direction
+    drop = bx - 1                  # A==0 (op 1)  -> spawn: straight on, heading west
+    while not (E._ok(drop) and _blank(L, drop, yb) and _blank(L, drop, yextra)):
+        drop -= 1
+    L.put(drop, yb, "v")
+    arm(drop, yextra, HW_SPAWN)
     endblock()
 
     # ═══ TICK ════════════════════════════════════════════════════════════
     block(HW_TICK)
     E.seq(["r:S", "s:S", "M", "r:S", "+", "s:S", "b", "]", "]", "]", "]"])
-    _, yb, _ = branch("x", BRX, BRE, "W", up_to=D_HY)
-    arm(BRX, yb - 1, D_HY)                                    # out of range -> death
-    L.put(BRX, yb + 1, ">"); E.at(BRX + 1, yb + 1, "E")       # in range -> carry on
+    yb, bx = branch("x", "W", up_to=D_HY)
+    arm(bx, yb - 1, D_HY)                                     # out of range -> death
+    resume(bx, yb + 1)                                        # in range -> carry on
 
     E.seq(["r:S", "s:S", "M", "r:S", "+", "s:S", "b", "]", "]", "]", "]"])
-    _, yb, _ = branch("x", BRX, BRE, "W", up_to=D_HX)
-    arm(BRX, yb - 1, D_HX)
-    L.put(BRX, yb + 1, ">"); E.at(BRX + 1, yb + 1, "E")
+    yb, bx = branch("x", "W", up_to=D_HX)
+    arm(bx, yb - 1, D_HX)
+    resume(bx, yb + 1)
 
     E.seq(["r:S", "s:S", "M", "r:S", "+", "s:S", "M", "r:S", "W", "~"])
-    _, yb, _ = branch("X", BRE, BRX, "E", up_to=D_NOEAT)
-    arm(BRE, yb - 1, D_NOEAT)      # A>0  -> no eat
-    arm(BRE, yb + 1, D_NOEAT)      # A<0  -> no eat (merges)
+    yb, bx = branch("X", "E", up_to=D_NOEAT)
+    arm(bx, yb - 1, D_NOEAT)       # A>0  -> no eat
+    arm(bx, yb + 1, D_NOEAT)       # A<0  -> no eat (merges)
+    for xx in range(bx + 1, D_EAT):
+        assert _blank(L, xx, yb)
     L.put(D_EAT, yb, "v")          # A==0 -> eat (straight on, heading east)
     endblock()
 
@@ -582,28 +587,14 @@ def build(save_to=None, CBOT=100, CW=40, CY0=16,
     E.seq(["1", "N", "s:D", "H"])
     endblock()
 
-    # ═══ SPAWN ═══════════════════════════════════════════════════════════
-    block(HW_SPAWN)
-    E.seq(["4", "M",
-           "r:I", "s:S",                   # park fx past K
-           "r:I", "{", "M"]                # B = 16*fy
-          + ["r:S", "s:S"] * 8             # one lap: fx comes back to the front
-          + ["r:S", "+", "M"]              # B = fa = fx + 16*fy
-          + ["r:S", "s:S"] * 6             # rotate up to the old fa
-          + ["r:S", "W", "s:S", "s:D",     # drop the old fa, push the new one, draw
-             "r:S", "s:S",                 # K
-             "9", "s:D", "1", "N", "s:D"])
-    ret_dispatch()
-    endblock()
-
     # ═══ DIR ═════════════════════════════════════════════════════════════
     block(HW_DIR)
     E.seq(["b"])                                     # BP = op-1 (1..4)
-    _, yb1, _ = branch("x", BRX, BRE, "W", up_to=20)
+    yb1, bx1 = branch("x", "W", up_to=20)
     arm_entry = {}
     for bit0, dy in ((1, -1), (0, +1)):              # bit set -> N, clear -> S
         col = 20 if bit0 else 24
-        arm(BRX, yb1 + dy, col)
+        arm(bx1, yb1 + dy, col)
         yq = rows(3) + 1                             # middle of a 3-row group
         L.put(col, yq, ">")
         L.put(col + 1, yq, "]")
@@ -627,6 +618,42 @@ def build(save_to=None, CBOT=100, CW=40, CY0=16,
                                        "r:S", "s:S"])         # K
         ret_dispatch()
         endblock()
+
+    # ═══ SPAWN ═══════════════════════════════════════════════════════════
+    block(HW_SPAWN)
+    E.seq(["4", "M",
+           "r:I", "s:S",                   # park fx past K
+           "r:I", "{", "M"]                # B = 16*fy
+          + ["r:S", "s:S"] * 8             # one lap: fx comes back to the front
+          + ["r:S", "+", "M"]              # B = fa = fx + 16*fy
+          + ["r:S", "s:S"] * 6             # rotate up to the old fa
+          + ["r:S", "W", "s:S", "s:D",     # drop the old fa, push the new one, draw
+             "r:S", "s:S",                 # K
+             "9", "s:D", "1", "N", "s:D"])
+    ret_dispatch()
+    endblock()
+
+    # ═══ INIT ════════════════════════════════════════════════════════════
+    y0 = R.take()
+    L.put(3, y0, "@")
+    E.at(4, y0, "E")
+    E.seq(["4", "M",                       # B = 4  (the shift count for *16)
+           "r:I", "s:S",                   # park sx
+           "r:I", "s:S",                   # park sy   (A = sy)
+           "{", "M",                       # B = 16*sy
+           "r:S", "s:S",                   # A = sx, re-park it
+           "+", "s:S",                     # A = ha = sx + 16*sy, park it
+           "0", "s:S",                     # dy = 0
+           "r:S", "s:S",                   # hy = sy
+           "1", "s:S",                     # dx = 1
+           "r:S", "s:S",                   # hx = sx
+           "1", "s:S",                     # da = 1
+           "r:S", "s:S", "s:B", "s:D",     # ha -> state, body ring, display addr
+           "5", "M", "+", "s:D",           # green
+           "1", "N", "s:S", "s:D",         # fa = -1 ; commit the frame
+           "1", "s:S"])                    # K = 1
+    ret_dispatch()
+    endblock()
 
     # ---- verification ---------------------------------------------------
     _assert_bindings(L, g, E.ops)

@@ -129,5 +129,5 @@ if __name__ == '__main__':
     base = _REPO + '/solutions/tcp'
     L = build_full16()
     print('FOOT', L.footprint())
-    L.save(base + '/tcp-sweep17.man')
+    L.save(base + '/tcp-sweep16.man')
     print('saved')

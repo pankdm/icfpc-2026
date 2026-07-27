@@ -1,0 +1,15 @@
+{
+ "slug": "tcp",
+ "target": "solutions/tcp/tcp-sweep8.man",
+ "builder": "solutions/tcp/sweep_build7.py",
+ "baseline_score": 1151658.6666666667,
+ "best_score": 1146709.3333333333,
+ "accepted": [
+  {
+   "knob": "L135#0",
+   "from": 21,
+   "to": 22,
+   "score": 1146709.3333333333
+  }
+ ]
+}

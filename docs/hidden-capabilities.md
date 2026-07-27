@@ -100,3 +100,19 @@ same-cell collision = free clean `done` halt; a wall/bad-op is a **fatal** whole
 
 _Full raw findings (127, with per-finding verify verdicts) are in the workflow journal
 `wf_dce21779-fe5/journal.jsonl`; this file is the curated, team-facing subset._
+
+
+## `Y` copies do NOT inherit the parent's heading (measured 2026-07-27)
+
+A man heading EAST forks into a copy at `(x, y+1)` heading **SOUTH** and a copy at `(x, y-1)`
+heading **NORTH** — perpendicular, away from the `Y`. Assuming they keep the parent's heading
+crashes with `wall` (it did, at tick 5, in `scratchpad/rowbranch/probeC.man`). Put a `>`/`<` on
+each birth cell to steer them back.
+
+## Parked men wake in CREATION ORDER, not reading order (measured 2026-07-27)
+
+Several men blocked on the same incoming pipe are served **oldest-first by age**, not by
+position. A rig with two parked copies and one input value woke the SOUTH (older) copy, and two
+values came out `["2","1"]`. Layout cannot influence the choice, so a crowd of parked men is not
+an addressable dispatch table. Compounding it: a genuinely parked man is blocked on `r`/`s` and
+therefore **cannot execute `q`**, so he cannot see a broadcast either.

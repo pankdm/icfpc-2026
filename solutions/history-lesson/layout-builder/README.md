@@ -73,6 +73,54 @@ This preserves catalog order and still validates encoding and packing, but can
 produce a taller dictionary. Its default filename includes `-natural-order`
 so it cannot overwrite the searched variant.
 
+## Experimental 80×80 fold
+
+`sweep_geometry.py` regenerates feeder layouts and tests pipe-free rectangle
+packings. It does not treat older generated `.man` dimensions as current,
+because those may use the removed year mapping:
+
+```bash
+python3 solutions/history-lesson/layout-builder/sweep_geometry.py \
+  --words 42,48,52,56,60 \
+  --feeder-widths 80 \
+  --dictionary-widths 48,56,64,72,80 \
+  --target 80
+```
+
+The occurrence-ordered catalog cannot fit all independent rooms in 80×80.
+The separate `dictionary_words_layout_gain.json` catalog instead prioritizes
+estimated feeder-cell saving minus literal-table cost. With 52 words, a
+second experimental remap converts the selected feeder stream to base-64:
+the 2,117 source symbols become 2,210 codes, but ten base-64 codes fit in a
+signed literal. The exact regenerated feeder is therefore 80×64.
+
+Build the resulting pipe-free geometry with:
+
+```bash
+python3 solutions/history-lesson/layout-builder/build.py \
+  --feeder-width 80 \
+  --dictionary-width 56 \
+  --dictionary-words 52 \
+  --dictionary-catalog \
+    solutions/history-lesson/layout-builder/dictionary_words_layout_gain.json \
+  --compact-alphabet \
+  --fold-tail
+```
+
+This produces `layout-f80-d56-n52-folded-base64.man`, exactly 80×80:
+
+- feeder: 80×64;
+- dictionary: 56×16;
+- service strip: 24×16;
+- the strip includes the compact dispatcher, decoder, unpacker, output, and a
+  reserved 21×5 unmapper room.
+
+This file is a geometry prototype, not a runnable solution. The unmapper room
+currently contains only `@H`, and pipe routing is deliberately rejected for
+`--compact-alphabet`. A functional version must replace that placeholder with
+the base-64-to-protocol decoder and route the six existing links plus the new
+decoder-to-unmapper link without leaving the 80×80 box.
+
 Dictionary constants are packed by nested dynamic programs. The outer DP
 chooses how many sequential constants belong to each paired band. For every
 candidate band, an inner DP chooses the top/bottom split and aligns real and

@@ -467,6 +467,51 @@ def dictionary_usage(
     return usage
 
 
+def compact_alphabet(symbols: list[int]) -> tuple[list[int], dict[str, object]]:
+    """Remap the stream to base-64 codes with one escape for rare symbols."""
+    counts = Counter(symbols)
+    frequent = sorted(counts, key=lambda symbol: (-counts[symbol], symbol))[:62]
+    direct = {
+        symbol: code
+        for code, symbol in enumerate(frequent, start=1)
+    }
+    rare = sorted(symbol for symbol in counts if symbol not in direct)
+    if len(rare) > 62:
+        raise ValueError("compact alphabet has more than 62 rare symbols")
+    escaped = {
+        symbol: code
+        for code, symbol in enumerate(rare, start=1)
+    }
+    codes = []
+    for symbol in symbols:
+        if symbol in direct:
+            codes.append(direct[symbol])
+        else:
+            codes.extend((63, escaped[symbol]))
+    inverse_direct = {code: symbol for symbol, code in direct.items()}
+    inverse_escaped = {code: symbol for symbol, code in escaped.items()}
+    decoded = []
+    index = 0
+    while index < len(codes):
+        code = codes[index]
+        index += 1
+        if code == 63:
+            decoded.append(inverse_escaped[codes[index]])
+            index += 1
+        else:
+            decoded.append(inverse_direct[code])
+    if decoded != symbols:
+        raise AssertionError("compact alphabet failed round-trip")
+    return codes, {
+        "base": 64,
+        "escape": 63,
+        "direct": direct,
+        "escaped": escaped,
+        "source_symbols": len(symbols),
+        "encoded_codes": len(codes),
+    }
+
+
 def place_dictionary(
     program: Program,
     x0: int,
@@ -690,11 +735,24 @@ def build(
     dictionary_words: int = DEFAULT_DICTIONARY_WORDS,
     connect_pipes: bool = False,
     search_dictionary_order: bool = True,
+    fold_tail: bool = False,
+    dictionary_catalog_path: str | None = None,
+    use_compact_alphabet: bool = False,
 ) -> tuple[Program, dict[str, object]]:
     if feeder_width < 8:
         raise ValueError("feeder width must be at least 8")
     if dictionary_width > feeder_width:
         raise ValueError("dictionary width cannot exceed feeder width")
+    if fold_tail and connect_pipes:
+        raise ValueError(
+            "folded-tail pipe routing is not implemented yet; "
+            "build the geometry prototype without --connect-pipes"
+        )
+    if use_compact_alphabet and connect_pipes:
+        raise ValueError(
+            "compact-alphabet decoder is not implemented yet; "
+            "build the geometry prototype without --connect-pipes"
+        )
     if not MIN_DICTIONARY_WORDS <= dictionary_words <= MAX_DICTIONARY_WORDS:
         raise ValueError(
             "dictionary words must be in "
@@ -705,9 +763,13 @@ def build(
         "building raw-text encoding for %d dictionary words",
         dictionary_words,
     )
+    catalog = raw_dictionary.load_catalog(
+        dictionary_catalog_path or raw_dictionary.CATALOG_PATH
+    )
     symbols, ring, selection = raw_dictionary.build_encoding(
         vertical.base.TEXT,
         dictionary_words,
+        catalog,
     )
     LOGGER.info(
         "dictionary choice order "
@@ -756,11 +818,25 @@ def build(
             word,
             references,
         )
+    compact_metadata = None
+    feeder_base = vertical.base.B1
+    if use_compact_alphabet:
+        symbols, compact_metadata = compact_alphabet(symbols)
+        feeder_base = 64
+        LOGGER.info(
+            "remapped feeder stream: %d source symbols -> %d base-64 codes",
+            compact_metadata["source_symbols"],
+            compact_metadata["encoded_codes"],
+        )
     LOGGER.info(
         "optimizing feeder layout for width %d",
         feeder_width,
     )
-    bands = vertical.base.optimize_feeder(symbols, feeder_width)
+    bands = vertical.base.optimize_feeder(
+        symbols,
+        feeder_width,
+        base=feeder_base,
+    )
     program = Program()
     feeder_rows = vertical.base.variable_feeder(program, bands, feeder_width)
     LOGGER.info(
@@ -812,45 +888,92 @@ def build(
         dictionary_height,
     )
 
-    # Put every remaining room in one horizontal row. Connected mode moves
-    # that row down two cells to open a routing strip below the feeder.
-    service_y = tail_y + (2 if connect_pipes else 0)
-    LOGGER.info(
-        "placing horizontal service-room row%s",
-        " two rows lower" if connect_pipes else "",
-    )
-    service_x = dictionary_width
     service_rooms = []
-    for name, rows in [
-        ("decoder", vertical.base.DECODER_ROWS),
-        ("unpack", vertical.base.UNPACK_ROWS),
-    ]:
-        width = max(len(row) for row in rows) + 2
-        width, height = vertical.base.paste_room(
-            program, service_x, service_y, rows
+    if fold_tail:
+        required = (80, 56, 52, True)
+        actual = (
+            feeder_width,
+            dictionary_width,
+            dictionary_words,
+            use_compact_alphabet,
         )
-        service_rooms.append((name, service_x, service_y, width, height))
-        service_x += width
+        if actual != required:
+            raise ValueError(
+                "folded-tail prototype currently requires "
+                "--feeder-width 80 --dictionary-width 56 "
+                "--dictionary-words 52 --compact-alphabet"
+            )
+        LOGGER.info("placing folded service rooms in the dictionary strip")
+        for name, x, y, rows in [
+            ("dispatcher", 56, tail_y, compact.DISP_ROWS),
+            ("unpack", 56, tail_y + 12, vertical.base.UNPACK_ROWS),
+            ("decoder", 68, tail_y + 12, vertical.base.DECODER_ROWS),
+        ]:
+            width, height = vertical.base.paste_room(program, x, y, rows)
+            service_rooms.append((name, x, y, width, height))
+        # Reserve the exact 21x5 rectangle needed by the compact-alphabet
+        # unmapper prototype. Its logic is deliberately not wired yet.
+        unmap_x = 56
+        unmap_y = tail_y + 7
+        unmap_width, unmap_height = vertical.base.paste_room(
+            program,
+            unmap_x,
+            unmap_y,
+            ("@H",),
+            w=21,
+            h=5,
+        )
+        service_rooms.append(
+            (
+                "unmapper",
+                unmap_x,
+                unmap_y,
+                unmap_width,
+                unmap_height,
+            )
+        )
+        output_x = 77
+        output_y = tail_y + 7
+        program.output_room(output_x, output_y)
+        service_rooms.append(("output", output_x, output_y, 3, 3))
+        service_y = tail_y
+    else:
+        # Put every remaining room in one horizontal row. Connected mode moves
+        # that row down two cells to open a routing strip below the feeder.
+        service_y = tail_y + (2 if connect_pipes else 0)
+        LOGGER.info(
+            "placing horizontal service-room row%s",
+            " two rows lower" if connect_pipes else "",
+        )
+        service_x = dictionary_width
+        for name, rows in [
+            ("decoder", vertical.base.DECODER_ROWS),
+            ("unpack", vertical.base.UNPACK_ROWS),
+        ]:
+            width, height = vertical.base.paste_room(
+                program, service_x, service_y, rows
+            )
+            service_rooms.append((name, service_x, service_y, width, height))
+            service_x += width
 
-    output_x = service_x
-    program.output_room(output_x, service_y)
-    service_rooms.append(("output", output_x, service_y, 3, 3))
-    service_x += 3
+        output_x = service_x
+        program.output_room(output_x, service_y)
+        service_rooms.append(("output", output_x, service_y, 3, 3))
+        service_x += 3
 
-    # DISP's compact west-wall stream input is level with the 3x3 output
-    # room. Keep two routing columns between them: one for the endpoint and
-    # one to stop that arrow also touching the output room's east corner.
-    service_x += 2
-    disp_width = max(len(row) for row in compact.DISP_ROWS) + 2
-    disp_width, disp_height = vertical.base.paste_room(
-        program,
-        service_x,
-        service_y,
-        compact.DISP_ROWS,
-    )
-    service_rooms.append(
-        ("dispatcher", service_x, service_y, disp_width, disp_height)
-    )
+        # DISP's compact west-wall stream input is level with the 3x3 output
+        # room. Keep two routing columns between them: one for the endpoint and
+        # one to stop that arrow also touching the output room's east corner.
+        service_x += 2
+        disp_width, disp_height = vertical.base.paste_room(
+            program,
+            service_x,
+            service_y,
+            compact.DISP_ROWS,
+        )
+        service_rooms.append(
+            ("dispatcher", service_x, service_y, disp_width, disp_height)
+        )
 
     pipe_count = 0
     if connect_pipes:
@@ -929,6 +1052,11 @@ def build(
         "pipes": pipe_count,
         "connected": connect_pipes,
         "searched_dictionary_order": search_dictionary_order,
+        "folded_tail": fold_tail,
+        "dictionary_catalog": (
+            dictionary_catalog_path or raw_dictionary.CATALOG_PATH
+        ),
+        "compact_alphabet": compact_metadata,
     }
     return program, metadata
 
@@ -974,6 +1102,20 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--fold-tail",
+        action="store_true",
+        help="build the pipe-free 80x80 folded-tail geometry prototype",
+    )
+    parser.add_argument(
+        "--dictionary-catalog",
+        help="alternate generated dictionary catalog JSON",
+    )
+    parser.add_argument(
+        "--compact-alphabet",
+        action="store_true",
+        help="remap the feeder stream to experimental base-64 codes",
+    )
+    parser.add_argument(
         "-o",
         "--output",
         help="output .man path (default encodes the three layout parameters)",
@@ -994,18 +1136,25 @@ def main() -> None:
             dictionary_words=args.dictionary_words,
             connect_pipes=args.connect_pipes,
             search_dictionary_order=not args.no_order_search,
+            fold_tail=args.fold_tail,
+            dictionary_catalog_path=args.dictionary_catalog,
+            use_compact_alphabet=args.compact_alphabet,
         )
     except ValueError as error:
         raise SystemExit(f"error: {error}") from error
 
     mode_suffix = "-connected" if args.connect_pipes else ""
     order_suffix = "-natural-order" if args.no_order_search else ""
+    fold_suffix = "-folded" if args.fold_tail else ""
+    alphabet_suffix = "-base64" if args.compact_alphabet else ""
     output = args.output or os.path.join(
         HERE,
         (
             f"layout-f{args.feeder_width}"
             f"-d{args.dictionary_width}"
             f"-n{args.dictionary_words}"
+            f"{fold_suffix}"
+            f"{alphabet_suffix}"
             f"{order_suffix}"
             f"{mode_suffix}.man"
         ),

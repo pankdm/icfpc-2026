@@ -95,7 +95,10 @@ def placer_costs(holder_order=None, blocks=None, rounds=6, **kw):
     if blocks is None:
         blocks = B.split_blocks(F.build_flow())
     holder_order = holder_order or B.HOLDER_ORDER
-    kw.setdefault("flip", tuple(B.HOLDER_FLIP))     # match the builder's default
+    # match the builder's defaults exactly, or the model measures a different
+    # grid than the one that ships (heat-ranked lanes alone are worth 13%)
+    kw.setdefault("flip", tuple(B.HOLDER_FLIP))
+    kw.setdefault("heat", S.block_heat())
     cols = B.Columns(blocks, holder_order,
                      lanes=B.plan_lanes(blocks, holder_order, rounds=rounds, **kw),
                      **kw)
@@ -120,12 +123,15 @@ def avg_ticks(hits_all, placer):
 def main():
     hits_all = all_hits()
     placer, cols = placer_costs()
+    # Rust engine settle ticks for the CURRENT build (gen-117x391).  Re-measure
+    # with tools/grade_fast.py whenever the geometry changes; the residual
+    # should stay a small positive constant (the boot walk), never a percentage.
     measured = {
-        "one tick at a time": 303002, "first steps": 71406,
-        "around the block": 968404, "off the edge": 290032,
-        "widdershins": 493302, "crossroads": 366114,
-        "revolving door": 119426, "swan dive": 174114,
-        "hall of mirrors": 481958, "victory lap": 849086,
+        "one tick at a time": 148453, "first steps": 36419,
+        "around the block": 459477, "off the edge": 139701,
+        "widdershins": 236693, "crossroads": 179789,
+        "revolving door": 57931, "swan dive": 87439,
+        "hall of mirrors": 238135, "victory lap": 387397,
     }
     print("%-22s %10s %10s %8s" % ("case", "model", "rust", "resid"))
     tot_m = tot_r = 0

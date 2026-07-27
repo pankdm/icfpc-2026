@@ -18,18 +18,19 @@ os.chdir(REPO)
 import walkfold as wf
 
 
+sys.path.insert(0, os.path.join(REPO, "scratchpad", "gb3"))
+import gradelib
+
+
 def grade(rows):
+    """PUBLIC + both stress suites — a public-only gate lets generality bugs through."""
     fd, tmp = tempfile.mkstemp(suffix=".man")
     os.close(fd)
     open(tmp, "w").write(wf.render([list(r) for r in rows]))
-    p = subprocess.run(["python3", "tools/grade_fast.py", "gradebook", tmp, "--cap", "60000"],
-                       capture_output=True, text=True)
-    os.unlink(tmp)
     try:
-        d = json.loads(p.stdout)
-    except Exception:
-        return None
-    return d["score"] if d["passed"] == d["total"] else None
+        return gradelib.score(tmp)
+    finally:
+        os.unlink(tmp)
 
 
 def props(g, maxh, maxw, maxdx):
@@ -85,7 +86,7 @@ def main():
             if k not in seen:
                 seen.add(k); uniq.append((lab, p))
         print(f"round {it}: {len(uniq)} unique proposals", flush=True)
-        best = None
+        good = []
         with concurrent.futures.ThreadPoolExecutor(max_workers=a.jobs) as ex:
             futs = {}
             for (lab, p) in uniq:
@@ -93,13 +94,31 @@ def main():
                 futs[ex.submit(grade, new)] = (lab, new)
             for f in concurrent.futures.as_completed(futs):
                 s = f.result()
-                if s is not None and s < base - 1e-6 and (best is None or s < best[0]):
-                    best = (s, futs[f][0], futs[f][1])
-        if best is None:
+                if s is not None and s < base - 1e-6:
+                    good.append((s, futs[f][0], futs[f][1]))
+        if not good:
             print("  none improve", flush=True)
             break
-        base, rows = best[0], best[2]
-        print(f"  took {best[1]} -> {base:.0f}", flush=True)
+        good.sort(key=lambda t: t[0])
+        # Stack every improving shift that touches cells no earlier one touched, then grade
+        # the stack: one extra grading buys what would otherwise cost a whole 8k-proposal
+        # round per accepted move.  Fall back to the best single if the stack interacts badly.
+        by_lab = {lab: p for lab, p in uniq}
+        usedc, stack = set(), {}
+        for (s0, lab, _n) in good:
+            p = by_lab[lab]
+            if set(p) & usedc:
+                continue
+            usedc |= set(p)
+            stack.update(p)
+        combo = ["".join(r) for r in wf.apply_patch(rows, stack)]
+        cs = grade(combo)
+        if cs is not None and cs < good[0][0]:
+            base, rows = cs, combo
+            print(f"  took stack of {len(good)} shifts -> {base:.0f}", flush=True)
+        else:
+            base, rows = good[0][0], good[0][2]
+            print(f"  took {good[0][1]} -> {base:.0f}", flush=True)
         open(a.out, "w").write(wf.render([list(r) for r in rows]))
     print(f"done -> {a.out} ({base:.0f})", flush=True)
 

@@ -25,16 +25,13 @@ VERTG = set("vV^")
 HORZG = set("><")
 
 
+sys.path.insert(0, os.path.join(REPO, "scratchpad", "gb3"))
+import gradelib
+
+
 def grade_file(path):
-    p = subprocess.run(["python3", "tools/grade_fast.py", "gradebook", path, "--cap", "60000"],
-                       capture_output=True, text=True)
-    try:
-        d = json.loads(p.stdout)
-    except Exception:
-        return None
-    if d["passed"] != d["total"]:
-        return None
-    return d["score"]
+    """PUBLIC + both stress suites — a public-only gate lets generality bugs through."""
+    return gradelib.score(path)
 
 
 def grade_rows(rows):
@@ -178,8 +175,25 @@ def main():
             print(f"round {it}: {len(props)} proposals, none improve")
             break
         results.sort(key=lambda t: t[0])
+        # Applying one move per round means re-grading ~5k proposals for every single
+        # cell that shifts; instead stack every improving move whose patch touches cells
+        # no earlier move touched, then GRADE THE STACK -- accepted only if it beats the
+        # best single move, so a bad interaction costs one grading, not correctness.
+        by_lab = {lab: p for lab, p in props}
+        used, stack = set(), {}
+        for (s0, lab, _n) in results:
+            p = by_lab[lab]
+            if set(p) & used:
+                continue
+            used |= set(p)
+            stack.update(p)
+        combo = squash(["".join(r) for r in wf.apply_patch(rows, stack)])
+        cs = grade_rows(combo)
         s, lab, new = results[0]
-        rows, base = new, s
+        if cs is not None and cs < s:
+            rows, base, lab = combo, cs, f"stack of {len(results)} moves"
+        else:
+            rows, base = new, s
         print(f"round {it}: {len(props)} proposals, {len(results)} improve; took {lab} -> {base:.0f}")
         open(a.out, "w").write(wf.render([list(r) for r in rows]))
     print(f"done -> {a.out} ({base:.0f})")

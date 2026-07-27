@@ -4,6 +4,12 @@ Each function stamps one room at (ox,oy) and returns a Room whose `pipes` dict i
 already filled in, plus a `want` map of {cell: (pipe, kind)} that `Room.check()`
 verifies -- so a nearest-pipe regression fails the BUILD, not a test case.
 
+ATTACHMENT WALLS ARE PART OF THE VERIFIED CONFIGURATION.  scratchpad/mm2/unit.py
+pins each room's pipes to the walls declared here; moving one to suit a floor plan
+silently breaks those tests (it did once).  If assembly needs a different wall, call
+r.attach(...) again from the BUILDER after the room is stamped -- it overwrites the
+entry -- and re-run the unit tests.
+
 Loop order is (i, m, j) with j innermost:  C[i][j] += A[i][m] * B[m][j].
   * A is drained once, in arrival order, each value repeated K times by AREL.
   * B is a ring of M*K values, replayed N times.
@@ -39,7 +45,7 @@ def crel(g, ox, oy):
     g.text(ox + 1, oy + 1, "@>rv")
     g.text(ox + 1, oy + 2, " ^s<")
     r.attach('CF', 'T', ox + 2, 'in')
-    r.attach('CR', 'R', oy + 2, 'out')
+    r.attach('CR', 'B', ox + 2, 'out')
     return r
 
 
@@ -74,7 +80,7 @@ def brel(g, ox, oy):
     g.text(ox + 8, oy + 8, "^s<")
     r.attach('SD', 'L', oy + 4, 'in')
     r.attach('BF', 'B', ox + 10, 'in')
-    r.attach('BR', 'R', oy + 4, 'out')
+    r.attach('BR', 'B', ox + 3, 'out')
     r.check({
         (ox + 2, oy + 1): ('SD', 'in'), (ox + 3, oy + 1): ('SD', 'in'),
         (ox + 5, oy + 1): ('SD', 'in'), (ox + 4, oy + 4): ('SD', 'in'),
@@ -117,7 +123,7 @@ def pcnt(g, ox, oy):
     g.text(ox + 1, oy + 6, "v..dm<")
     g.text(ox + 1, oy + 7, ">..NsNsv")
     g.text(ox + 2, oy + 8, "^.....<")
-    r.attach('CP', 'B', ox + 1, 'in')
+    r.attach('CP', 'L', oy + 4, 'in')
     r.attach('CTL', 'B', ox + 6, 'out')
     return r
 

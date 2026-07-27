@@ -459,3 +459,26 @@ is:
 In short, SMT is valuable here as a lower-bound and decomposition tool.  It is
 not a replacement for the direction-aware pipe router or for deliberately
 shared hand-folded controller rows.
+
+### A three-way parent protocol without touching persistent state
+
+`scratchpad/pathfinder_parent_query.py` proves a row-local reconstruction
+service.  Four persistent B registers retain U/R/D/L words and accept:
+
+```text
+[positive, U, R, D, L, state]  update and forward
+[negative, mask, mask, mask, mask]  query and return four hits
+[0]  clear all four parent words
+```
+
+The useful trick is to make the command tag's sign be the entire dispatch.
+At one `X`, positive turns into the update lap, negative into the query lap,
+and zero continues through a short `0 M` reset chord.  No arithmetic is
+performed on the tag, so persistent B is never borrowed or saved.
+
+An earlier two-negative-mode design tried to distinguish -1 from -2 by adding
+one before a second `X`.  Loading the literal destroyed A, and `+` combined it
+with the persistent parent in B; the first query walked into a wall.  The
+positive/negative/zero protocol removes that state-preservation problem
+entirely.  The 58×18 four-room proof passes 23 deterministic and randomized
+update/query/reset streams on the Rust interpreter.
